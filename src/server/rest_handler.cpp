@@ -225,6 +225,12 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
             this->current_model_tag = "model-faker";
             return false;
         }
+        try {
+            this->max_prefill_len = model_info["max_prefill_len"].get<int>();
+        }
+        catch (const std::exception& e) {
+            this->max_prefill_len = 512; // default value
+        }
         current_model_tag = ensure_tag;
     }
     return true;
@@ -417,6 +423,7 @@ void RestHandler::handle_generate(const json& request,
       
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
+        meta_info.max_prefill_len = this->max_prefill_len;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         header_print("FLM", "Start generating...");
         
@@ -534,6 +541,7 @@ void RestHandler::handle_chat(const json& request,
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
+        meta_info.max_prefill_len = this->max_prefill_len;
         header_print("FLM", "Start generating...");
         if (stream) {
             // Streaming response using streaming_ostream
@@ -937,6 +945,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         uniformed_input.messages = messages;
         uniformed_input.tools = tools;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
+        meta_info.max_prefill_len = this->max_prefill_len;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
@@ -1148,6 +1157,7 @@ void RestHandler::handle_openai_completion(const json& request,
         configure_chat_engine_parameters(options, request);
 
         chat_meta_info_t meta_info;
+        meta_info.max_prefill_len = this->max_prefill_len;
         lm_uniform_input_t uniformed_input;
         header_print("FLM", "Start generating...");
 

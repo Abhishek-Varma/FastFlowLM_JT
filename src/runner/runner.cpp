@@ -97,6 +97,13 @@ Runner::Runner(model_list& supported_models, ModelDownloader& downloader, progra
         exit(EXIT_FAILURE);
     }
 
+    try {
+        this->max_prefill_len = model_info["max_prefill_len"].get<int>();
+    }
+    catch (const std::exception& e) {
+        this->max_prefill_len = 0; // default value
+    }
+
     this->generate_limit = -1;
 }
 
@@ -310,6 +317,7 @@ void Runner::run() {
             }
 
             chat_meta_info_t meta_info;
+            meta_info.max_prefill_len = this->max_prefill_len;
             uniformed_input.prompt = input;
             
             this->auto_chat_engine->start_total_timer();
@@ -400,6 +408,12 @@ void Runner::cmd_load(std::vector<std::string>& input_list) {
         catch (const std::exception& e) {
             header_print("ERROR", "Failed to load model: " + std::string(e.what()));
             exit(EXIT_FAILURE);
+        }
+        try {
+            this->max_prefill_len = model_info["max_prefill_len"].get<int>();
+        }
+        catch (const std::exception& e) {
+            this->max_prefill_len = 0; // default value
         }
         this->auto_chat_engine->configure_parameter("system_prompt", this->system_prompt);
 

@@ -48,6 +48,7 @@ class Runner {
         void run();
     private:
         std::string tag;
+        int max_prefill_len;
         bool asr;
         bool embed;
         model_list supported_models;

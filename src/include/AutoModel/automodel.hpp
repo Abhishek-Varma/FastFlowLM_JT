@@ -90,6 +90,7 @@ inline std::string stop_reason_to_string(stop_reason_t reason){
 }
 
 struct chat_meta_info_t {
+	int max_prefill_len;
     int prompt_tokens;
     int generated_tokens;
     uint64_t total_duration; // in nanoseconds
@@ -98,7 +99,7 @@ struct chat_meta_info_t {
     uint64_t decoding_duration; // in nanoseconds
     stop_reason_t stop_reason;
 
-	chat_meta_info_t() : prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED) {}
+	chat_meta_info_t() : max_prefill_len(0), prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED) {}
 };
 
 typedef enum {
@@ -181,7 +182,13 @@ protected:
 	void _shared_load_model(std::string model_path, json model_info, int default_context_length = -1, bool enable_preemption = false);
 	nlohmann::json _shared_setup_tokenizer(std::string model_path);
 
-	bool _shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, void* payload = nullptr);
+	/// \brief Insert tokens into the model
+	/// \param meta_info the meta information of the chat
+	/// \param tokens the tokens to insert
+	/// \param payload the payload, it shall not be used as this function is only used for chunkwised insertion, no image allowed
+	/// \return true if the tokens were inserted successfully, false otherwise
+	bool _shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, void* payload = nullptr, int first_len_run = 0);
+	buffer<bf16> _chunked_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, void* payload = nullptr, int first_len_run = 0);
 	std::string _shared_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; });
 
 	StreamResult _shared_think_tool_calling_pasrsed(const std::string content);

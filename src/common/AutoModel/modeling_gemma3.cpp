@@ -52,7 +52,7 @@ std::string Gemma3::apply_chat_template(nlohmann::ordered_json& messages, nlohma
 }
 
 bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input) {
-    
+    static constexpr int IMAGE_TOKEN_ID = 262144; // replace with actual image token ID
     this->profiler_list[TKOEN_ENCODE_TIME].start();
     std::string templated_text;
     if (input.messages.empty() && input.prompt.empty()) {
@@ -150,7 +150,17 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input) {
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
     void* payload = pixel_values.size() > 0 ? static_cast<void*>(&pixel_values) : nullptr;
-    return this->_shared_insert(meta_info, tokens, payload);
+
+    // process image first
+    int last_image_token_index = -1;
+    for (int i = 0; i < tokens.size(); i++) {
+        if (tokens[i] == IMAGE_TOKEN_ID) {
+            last_image_token_index = i;
+        }
+    }
+    last_image_token_index++; // plus the end of image tokens
+
+    return this->_shared_insert(meta_info, tokens, payload, last_image_token_index);
 }
 
 std::string Gemma3::generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {

@@ -84,30 +84,8 @@ bool LFM2::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input) {
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
-    if (this->total_tokens + tokens.size() >= this->MAX_L){
-        header_print("WARNING", "Max length reached, stopping prefilling...");
-        return false;
-    }
-    for (int token : tokens){
-        this->token_history.push_back(token);
-    }
-    buffer<bf16> y;
-
-    auto prefill_start_time = this->profiler_list[PREFILL_TIME].start();
-    y = this->lm_engine->prefill(tokens, nullptr);
-
-
-    auto prefill_end_time = this->profiler_list[PREFILL_TIME].stop(tokens.size());
-    meta_info.prefill_duration = (uint64_t)time_utils::duration_ns(prefill_start_time, prefill_end_time).first;
-    meta_info.prompt_tokens = tokens.size();
-    this->total_tokens += tokens.size() + 1;
-    if (this->total_tokens >= this->MAX_L){
-        header_print("WARNING", "Max length reached, stopping prefilling...");
-    }
-    this->profiler_list[SAMPLING_TIME].start();
-    this->last_token = this->sampler->sample(y);
-    this->profiler_list[SAMPLING_TIME].stop(1);
-    return true;
+    
+    return this->_shared_insert(meta_info, tokens);
 }
 
 
