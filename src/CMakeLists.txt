@@ -322,9 +322,9 @@ if(WIN32)
     )
 else()
     file(GLOB so_libs "${CMAKE_SOURCE_DIR}/lib/*.so")
-    install(FILES ${so_libs} DESTINATION lib)
+    install(FILES ${so_libs} DESTINATION "${CMAKE_INSTALL_LIBDIR}/flm")
     set_target_properties(flm PROPERTIES
-        INSTALL_RPATH "$ORIGIN/../lib")
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/flm")
 endif()
 install(TARGETS flm
     RUNTIME DESTINATION bin
