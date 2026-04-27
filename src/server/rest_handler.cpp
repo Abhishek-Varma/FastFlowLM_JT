@@ -167,11 +167,11 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
     } else {
         this->ctx_length = -1;
     }
-    if (args.max_prefill_length != -1) {
-        this->max_prefill_len = args.max_prefill_length >= 512 ? args.max_prefill_length : 512;
+    if (args.prefill_chunk_len != -1) {
+        this->prefill_chunk_len = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
     }
     else {
-        this->max_prefill_len = -1;
+        this->prefill_chunk_len = -1;
     }
     
     // Initialize chat bot with default model
@@ -241,8 +241,8 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
             return false;
         }
         
-        if (this->max_prefill_len == -1) {
-            this->max_prefill_len = model_info["max_prefill_len"].get<int>();;
+        if (this->prefill_chunk_len == -1) {
+            this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
         }
         current_model_tag = ensure_tag;
     }
@@ -449,7 +449,7 @@ void RestHandler::handle_generate(const json& request,
       
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
-        meta_info.max_prefill_len = this->max_prefill_len;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         header_print("FLM", "Start generating...");
         
@@ -567,7 +567,7 @@ void RestHandler::handle_chat(const json& request,
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
-        meta_info.max_prefill_len = this->max_prefill_len;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         header_print("FLM", "Start generating...");
         if (stream) {
             // Streaming response using streaming_ostream
@@ -932,7 +932,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         uniformed_input.messages = messages;
         uniformed_input.tools = tools;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
-        meta_info.max_prefill_len = this->max_prefill_len;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
@@ -1166,7 +1166,7 @@ void RestHandler::handle_openai_completion(const json& request,
         configure_chat_engine_parameters(options, request);
 
         chat_meta_info_t meta_info;
-        meta_info.max_prefill_len = this->max_prefill_len;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         lm_uniform_input_t uniformed_input;
         header_print("FLM", "Start generating...");
 

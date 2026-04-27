@@ -48,7 +48,7 @@ class Runner {
         void run();
     private:
         std::string tag;
-        int max_prefill_len;
+        int prefill_chunk_len;
         bool asr;
         bool asr_supported;
         bool embed;

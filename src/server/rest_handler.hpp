@@ -127,7 +127,7 @@ private:
     std::string default_model_tag;
     bool asr;
     bool embed;
-    int max_prefill_len;
+    int prefill_chunk_len;
     int generate_context_id;
     int chat_context_id;
     int ctx_length;

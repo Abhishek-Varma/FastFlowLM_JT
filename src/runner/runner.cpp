@@ -72,15 +72,15 @@ Runner::Runner(model_list& supported_models, ModelDownloader& downloader, progra
     }
 
     try {
-        if (args.max_prefill_length != -1) {
-            this->max_prefill_len = args.max_prefill_length >= 512 ? args.max_prefill_length : 512;
+        if (args.prefill_chunk_len != -1) {
+            this->prefill_chunk_len = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
         }
         else {
-            this->max_prefill_len = model_info["max_prefill_len"].get<int>();;
+            this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
         }
     }
     catch (const std::exception& e) {
-        this->max_prefill_len = 512; // default value
+        this->prefill_chunk_len = 4096; // default value
     }
 
     this->generate_limit = -1;
@@ -339,7 +339,7 @@ void Runner::run() {
             }
 
             chat_meta_info_t meta_info;
-            meta_info.max_prefill_len = this->max_prefill_len;
+            meta_info.max_prefill_len = this->prefill_chunk_len;
             uniformed_input.prompt = input;
             
             this->auto_chat_engine->start_total_timer();
@@ -584,6 +584,9 @@ void Runner::cmd_set(std::vector<std::string>& input_list) {
     }
     else if (set_context == "gen-lim"){
         this->generate_limit = std::stoi(set_value);
+    }
+    else if (set_context == "prefill-chunk-len"){ 
+        
     }
     else if (set_context == "r-eff"){
         if (this->auto_chat_engine->get_current_model() == "gpt-oss")
