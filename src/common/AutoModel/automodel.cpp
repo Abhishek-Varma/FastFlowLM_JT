@@ -207,7 +207,7 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
             int start = i * max_prefill_len;
             int end = std::min(static_cast<int>(tokens.size()), (i + 1) * max_prefill_len);
             std::vector<int> chunk_tokens(tokens.begin() + start, tokens.begin() + end);
-            header_print("FLM", "Prefilling chunk " + std::to_string(i+1) + "/" + std::to_string(chunks) + " with " + std::to_string(chunk_tokens.size()) + " tokens");
+            header_print("FLM", "Prefill chunk " + std::to_string(i+1) + "/" + std::to_string(chunks) + " with " + std::to_string(chunk_tokens.size()) + " tokens");
             buffer<bf16> chunk_y = this->lm_engine->prefill(chunk_tokens, (i == 0)? payload : nullptr);
             if (i == chunks - 1) {
                 y = chunk_y;
