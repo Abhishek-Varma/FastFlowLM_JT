@@ -102,7 +102,7 @@
                 "url": "https://huggingface.co/FastFlowLM/Gemma4-E4B-IT-NPU2",
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/Gemma4-E4B-IT-NPU2/tree/main",
                 "size": 4000000000,
-                "flm_min_version": "0.9.39",
+                "flm_min_version": "0.9.40",
                 "files": [
                     "config.json",
                     "model.q4nx",
@@ -120,7 +120,7 @@
                     "format": "NPU2",
                     "family": "gemma4e",
                     "think": true,
-                    "parameter_size": "5B",
+                    "parameter_size": "8B",
                     "quantization_level": "Q4_1"
                 },
                 "label": [
