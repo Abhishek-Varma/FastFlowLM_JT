@@ -471,7 +471,7 @@
                     "quantization_level": "Q4_1"
                 },
                 "label":[
-                    "audio",
+                    "realtime-transcription",
                     "transcription"
                 ],
                 "footprint": 0.62
