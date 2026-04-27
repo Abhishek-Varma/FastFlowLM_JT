@@ -167,6 +167,13 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
     } else {
         this->ctx_length = -1;
     }
+    if (args.max_prefill_length != -1) {
+        this->max_prefill_len = args.max_prefill_length >= 512 ? args.max_prefill_length : 512;
+    }
+    else {
+        this->max_prefill_len = -1;
+    }
+    
     // Initialize chat bot with default model
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
     if (this->asr) {
@@ -233,11 +240,9 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
             this->current_model_tag = "model-faker";
             return false;
         }
-        try {
-            this->max_prefill_len = model_info["max_prefill_len"].get<int>();
-        }
-        catch (const std::exception& e) {
-            this->max_prefill_len = 512; // default value
+        
+        if (this->max_prefill_len == -1) {
+            this->max_prefill_len = model_info["max_prefill_len"].get<int>();;
         }
         current_model_tag = ensure_tag;
     }

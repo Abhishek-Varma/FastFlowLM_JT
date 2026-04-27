@@ -19,6 +19,7 @@ struct program_args_t {
     bool embed = false;
     bool json_output = false;
     int ctx_length = -1; // let model decide
+    int max_prefill_length = -1; // let model decide
 
     // handling input file
     std::string input_file_name = "";
