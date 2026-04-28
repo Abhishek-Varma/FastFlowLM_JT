@@ -98,7 +98,6 @@ echo 'export FLM_MODEL_PATH="/your/custom/path"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-
 ---
 
 ### 📦 List Supported and Downloaded Models
@@ -287,6 +286,25 @@ flm serve llama3.2:1b --preemption 1
 ```
 
 > ⚠️ Note: Preemption is for **engineering testing/optimization** only. It requires a special driver + toolkit and is **not for public use**.
+
+
+---
+
+### 🧩 Change Prefill Chunk Size at Launch
+
+The `--prefill-chunk-len` flag controls how many tokens are processed per chunk during the prefill phase of inference.
+
+For **CLI mode**:
+
+```shell
+flm run llama3.2:1b --prefill-chunk-len 512
+```
+
+For **Server mode**:
+
+```shell
+flm serve llama3.2:1b --prefill-chunk-len 512
+```
 
 ---
 
@@ -534,18 +552,3 @@ You can also change the `default_context_length` setting.
 > - **gemma3:1b** → up to **32k** tokens
 > - **llama3.x** → up to **128k** tokens
 
-### 🧩 Change Prefill Chunk Size
-
-The `--prefill-chunk-len` flag controls how many tokens are processed per chunk during the prefill phase of inference.
-
-For **CLI mode**:
-
-```shell
-flm run llama3.2:1b --prefill-chunk-len 512
-```
-
-For **Server mode**:
-
-```shell
-flm serve llama3.2:1b --prefill-chunk-len 512
-```

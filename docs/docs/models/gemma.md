@@ -82,7 +82,7 @@ flm run gemma4-it:e2b
 
 - In server mode, Gemma 4 supports multimodal input with text, images, and audio. See the [OpenAI API multimodal example](https://fastflowlm.com/docs/instructions/server/openapi/#-example-multi-modal-input). 
 
-- Change the visual token budget for images with the `image-max-tokens` parameter for different tasks. For more details, see the [Open WebUI example](https://fastflowlm.com/docs/instructions/server/webui/#-example-add-flm-custom-parameters).
+- Change the visual token budget for images with the `image-max-tokens` parameter for different tasks. For more details, see the [Open WebUI custom parameters example](https://fastflowlm.com/docs/instructions/server/webui/#-example-add-flm-custom-parameters).
 
 ---
 
@@ -119,4 +119,4 @@ flm run gemma4-it:e4b
 
 - In server mode, Gemma 4 supports multimodal input with text, images, and audio. See the [OpenAI API multimodal example](https://fastflowlm.com/docs/instructions/server/openapi/#-example-multi-modal-input). 
 
-- Change the visual token budget for images with the `image-max-tokens` parameter for different tasks. For more details, see the [Open WebUI example](https://fastflowlm.com/docs/instructions/server/webui/#-example-add-flm-custom-parameters).
+- Change the visual token budget for images with the `image-max-tokens` parameter for different tasks. For more details, see the [Open WebUI custom parameters example](https://fastflowlm.com/docs/instructions/server/webui/#-example-add-flm-custom-parameters).
