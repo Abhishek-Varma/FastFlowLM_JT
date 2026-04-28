@@ -17,8 +17,8 @@ parent: Local Server (Server Mode)
   - [Example: Use a File as the Prompt](#-example-use-a-file-as-the-prompt)
   - [Example: Batch Requests (Multiple Prompts)](#-example-batch-requests-multiple-prompts)
   - [Example: Use Temperature, Top-p, and Presence Penalty](#-example-use-temperature-top-p-and-presence-penalty)
-  - [Example: Multi-Image Input](#-example-multi-image-input)
-  - [Example: Multi-Modal Input](#️-example-multi-modal-input)
+  - [Example: Multi-Image Input](#-example-multi-image-input)   
+  - [Example: Multi-Modal Input](#️-example-multi-modal-input)   
 
 ---
 

@@ -399,7 +399,7 @@ Follow the quick setup at **[here](#-run-open-webui-with-fastflowlm)**.
 
 ---
 
-### 🛠️ Example: Add FLM Custom Parameters
+## 🛠️ Example: Add FLM Custom Parameters
 
 This example shows how to add FastFlowLM custom parameters in Open WebUI. We use `gemma4-it:e4b` as the example model.
 
@@ -413,8 +413,8 @@ Follow the quick setup guide **[here](#-run-open-webui-with-fastflowlm)** to sta
 ### ➕ Step 2: Add a Custom Parameter
 
 1. In the top-left model selector, choose `gemma4-it:e4b`.
-2. In the top-right corner of Open WebUI, click the **`Control`** icon to open the parameter list.
-3. Scroll to the bottom of the parameter list and click **`Add Custom Parameter`**.
+2. In the top-right corner of Open WebUI, click the `Control` icon to open the parameter list.
+3. Scroll to the bottom of the parameter list and click `Add Custom Parameter`.
 4. Fill in the custom parameter details:
    - **custom_param_name**: `image-max-tokens`
    - **custom_param_value**: `560` (see [Variable Image Resolution](https://huggingface.co/google/gemma-4-E4B-it#5-variable-image-resolution) for details)
@@ -424,6 +424,5 @@ Follow the quick setup guide **[here](#-run-open-webui-with-fastflowlm)** to sta
 Send a message with an image attachment in Open WebUI. 
 
 Use a higher visual token budget for tasks that need more image detail, such as OCR, or a lower visual token budget for faster responses, such as a quick image description.
-
 
 ---
