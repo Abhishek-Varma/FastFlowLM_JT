@@ -40,6 +40,7 @@ inline void print_help(po::options_description& general) {
     std::cout << "\tflm pull llama3.2:1b --force" << std::endl;
     std::cout << "\tflm check llama3.2:1b" << std::endl;
     std::cout << "\tflm serve llama3.2:1b --ctx-len 8192" << std::endl;
+    std::cout << "\tflm serve llama3.2:1b --max-prefill-len 1024" << std::endl;
     std::cout << "\tflm serve llama3.2:1b --socket 10" << std::endl;
     std::cout << "\tflm serve llama3.2:1b --q-len 10" << std::endl;
     std::cout << "\tflm serve llama3.2:1b --port 8000" << std::endl;
@@ -86,6 +87,8 @@ bool parse_options(int argc, char *argv[], program_args_t& parsed_args) {
              "Output in JSON format (for list, validate, version commands)")
             ("ctx-len,c", po::value<int>(&parsed_args.ctx_length)->default_value(-1),
              "Set context length")
+            ("prefill-chunk-len,pcl", po::value<int>(&parsed_args.prefill_chunk_len)->default_value(-1),
+             "Set prefill chunk length")
             ("img-pre-resize,r", po::value<int>(&parsed_args.img_pre_resize)->default_value(2),
              "Pre-resize the image, 0: original size, 1: height = 480, 2: height = 720, 3: height = 1080, 4: height = 1440")
             ("socket,s", po::value<size_t>(&parsed_args.max_socket_connections)->default_value(10),

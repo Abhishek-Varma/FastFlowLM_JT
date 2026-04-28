@@ -70,6 +70,19 @@ Runner::Runner(model_list& supported_models, ModelDownloader& downloader, progra
         header_print("ERROR", "Failed to load model: " + std::string(e.what()));
         exit(EXIT_FAILURE);
     }
+
+    try {
+        if (args.prefill_chunk_len != -1) {
+            this->prefill_chunk_len = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
+        }
+        else {
+            this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
+        }
+    }
+    catch (const std::exception& e) {
+        this->prefill_chunk_len = 4096; // default value
+    }
+
     this->generate_limit = -1;
 
 
@@ -326,6 +339,7 @@ void Runner::run() {
             }
 
             chat_meta_info_t meta_info;
+            meta_info.max_prefill_len = this->prefill_chunk_len;
             uniformed_input.prompt = input;
             
             this->auto_chat_engine->start_total_timer();
@@ -417,6 +431,7 @@ void Runner::cmd_load(std::vector<std::string>& input_list) {
             header_print("ERROR", "Failed to load model: " + std::string(e.what()));
             exit(EXIT_FAILURE);
         }
+
         this->auto_chat_engine->configure_parameter("system_prompt", this->system_prompt);
 
     }
@@ -569,6 +584,9 @@ void Runner::cmd_set(std::vector<std::string>& input_list) {
     }
     else if (set_context == "gen-lim"){
         this->generate_limit = std::stoi(set_value);
+    }
+    else if (set_context == "prefill-chunk-len"){ 
+        
     }
     else if (set_context == "r-eff"){
         if (this->auto_chat_engine->get_current_model() == "gpt-oss")

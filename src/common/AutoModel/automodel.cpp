@@ -145,7 +145,8 @@ void AutoModel::_shared_load_model(std::string model_path, json model_info, int 
     this->total_tokens = 0;
 }
 
-bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, void* payload) {
+bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled, void* payload, int first_len_run) {
+
     if (this->total_tokens + tokens.size() >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping prefilling...");
         return false;
@@ -156,10 +157,17 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
     buffer<bf16> y;
 
     auto prefill_start_time = this->profiler_list[PREFILL_TIME].start();
-    y = this->lm_engine->prefill(tokens, payload);
+    
+    y = _chunked_insert(meta_info, tokens, is_cancelled, payload, first_len_run);
+
     auto prefill_end_time = this->profiler_list[PREFILL_TIME].stop(tokens.size());
     meta_info.prefill_duration = (uint64_t)time_utils::duration_ns(prefill_start_time, prefill_end_time).first;
     meta_info.prompt_tokens = tokens.size();
+
+    if (meta_info.stop_reason == CANCEL_DETECTED) {
+        return false;
+    }
+
     this->total_tokens += tokens.size() + 1;
     if (this->total_tokens >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping prefilling...");
@@ -168,6 +176,45 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
     this->last_token = this->sampler->sample(y);
     this->profiler_list[SAMPLING_TIME].stop(1);
     return true;
+}
+
+buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled, void* payload, int first_len_run) {
+    int max_prefill_len = meta_info.max_prefill_len;
+    // make max_prefill_len a 2^n
+    max_prefill_len = 1 << static_cast<int>(std::ceil(std::log2(max_prefill_len)));
+    buffer<bf16> y;
+    if (max_prefill_len < 512) {
+        y = this->lm_engine->prefill(tokens, nullptr);
+    }
+    else{
+        if (first_len_run > 0) {
+            int new_max_len = 1 << static_cast<int>(std::ceil(std::log2(first_len_run)));
+            if (new_max_len > max_prefill_len) {
+                max_prefill_len = new_max_len;
+            }
+        }
+        int chunks = (tokens.size() + max_prefill_len - 1) / max_prefill_len;
+        for (int i = 0; i < chunks; i++) {
+            if (is_cancelled()) {
+                meta_info.stop_reason = CANCEL_DETECTED;
+                // reset stream content 
+                buffer_.clear();
+                current_mode_ = StreamEventType::CONTENT;
+                tool_name_.clear();
+                is_in_tool_block_ = false;
+                break;
+            }
+            int start = i * max_prefill_len;
+            int end = std::min(static_cast<int>(tokens.size()), (i + 1) * max_prefill_len);
+            std::vector<int> chunk_tokens(tokens.begin() + start, tokens.begin() + end);
+            header_print("FLM", "Prefill chunk " + std::to_string(i+1) + "/" + std::to_string(chunks) + " with " + std::to_string(chunk_tokens.size()) + " tokens");
+            buffer<bf16> chunk_y = this->lm_engine->prefill(chunk_tokens, (i == 0)? payload : nullptr);
+            if (i == chunks - 1) {
+                y = chunk_y;
+            }
+        }
+    }
+    return y;
 }
 
 std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {

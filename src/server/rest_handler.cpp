@@ -179,6 +179,13 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
     } else {
         this->ctx_length = -1;
     }
+    if (args.prefill_chunk_len != -1) {
+        this->prefill_chunk_len = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
+    }
+    else {
+        this->prefill_chunk_len = -1;
+    }
+    
     // Initialize chat bot with default model
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
     if (this->asr) {
@@ -244,6 +251,10 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
             this->npu_device_inst = xrt::device(0);
             this->current_model_tag = "model-faker";
             return false;
+        }
+        
+        if (this->prefill_chunk_len == -1) {
+            this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
         }
         current_model_tag = ensure_tag;
     }
@@ -450,6 +461,7 @@ void RestHandler::handle_generate(const json& request,
       
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         header_print("FLM", "Start generating...");
         
@@ -567,6 +579,7 @@ void RestHandler::handle_chat(const json& request,
         chat_meta_info_t meta_info;
         lm_uniform_input_t uniformed_input;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         header_print("FLM", "Start generating...");
         if (stream) {
             // Streaming response using streaming_ostream
@@ -931,6 +944,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         uniformed_input.messages = messages;
         uniformed_input.tools = tools;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
@@ -943,8 +957,17 @@ void RestHandler::handle_openai_chat_completion(const json& request,
 
             header_print("FLM", "Start prefill...");
             try {
-                bool success = auto_chat_engine->insert(meta_info, uniformed_input);
+                bool success = auto_chat_engine->insert(meta_info, uniformed_input, [&] { return cancellation_token->cancelled(); });
                 if (!success) {
+                    if (meta_info.stop_reason == CANCEL_DETECTED || cancellation_token->cancelled()) {
+                        meta_info.stop_reason = CANCEL_DETECTED;
+                        header_print("❌ ", "Prefill Cancelled!");
+                        ostream.finalize(meta_info);
+                        this->auto_chat_engine->clear_context();
+                        this->prompt_cache.reset();
+                        return;
+                    }
+
                     json error_response = {
                         {"error", {
                         {"message", "Max length reached!"},
@@ -971,21 +994,30 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 this->auto_chat_engine->clear_context();
                 return;
             }
-            ostream.finalize(meta_info);
-
             if (meta_info.stop_reason == CANCEL_DETECTED) {
-                header_print("FLM", "Generation Cancelled!");
+                header_print("❌ ", "Generation Cancelled!");
                 this->prompt_cache.reset();
             }
+                        
+            ostream.finalize(meta_info);
         }
         else {
             this->auto_chat_engine->clear_context();
             nullstream nstream;
+            json response;
             std::string response_text;
             header_print("FLM", "Start prefill...");
             try {
-                bool success = auto_chat_engine->insert(meta_info, uniformed_input);
+                bool success = auto_chat_engine->insert(meta_info, uniformed_input, [&] { return cancellation_token->cancelled(); });
                 if (!success) {
+                    if (meta_info.stop_reason == CANCEL_DETECTED || cancellation_token->cancelled()) {
+                        meta_info.stop_reason = CANCEL_DETECTED;
+                        header_print("❌ ", "Prefill Cancelled!");
+                        send_response(response);
+                        this->auto_chat_engine->clear_context();
+                        this->prompt_cache.reset();
+                        return;
+                    }
                     json error_response = {
                         {"error", {
                         {"message", "Max length reached!"},
@@ -1014,7 +1046,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             }
             // check response_text
             json choices = build_nstream_response(response_text);
-            json response = {
+            response = {
                 {"id", "fastflowlm-chat-completion"},
                 {"object", "chat.completion"},
                 {"created", static_cast<long long>(std::time(nullptr))},
@@ -1032,6 +1064,9 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 }},
                 {"service_tier", "default"}
             };
+            if (meta_info.stop_reason == CANCEL_DETECTED) {
+                header_print("❌ ", "Generation Cancelled!");
+            }
             send_response(response);
             this->prompt_cache.reset();
         }
@@ -1143,6 +1178,7 @@ void RestHandler::handle_openai_completion(const json& request,
         configure_chat_engine_parameters(options, request);
 
         chat_meta_info_t meta_info;
+        meta_info.max_prefill_len = this->prefill_chunk_len;
         lm_uniform_input_t uniformed_input;
         header_print("FLM", "Start generating...");
 

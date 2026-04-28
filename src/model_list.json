@@ -10,7 +10,7 @@
                 "size": 1000000000,
                 "flm_min_version": "0.9.38",
                 "default_context_length": 8192,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "files": [
                     "config.json",
                     "model.q4nx",
@@ -46,7 +46,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3vl",
@@ -150,7 +150,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3.5",
@@ -180,7 +180,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3.5",
@@ -211,7 +211,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3.5",
@@ -242,7 +242,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3.5",
@@ -265,7 +265,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/LFM2-1.2B-NPU2/tree/v0.9.24-significant-update",
                 "size": 1200000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "lfm2",
@@ -290,7 +290,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/LFM2-2.6B-NPU2/tree/v0.9.24-significant-update",
                 "size": 2600000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "lfm2",
@@ -317,7 +317,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/LFM2-2.6B-Transcript-NPU2/tree/main",
                 "size": 2600000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "lfm2",
@@ -344,7 +344,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/LFM2.5-1.2B-NPU2/tree/main",
                 "size": 1200000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "lfm2",
@@ -371,7 +371,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/LFM2.5-1.2B-Thinking-NPU2/tree/main",
                 "size": 1200000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
                     "family": "lfm2.5-tk",
@@ -402,7 +402,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/Phi4-mini-Instruct-NPU2/tree/main",
                 "size": 4000000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "phi4",
                     "think": false,
@@ -485,7 +485,7 @@
                 "modified_at": "2025-05-30T00:00:00Z",
                 "size": 1000000000,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "flm_min_version": "0.9.20",
                 "files": [
                     "config.json",
@@ -509,7 +509,7 @@
                 "modified_at": "2025-05-30T00:00:00Z",
                 "size": 4000000000,
                 "default_context_length": 65536,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "flm_min_version": "0.9.23",
                 "vlm": true,
                 "files": [
@@ -540,7 +540,7 @@
                 "modified_at": "2025-05-30T00:00:00Z",
                 "size": 4000000000,
                 "default_context_length": 65536,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "vlm": true,
                 "flm_min_version": "0.9.34",
                 "files": [
@@ -571,7 +571,7 @@
                 "modified_at": "2025-05-30T00:00:00Z",
                 "size": 4000000000,
                 "default_context_length": 65536,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "vlm": true,
                 "flm_min_version": "0.9.23",
                 "files": [
@@ -602,7 +602,7 @@
                 "modified_at": "2025-05-30T00:00:00Z",
                 "size": 4000000000,
                 "default_context_length": 65536,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "vlm": true,
                 "flm_min_version": "0.9.34",
                 "files": [
@@ -634,7 +634,7 @@
                 "size": 1000000000,
                 "flm_min_version": "0.9.21",
                 "default_context_length": 131072,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "files": [
                     "config.json",
                     "model.q4nx",
@@ -663,7 +663,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 65536,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "llama3",
                     "think": false,
@@ -688,7 +688,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 16384,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "llama3",
                     "think": false,
@@ -713,7 +713,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 16384,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "deepseek-r1",
                     "think": true,
@@ -741,7 +741,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 16384,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "deepseek-r1-0528",
                     "think": true,
@@ -770,7 +770,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3",
                     "think": false,
@@ -797,7 +797,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3",
                     "think": true,
@@ -824,7 +824,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3",
                     "think": true,
@@ -852,7 +852,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 16384,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3",
                     "think": true,
@@ -882,7 +882,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3-tk",
                     "think": true,
@@ -912,7 +912,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen3-it",
                     "think": false,
@@ -941,7 +941,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 8192,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "gpt-oss",
                     "think": true,
@@ -970,7 +970,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 8192,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "gpt-oss",
                     "think": true,
@@ -999,7 +999,7 @@
                     "tokenizer_config.json"
                 ],
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen2",
                     "think": true,
@@ -1027,7 +1027,7 @@
                 ],
                 "vlm": true,
                 "default_context_length": 32768,
-                "max_prefill_len": 512,
+                "max_prefill_len": 4096,
                 "details": {
                     "family": "qwen2vl",
                     "think": true,
