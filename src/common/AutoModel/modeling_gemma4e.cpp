@@ -119,7 +119,7 @@ bool Gemma4e::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
                     audio_data_list.insert(audio_data_list.end(), clipped_audio_data.begin(), clipped_audio_data.end());
                     total_audio_clips += clipped_audio_data.size();
                     if (clipped_audio_data.size() > 1) {
-                        header_print_g("FLM", "Audio in message is clipped to " + std::to_string(clipped_audio_data.size()) + " chunks.");
+                        header_print_g("FLM", "Audio in message is split into " + std::to_string(clipped_audio_data.size()) + " chunks for processing.");
                         std::cout << std::endl;
                     }
                 }
@@ -145,7 +145,7 @@ bool Gemma4e::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
                 total_audio_clips += clipped_audio_data.size();
                 
                 if (clipped_audio_data.size() > 1) {
-                    header_print_g("FLM", "Audio[" + std::to_string(i) + "] is clipped to " + std::to_string(clipped_audio_data.size()) + " chunks.");
+                    header_print_g("FLM", "Audio[" + std::to_string(i) + "] is split into " + std::to_string(clipped_audio_data.size()) + " chunks for processing.");
                     std::cout << std::endl;
                 }
             }
