@@ -398,6 +398,16 @@ public:
 
 		return result;
 	}
+
+	virtual StreamResult parse_stream_content_final(const std::string content) {
+		if (!content.empty()) {
+			return parse_stream_content(content);
+		}
+
+		StreamResult result;
+		result.type = StreamEventType::WAITING;
+		return result;
+	}
 };
 
 

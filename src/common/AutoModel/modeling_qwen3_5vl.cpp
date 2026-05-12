@@ -267,6 +267,14 @@ NonStreamResult Qwen3_5VL::parse_nstream_content(const std::string response_text
 
 // Stream
 StreamResult Qwen3_5VL::parse_stream_content(const std::string content) {
+    return parse_stream_content_impl(content, false);
+}
+
+StreamResult Qwen3_5VL::parse_stream_content_final(const std::string content) {
+    return parse_stream_content_impl(content, true);
+}
+
+StreamResult Qwen3_5VL::parse_stream_content_impl(const std::string content, bool is_final) {
     const std::string MARKER_THINK_START = "<think>";
     const std::string MARKER_THINK_END = "</think>";
     const std::string MARKER_TOOL_START = "<tool_call>";
@@ -307,15 +315,15 @@ StreamResult Qwen3_5VL::parse_stream_content(const std::string content) {
             size_t tool_end_pos = buffer_.find(MARKER_TOOL_END);
             size_t func_end_pos = buffer_.find(MARKER_FUNC_END);
             
-            if (tool_end_pos != std::string::npos || func_end_pos != std::string::npos) {
-                size_t actual_end_pos;
-                size_t skip_length;
+            if (tool_end_pos != std::string::npos || func_end_pos != std::string::npos || (is_final && !buffer_.empty())) {
+                size_t actual_end_pos = buffer_.size();
+                size_t skip_length = 0;
 
                 if (tool_end_pos != std::string::npos) {
                     actual_end_pos = tool_end_pos;
                     skip_length = MARKER_TOOL_END.length();
                 } 
-                else {
+                else if (func_end_pos != std::string::npos) {
                     actual_end_pos = func_end_pos;
                     skip_length = MARKER_FUNC_END.length();
                 }
@@ -356,7 +364,26 @@ StreamResult Qwen3_5VL::parse_stream_content(const std::string content) {
                         size_t val_start = p_name_end + 1;
                         if (val_start < block.size() && block[val_start] == '\n') val_start++;
 
-                        size_t val_end = block.find(param_close, val_start);
+                        size_t param_close_pos = block.find(param_close, val_start);
+                        size_t val_end = param_close_pos;
+
+                        size_t next_param_pos = block.find(param_open, val_start);
+                        size_t func_boundary_pos = block.find(MARKER_FUNC_END, val_start);
+                        size_t tool_boundary_pos = block.find(MARKER_TOOL_END, val_start);
+
+                        auto use_earlier_boundary = [&val_end](size_t boundary_pos) {
+                            if (boundary_pos != std::string::npos && (val_end == std::string::npos || boundary_pos < val_end)) {
+                                val_end = boundary_pos;
+                            }
+                        };
+
+                        use_earlier_boundary(next_param_pos);
+                        use_earlier_boundary(func_boundary_pos);
+                        use_earlier_boundary(tool_boundary_pos);
+
+                        if (val_end == std::string::npos && is_final) {
+                            val_end = block.size();
+                        }
                         if (val_end == std::string::npos) break;
 
                         std::string param_value = block.substr(val_start, val_end - val_start);
@@ -374,7 +401,9 @@ StreamResult Qwen3_5VL::parse_stream_content(const std::string content) {
                             args[param_name] = param_value;
                         }
 
-                        search_pos = val_end + param_close.length();
+                        search_pos = param_close_pos != std::string::npos && val_end == param_close_pos
+                            ? val_end + param_close.length()
+                            : val_end;
                     }
 
                     result.tool_args_str = sanitize_tool_argument_json_strings(args.dump());
