@@ -359,8 +359,8 @@ std::pair<std::string, json> parse_gemma4e_tool_content(std::string tool_content
         tool_content = trim_gemma4e_tool_value(tool_content.substr(prefix.length()));
     }
 
-    std::cout << "[DEBUG after prefix removal]" << std::endl;
-    std::cout << tool_content << std::endl;
+    // std::cout << "[DEBUG after prefix removal]" << std::endl;
+    // std::cout << tool_content << std::endl;
 
     // only has tool name but no args
     size_t brace_pos = tool_content.find('{');
@@ -371,9 +371,9 @@ std::pair<std::string, json> parse_gemma4e_tool_content(std::string tool_content
     std::string tool_name = trim_gemma4e_tool_value(tool_content.substr(0, brace_pos));
     std::string args_str = trim_gemma4e_tool_value(tool_content.substr(brace_pos));
 
-    std::cout << "[DEBUG after parsing tool name and args]" << std::endl;
-    std::cout << "Tool Name: " << tool_name << std::endl;
-    std::cout << "Args Str: " << args_str << std::endl;
+    // std::cout << "[DEBUG after parsing tool name and args]" << std::endl;
+    // std::cout << "Tool Name: " << tool_name << std::endl;
+    // std::cout << "Args Str: " << args_str << std::endl;
 
     // Rewrite the relaxed args into well-formed JSON via recursive-descent.
     Gemma4eArgsParser parser(args_str);
@@ -387,8 +387,8 @@ std::pair<std::string, json> parse_gemma4e_tool_content(std::string tool_content
         normalized = parser.parse_value("");
     }
 
-    std::cout << "[DEBUG normalized args]" << std::endl;
-    std::cout << normalized << std::endl;
+    // std::cout << "[DEBUG normalized args]" << std::endl;
+    // std::cout << normalized << std::endl;
 
     // Final: parse to a real JSON object; fall back to empty object on failure.
     json args_json = json::object();
@@ -1028,8 +1028,8 @@ StreamResult Gemma4e::parse_stream_content_impl(const std::string content, bool 
 
                 std::string tool_content = buffer_.substr(0, actual_end_pos);
 
-                std::cout << "DEBUG" << std::endl;
-                std::cout << tool_content << std::endl; // For debugging: see the raw tool content extracted from the stream
+                // std::cout << "DEBUG" << std::endl;
+                // std::cout << tool_content << std::endl; // For debugging: see the raw tool content extracted from the stream
 
                 buffer_ = buffer_.substr(actual_end_pos + skip_length);
                 is_in_tool_block_ = false;
