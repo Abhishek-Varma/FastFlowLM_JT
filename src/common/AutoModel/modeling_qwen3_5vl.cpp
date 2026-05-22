@@ -487,7 +487,7 @@ NonStreamResult Qwen3_5VL::parse_nstream_content(const std::string response_text
         func_start += func_open.length();
         size_t func_name_end = block.find(">", func_start);
         if (func_name_end != std::string::npos) {
-            result.tool_name = sanitize_tool_argument_json_strings(block.substr(func_start, func_name_end - func_start));
+            result.tool_name = block.substr(func_start, func_name_end - func_start);
         }
     }
 
@@ -622,7 +622,7 @@ StreamResult Qwen3_5VL::parse_stream_content_impl(const std::string content, boo
                         func_start += func_open.length();
                         size_t func_end = block.find(">", func_start);
                         if (func_end != std::string::npos) {
-                            result.tool_name = sanitize_tool_argument_json_strings(block.substr(func_start, func_end - func_start));
+                            result.tool_name = block.substr(func_start, func_end - func_start);
                         }
                     }
 
