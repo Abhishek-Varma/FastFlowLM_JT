@@ -808,6 +808,7 @@ bool Gemma4e::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     multi_modal_payload.image_payload = image_payload;
     multi_modal_payload.audio_payload = audio_payload;
 
+
     if (image_payload.num_images > 0 || audio_payload.num_audios > 0) {
         return this->_shared_insert(meta_info, tokens, is_cancelled, &multi_modal_payload, last_image_token_index);
     } 
@@ -927,6 +928,11 @@ std::string Gemma4e::generate_with_prompt(chat_meta_info_t& meta_info, lm_unifor
     if (this->enable_think) {
         os << "<think>\n" << std::flush;
     }
+
+    gemma4e_npu *gemma4e_engine = dynamic_cast<gemma4e_npu*>(this->lm_engine.get());
+    int checkpoint_idx = gemma4e_engine->checkpoint();
+    int restore_idx = gemma4e_engine->restore();
+    header_print_r("FLM", "Checkpoint before generation: " << checkpoint_idx << ", restore point: " << restore_idx << ", user context length: " << this->token_history.size());
     return this->_shared_generate(meta_info, length_limit, os);
 }
 
