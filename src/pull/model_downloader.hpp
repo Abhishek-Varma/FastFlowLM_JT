@@ -19,8 +19,12 @@ class ModelDownloader {
 public:
     ModelDownloader(model_list& models);
     
-    // Check if model is already downloaded
-    bool is_model_downloaded(const std::string& model_tag, bool sub_process_mode=0);
+    // Check if model is already downloaded.
+    // When fast_check is true, only the local presence + version compatibility
+    // are checked; no HuggingFace metadata is fetched and no per-file hash
+    // verification / cleanup is performed. Use this for cheap status queries
+    // such as `flm list`.
+    bool is_model_downloaded(const std::string& model_tag, bool sub_process_mode=0, bool fast_check=false);
     
     // Download model files if not present
     bool pull_model(const std::string& model_tag, bool force_redownload = false);
@@ -56,4 +60,8 @@ private:
 
     // bool check_model_compatibility(const std::string& model_tag);
     bool check_model_compatibility(const std::string& model_tag, bool sub_process_mode=0);
+
+    // Verify per-file integrity against HuggingFace metadata and remove any
+    // corrupted files. Returns true if all files passed verification.
+    bool verify_and_clean_files(const std::string& model_tag, bool sub_process_mode=0);
 }; 
