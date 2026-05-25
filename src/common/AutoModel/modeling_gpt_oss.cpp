@@ -77,8 +77,21 @@ bool GPT_OSS::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     std::vector<int> tokens = this->tokenizer->encode(templated_text);
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
-    return this->_shared_insert(meta_info, tokens, is_cancelled);
+    
+    // hardware
+    int restore_idx = -1;
+    gpt_oss_npu *gpt_oss_engine = dynamic_cast<gpt_oss_npu*>(this->lm_engine.get());
+    if (meta_info.restore_allowed) {
+        restore_idx = gpt_oss_engine->restore();
+        this->total_tokens = restore_idx;
+        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+    }
+    bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
+    checkpoint_his = token_history;
+    int checkpoint_idx = gpt_oss_engine->checkpoint();
+
+    return success;
 }
 
 std::string GPT_OSS::generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
@@ -97,59 +110,8 @@ std::string GPT_OSS::generate(chat_meta_info_t& meta_info, int length_limit, std
     stop_reason_t reason = EOT_DETECTED;
     int last_sampled_token = this->last_token;
 
-    // Skip pushing reasoning-related tokens (<|channel|>analysis<|message|>The user says "hi". The assistant should respond politely. We can greet back.<|end|><|start|>assistant) into token_history.
-    // 35644: analysis, 200005: <|channel|>, 200008: <|message|>, 200007: <|end|>, 200006: <|start|>, 173781: assistant
-    // State machine to drop the entire analysis block including the trailing <|end|><|start|>assistant.
-    enum SkipState { SKIP_NONE, SKIP_SAW_CHANNEL, SKIP_IN_ANALYSIS, SKIP_SAW_END, SKIP_SAW_START };
-    SkipState skip_state = SKIP_NONE;
-    auto push_history_filtered = [&](int token) {
-        switch (skip_state) {
-            case SKIP_NONE:
-                if (token == 200005) { // <|channel|>
-                    skip_state = SKIP_SAW_CHANNEL;
-                    return; // hold back until we know which channel this is
-                }
-                if (token == 200002)
-                    return; // skip <|return|>
-                this->token_history.push_back(token);
-                return;
-            case SKIP_SAW_CHANNEL:
-                if (token == 35644) { // analysis -> begin skipping
-                    skip_state = SKIP_IN_ANALYSIS;
-                    return;
-                }
-                // Not the analysis channel: flush the held <|channel|> and current token.
-                this->token_history.push_back(200005);
-                this->token_history.push_back(token);
-                skip_state = SKIP_NONE;
-                return;
-            case SKIP_IN_ANALYSIS:
-                if (token == 200007) { // <|end|>
-                    skip_state = SKIP_SAW_END;
-                }
-                return; // drop everything inside the analysis block
-            case SKIP_SAW_END:
-                if (token == 200006) { // <|start|>
-                    skip_state = SKIP_SAW_START;
-                    return;
-                }
-                // Unexpected token after <|end|>; resume normal handling.
-                skip_state = SKIP_NONE;
-                this->token_history.push_back(token);
-                return;
-            case SKIP_SAW_START:
-                if (token == 173781) { // assistant -> finished skipping the header
-                    skip_state = SKIP_NONE;
-                    return;
-                }
-                // Unexpected: resume normal handling.
-                skip_state = SKIP_NONE;
-                this->token_history.push_back(token);
-                return;
-        }
-    };
-
-    push_history_filtered(this->last_token);
+ 
+    token_history.push_back(last_token);
     if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
         std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
         result += token_str;
@@ -193,7 +155,7 @@ std::string GPT_OSS::generate(chat_meta_info_t& meta_info, int length_limit, std
             result += token_str;
         }
         this->profiler_list[TKOEN_DECODE_TIME].stop(1);
-        push_history_filtered(sampled_token);
+        token_history.push_back(sampled_token);
         if (this->is_eos(sampled_token)){
             meta_info.generated_tokens++;
             this->lm_engine->forward(last_sampled_token);

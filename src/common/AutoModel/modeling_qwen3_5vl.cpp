@@ -277,6 +277,7 @@ bool Qwen3_5VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
 
     if (meta_info.restore_allowed) {
         restore_idx = qwen3_5vl_engine->restore();
+        this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
 
@@ -354,6 +355,7 @@ std::string Qwen3_5VL::generate(chat_meta_info_t& meta_info, int length_limit, s
         sampled_token = this->sampler->sample(y);
     }
     this->total_tokens++;
+    meta_info.generated_tokens++;
     int last_sampled_token = sampled_token;
     token_str = this->tokenizer->run_time_decoder(last_sampled_token);
     result += token_str;
