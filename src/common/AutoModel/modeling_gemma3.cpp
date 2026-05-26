@@ -163,28 +163,31 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     // ----------------------------------------------------------------------
     // Prompt-cache aware image alignment.
     //
-    // AutoModel::_shared_insert performs a prefix match against token_history
-    // and erases the matched prefix from `tokens` before prefilling. For a
-    // pure-text model that is fine, but for Gemma3 the caller has also packed
-    // `pixel_values` with the images for the WHOLE prompt (including images
-    // from earlier turns that are already in the KV cache) and has computed
-    // `last_image_token_index` from the un-skipped token list.
-    //
-    // If we leave the skip up to _shared_insert, the image embeddings end up
-    // misaligned with the remaining (post-skip) image tokens: pixel data for
-    // already-cached images is fed again, but the corresponding placeholder
-    // tokens have just been erased. Compute the prefix-skip here so we can
-    // drop the matching leading images from `pixel_values` and recompute
-    // `last_image_token_index` against the trimmed token vector.
+    // AutoModel::_shared_insert prefix-matches `tokens` against `token_history`
+    // over the FULL length of `token_history`. If every token matches, it
+    // erases that prefix before prefilling; otherwise it calls clear_context()
+    // and skips nothing. We must NOT erase `tokens` here -- _shared_insert
+    // needs the untrimmed sequence to run that very check. What we DO need to
+    // fix up locally is `pixel_values` (which carries pixels for the WHOLE
+    // prompt, including images from earlier turns that are already cached):
+    // drop the fully-cached leading images so the surviving payload aligns
+    // with the surviving image tokens after _shared_insert performs its own
+    // erase.
     // ----------------------------------------------------------------------
-    const size_t hist_size = this->token_history.size();
-    const size_t cmp_n = std::min(hist_size, tokens.size());
-    size_t skip_count = 0;
-    for (size_t i = 0; i < cmp_n; i++) {
-        if (tokens[i] == this->token_history[i]) {
-            skip_count++;
-        } else {
-            break;
+    size_t prefix_skip_count = 0;
+    {
+        const size_t idx = this->token_history.size();
+        for (size_t i = 0; i < idx; i++) {
+            if (i < tokens.size() && tokens[i] == this->token_history[i]) {
+                prefix_skip_count++;
+            } else {
+                break;
+            }
+        }
+        // Must match the entirety of token_history, otherwise _shared_insert
+        // will clear the context and not skip anything.
+        if (prefix_skip_count != idx) {
+            prefix_skip_count = 0;
         }
     }
 
@@ -194,9 +197,9 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     const size_t total_images_in_payload =
         per_img_bytes > 0 ? pixel_values.size() / per_img_bytes : 0;
 
-    if (skip_count > 0 && total_images_in_payload > 0) {
+    if (prefix_skip_count > 0 && total_images_in_payload > 0) {
         int skipped_image_tokens = 0;
-        for (size_t i = 0; i < skip_count; i++) {
+        for (size_t i = 0; i < prefix_skip_count; i++) {
             if (tokens[i] == IMAGE_TOKEN_ID) skipped_image_tokens++;
         }
         int total_image_tokens = 0;
@@ -230,21 +233,15 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
         }
     }
 
-    // Apply the prefix skip to the tokens themselves so that _shared_insert's
-    // own prefix check becomes a no-op (token_history still holds the prefix
-    // and the trimmed tokens no longer match position 0).
-    if (skip_count > 0) {
-        tokens.erase(tokens.begin(), tokens.begin() + skip_count);
-    }
-
     // hardware
     void* payload = pixel_values.size() > 0 ? static_cast<void*>(&pixel_values) : nullptr;
 
-    // process image first (relative to trimmed tokens)
+    // find the last image token index, expressed relative to the tokens that
+    // will SURVIVE _shared_insert's prefix erase (i.e. shifted by -prefix_skip_count).
     int last_image_token_index = -1;
-    for (int i = 0; i < (int)tokens.size(); i++) {
+    for (int i = static_cast<int>(prefix_skip_count); i < (int)tokens.size(); i++) {
         if (tokens[i] == IMAGE_TOKEN_ID) {
-            last_image_token_index = i;
+            last_image_token_index = i - static_cast<int>(prefix_skip_count);
         }
     }
     last_image_token_index++; // plus the end of image tokens
@@ -252,6 +249,8 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     return this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index);
 }
 
+// 106 eos
+// 107 \n
 std::string Gemma3::generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
     return this->_shared_generate(meta_info, length_limit, os, is_cancelled);
 }

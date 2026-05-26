@@ -676,7 +676,9 @@ int main(int argc, char* argv[]) {
                 output_json["models"] = nlohmann::json::array();
                 nlohmann::json models = availble_models.get_all_models();
                 for (const auto& model : models["models"]) {
-                    bool is_present = downloader.is_model_downloaded(model["name"].get<std::string>(), parsed_args.sub_process_mode);
+                    // Fast path: `list` only needs presence + compatibility,
+                    // so skip HF metadata fetch and per-file hash verification.
+                    bool is_present = downloader.is_model_downloaded(model["name"].get<std::string>(), parsed_args.sub_process_mode, /*fast_check=*/true);
                     if ((parsed_args.list_filter == "installed") == is_present || parsed_args.list_filter == "all") {
                         nlohmann::json model_entry = model;
                         model_entry["installed"] = is_present ? true : false;
@@ -690,7 +692,8 @@ int main(int argc, char* argv[]) {
                 nlohmann::json models = availble_models.get_all_models();
                 bool any_model_listed = false;
                 for (const auto& model : models["models"]) {
-                    bool is_present = downloader.is_model_downloaded(model["name"].get<std::string>(), parsed_args.sub_process_mode);
+                    // Fast path: skip HF metadata fetch and per-file hash verification.
+                    bool is_present = downloader.is_model_downloaded(model["name"].get<std::string>(), parsed_args.sub_process_mode, /*fast_check=*/true);
                     if ((parsed_args.list_filter == "installed") == is_present || parsed_args.list_filter == "all") {
                         std::cout << "  - " << model["name"].get<std::string>();
                         if (!parsed_args.sub_process_mode) {

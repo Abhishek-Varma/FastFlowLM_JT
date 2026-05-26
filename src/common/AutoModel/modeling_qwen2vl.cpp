@@ -226,31 +226,42 @@ bool Qwen2VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     // Prompt-cache aware image alignment.
     //
     // AutoModel::_shared_insert prefix-matches `tokens` against `token_history`
-    // and erases the matched prefix before prefilling. Without intervention,
-    // the image payload (pixels for the WHOLE prompt, including already-cached
-    // images from earlier turns) would be misaligned with the surviving image
-    // tokens. Compute the prefix-skip here, drop fully-cached leading images
-    // from image_payload, and trim `tokens` so _shared_insert's own prefix
-    // check is a no-op.
+    // over the FULL length of `token_history`. If every token matches, it
+    // erases that prefix before prefilling; otherwise it calls clear_context()
+    // and skips nothing. We must NOT erase `tokens` here -- _shared_insert
+    // needs the untrimmed sequence to run that very check. What we DO need to
+    // fix up locally is the image payload (pixels for the WHOLE prompt,
+    // including already-cached images from earlier turns): drop the
+    // fully-cached leading images so the surviving payload aligns with the
+    // surviving image tokens after _shared_insert performs its own erase.
     // ----------------------------------------------------------------------
+    size_t prefix_skip_count = 0;
     {
-        const size_t hist_size = this->token_history.size();
-        const size_t cmp_n = std::min(hist_size, tokens.size());
-        size_t skip_count = 0;
-        for (size_t i = 0; i < cmp_n; i++) {
-            if (tokens[i] == this->token_history[i]) {
-                skip_count++;
+        const size_t idx = this->token_history.size();
+        for (size_t i = 0; i < idx; i++) {
+            if (i < tokens.size() && tokens[i] == this->token_history[i]) {
+                prefix_skip_count++;
             } else {
                 break;
             }
         }
+        // Must match the entirety of token_history, otherwise _shared_insert
+        // will clear the context and not skip anything.
+        if (prefix_skip_count != idx) {
+            prefix_skip_count = 0;
+        }
 
-        if (skip_count > 0 && !image_payload.images.empty()) {
+        if (prefix_skip_count > 0 && !image_payload.images.empty()) {
+            // Count image-soft tokens in the cached prefix.
             int skipped_image_tokens = 0;
-            for (size_t i = 0; i < skip_count; i++) {
+            for (size_t i = 0; i < prefix_skip_count; i++) {
                 if (tokens[i] == image_soft_token_id) skipped_image_tokens++;
             }
 
+            // Walk through images and drop those whose entire token block
+            // sits within the cached prefix. (The chat-template prefix
+            // boundary always falls between messages, so an image's token
+            // block is never partially cached.)
             size_t images_to_drop = 0;
             size_t bf16_to_drop = 0;
             int consumed_image_tokens = 0;
@@ -285,16 +296,15 @@ bool Qwen2VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
                     "Prompt-cache hit: dropped " + std::to_string(images_to_drop)
                     + " cached image(s) from payload");
             }
-
-            tokens.erase(tokens.begin(), tokens.begin() + skip_count);
         }
     }
 
-    // process image first (relative to the (possibly) trimmed tokens)
+    // find the last image token index, expressed relative to the tokens that
+    // will SURVIVE _shared_insert's prefix erase (i.e. shifted by -prefix_skip_count).
     int last_image_token_index = -1;
-    for (int i = 0; i < (int)tokens.size(); i++) {
+    for (int i = static_cast<int>(prefix_skip_count); i < (int)tokens.size(); i++) {
         if (tokens[i] == image_soft_token_id) {
-            last_image_token_index = i;
+            last_image_token_index = i - static_cast<int>(prefix_skip_count);
         }
     }
     last_image_token_index++; // plus the end of image tokens

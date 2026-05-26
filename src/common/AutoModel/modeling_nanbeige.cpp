@@ -85,9 +85,23 @@ bool Nanbeige::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, st
     std::vector<int> tokens = this->tokenizer->encode(templated_text);
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
-    // hardware
 
-    return this->_shared_insert(meta_info, tokens, is_cancelled);
+    // hardware
+    int restore_idx = -1;
+    nanbeige_npu *nanbeige_engine = dynamic_cast<nanbeige_npu*>(this->lm_engine.get());
+
+    if (meta_info.restore_allowed) {
+        restore_idx = nanbeige_engine->restore();
+        this->total_tokens = restore_idx;
+        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+    }
+
+    bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+
+    checkpoint_his = token_history;
+    int checkpoint_idx = nanbeige_engine->checkpoint();
+
+    return success;
 }
 
 
@@ -165,6 +179,8 @@ std::string Nanbeige::generate(chat_meta_info_t& meta_info, int length_limit, st
     if (this->total_tokens >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping generation...");
     }
+    std::cout << std::endl;
+    header_print("FLM", "Model RAW Output: \n" + result);
     return result;
 }
 

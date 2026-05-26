@@ -336,18 +336,23 @@ bool LFM2_5_TK::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
 
     // hardware
-    bool success = this->_shared_insert(meta_info, tokens, is_cancelled);
+    int restore_idx = -1;
+    lfm2_npu *lfm2_engine = dynamic_cast<lfm2_npu*>(this->lm_engine.get());
 
-    // Remove the starting reasoning placeholder appended by the chat template: "<think>\n" -> token ids 151667 198.
-    {
-        auto& hist = this->token_history;
-        size_t n = hist.size();
-        if (n >= 2 &&
-            hist[n - 2] == this->think_start_id &&
-            hist[n - 1] == 708) {
-            hist.resize(n - 2);
-        }
+    if (meta_info.restore_allowed) {
+        restore_idx = lfm2_engine->restore();
+        this->total_tokens = restore_idx;
+        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
+
+    // Remove the starting reasoning placeholder appended by the chat template: "<think>\n" -> token ids 151667 708.
+    size_t n = tokens.size();
+    tokens.resize(n - 2);
+
+    bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+
+    checkpoint_his = token_history;
+    int checkpoint_idx = lfm2_engine->checkpoint();
 
     return success;
 }
@@ -356,7 +361,6 @@ bool LFM2_5_TK::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
 std::string LFM2_5_TK::generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
     std::vector<int> sampled_tokens;
     std::string result;
-    os << "<think>\n\n";
     if (length_limit > 0){
         sampled_tokens.reserve(length_limit);
     }
@@ -366,46 +370,37 @@ std::string LFM2_5_TK::generate(chat_meta_info_t& meta_info, int length_limit, s
     assert(this->last_token != -1);
 
     stop_reason_t reason = EOT_DETECTED;
-    int last_sampled_token = this->last_token;
-
-    // The chat template already emits <think> before generation, so the model
-    // is always inside the reasoning block at the start. Skip pushing every
-    // token into token_history until (and including) think_end_id is produced;
-    // also drop the immediate "\n\n" (271) after </think>.
-    bool reasoning_done = false;
-    bool skip_next_newline_after_think = false;
-    auto push_history_filtered = [&](int token) {
-        if (!reasoning_done) {
-            if (token == this->think_end_id) {
-                reasoning_done = true;
-                skip_next_newline_after_think = true;
-            }
-            return; // skip everything up to and including </think>
-        }
-        if (skip_next_newline_after_think) {
-            skip_next_newline_after_think = false;
-            if (token == 509) { // skip the "\n\n" right after </think>
-                return;
-            }
-            if (token == 708) { // skip the "\n" right after </think>
-                return;
-            }
-        }
-        this->token_history.push_back(token);
-    };
-
-    push_history_filtered(this->last_token);
-    if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
-        std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
-        result += token_str;
-        os << token_str << std::flush;
-
-    }
-    if (this->is_eos(last_sampled_token)){
-        return result;
-    }
     this->profiler_list[DECODING_TIME].reset();
     this->profiler_list[TKOEN_DECODE_TIME].reset();
+
+    std::string token_str;
+    int sampled_token;
+
+    this->token_history.push_back(think_start_id);
+    this->profiler_list[DECODING_TIME].start();
+    this->lm_engine->forward(think_start_id);
+    this->profiler_list[DECODING_TIME].stop(1);
+    token_str = this->tokenizer->run_time_decoder(think_start_id);
+    result += token_str;
+    os << token_str << std::flush;
+
+    // \n
+    this->token_history.push_back(708);
+    this->profiler_list[DECODING_TIME].start();
+    buffer<bf16> y = this->lm_engine->forward(708);
+    this->profiler_list[DECODING_TIME].stop(1);
+    token_str = this->tokenizer->run_time_decoder(708);
+    result += token_str;
+    sampled_token = this->sampler->sample(y);
+    os << token_str << std::flush;
+
+    this->total_tokens++;
+    meta_info.generated_tokens++;
+    int last_sampled_token = sampled_token;
+    token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+    result += token_str;
+    os << token_str << std::flush;   
+
     if (this->total_tokens >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping generation...");
         reason = MAX_LENGTH_REACHED;
@@ -438,7 +433,7 @@ std::string LFM2_5_TK::generate(chat_meta_info_t& meta_info, int length_limit, s
             result += token_str;
         }
         this->profiler_list[TKOEN_DECODE_TIME].stop(1);
-        push_history_filtered(sampled_token);
+        token_history.push_back(sampled_token);
         if (this->is_eos(sampled_token)){
             meta_info.generated_tokens++;
             this->lm_engine->forward(last_sampled_token);
@@ -457,7 +452,6 @@ std::string LFM2_5_TK::generate(chat_meta_info_t& meta_info, int length_limit, s
     }
     std::cout << std::endl;
     header_print("FLM", "Model RAW Output: \n" + result);
-    result = "<think>\n\n" + result;
     return result;
 }
 

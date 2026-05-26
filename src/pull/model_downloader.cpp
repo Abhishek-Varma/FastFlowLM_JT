@@ -20,14 +20,23 @@ ModelDownloader::ModelDownloader(model_list& models)
 /// \brief Check if the model is downloaded
 /// \param model_tag the model tag
 /// \return true if the model is downloaded, false otherwise
-bool ModelDownloader::is_model_downloaded(const std::string& model_tag, bool sub_process_mode) {
+bool ModelDownloader::is_model_downloaded(const std::string& model_tag, bool sub_process_mode, bool fast_check) {
     auto missing_files = get_missing_files(model_tag);
     bool is_config_file_missing = std::find(missing_files.begin(), missing_files.end(), "config.json") != missing_files.end();
     if (!is_config_file_missing) {
         if (!check_model_compatibility(model_tag, sub_process_mode)) {
             if (!sub_process_mode)
-                header_print("FLM", "Model is not compatible with the current FLM version. ");
-            remove_model(model_tag, sub_process_mode);
+                header_print("FLM", "Model " + model_tag + " is not compatible with the current FLM version. ");
+            // Fast path: skip the expensive HF metadata fetch + per-file hash
+            // verification. Caller (e.g. `flm list`) only needs the boolean
+            // status; cleanup can happen later on `pull` / `check`.
+            if (fast_check) {
+                return false;
+            }
+            // Instead of removing all files wholesale, verify each file against
+            // HuggingFace metadata and remove only corrupted ones (same logic
+            // as check_model). Files that pass verification can be reused.
+            verify_and_clean_files(model_tag, sub_process_mode);
             return false;
         }
     }
@@ -68,7 +77,7 @@ bool ModelDownloader::check_model_compatibility(const std::string& model_tag, bo
             exit(0);
         }
         if (!is_compatible) {
-            header_print("FLM", "Local model version: " + flm_version + " < " + flm_min_version);
+            header_print("FLM", "Local model " + model_tag + " version: " + flm_version + " < " + flm_min_version);
             return false;
         }
     }
@@ -407,16 +416,38 @@ bool ModelDownloader::check_model(const std::string& model_tag, bool sub_process
         return true;
     }
     else {
+        bool ok = verify_and_clean_files(new_model_tag, sub_process_mode);
+        if (!ok) {
+            header_print("FLM", "Model check completed with errors. Please use `flm pull " + new_model_tag + "` to re-download corrupted files.");
+        }
+        else {
+            header_print("FLM", "Model check completed successfully. All files are present and compatible.");
+        }
+    }
+    return true;
+}
+
+/// \brief Verify each model file's hash against HuggingFace metadata and
+///        remove any corrupted files. Files that pass verification are kept.
+/// \param model_tag the model tag
+/// \param sub_process_mode if true, suppress informational logging
+/// \return true if all files passed verification, false otherwise
+bool ModelDownloader::verify_and_clean_files(const std::string& model_tag, bool sub_process_mode) {
+    bool any_error = false;
+    try {
+        auto [new_model_tag, model_info] = supported_models.get_model_info(model_tag);
         std::vector<std::string> model_files = model_info["files"];
         std::string model_path = supported_models.get_model_path(new_model_tag);
         std::string file_url = model_info["file_url"];
+
         // GET HF api/models
         std::string hf_response = download_utils::download_string(file_url);
         nlohmann::json hf_model_infos = nlohmann::json::parse(hf_response);
 
-        bool any_error = false;
         for (const auto& filename : model_files) {
-            header_print("FLM", "Checking file: " + filename + "...");
+            if (!sub_process_mode) {
+                header_print("FLM", "Checking file: " + filename + "...");
+            }
 
             auto it = std::find_if(
                 hf_model_infos.begin(),
@@ -431,32 +462,43 @@ bool ModelDownloader::check_model(const std::string& model_tag, bool sub_process
             const auto& file = *it;
             std::string local_path = get_model_file_path(model_path, filename);
 
+            // If the file isn't present locally, there's nothing to verify or
+            // remove; treat as an error so the caller knows a re-pull is needed.
+            if (!file_exists(local_path)) {
+                any_error = true;
+                continue;
+            }
+
             bool is_lfs = file.contains("lfs");
             std::string oid_ref = is_lfs ? file["lfs"]["oid"] : file["oid"];
             std::string local_oid = is_lfs ? download_utils::calculate_file_sha256(local_path) : download_utils::calculate_git_blob_oid(local_path);
 
             if (local_oid == oid_ref) {
-                header_print("FLM", "Success!");
+                if (!sub_process_mode) {
+                    header_print("FLM", "Success!");
+                }
             }
             else {
-                header_print("FLM", "Fail!");
-                header_print("FLM", "Removing corrupted file: " + filename + "...");
+                if (!sub_process_mode) {
+                    header_print("FLM", "Fail!");
+                    header_print("FLM", "Removing corrupted file: " + filename + "...");
+                }
 
                 if (std::filesystem::remove(local_path)) {
-                    header_print("FLM", "Successfully removed " + filename + "!");
-                } 
+                    if (!sub_process_mode) {
+                        header_print("FLM", "Successfully removed " + filename + "!");
+                    }
+                }
                 else {
                     header_print("ERROR", "Failed to remove corrupted file: " + filename);
                 }
                 any_error = true;
             }
         }
-        if (any_error) {
-            header_print("FLM", "Model check completed with errors. Please use `flm pull " + new_model_tag + "` to re-download corrupted files.");
-        }
-        else {
-            header_print("FLM", "Model check completed successfully. All files are present and compatible.");
-        }
     }
-    return true;
+    catch (const std::exception& e) {
+        header_print("ERROR", "Exception during file verification: " + std::string(e.what()));
+        any_error = true;
+    }
+    return !any_error;
 }

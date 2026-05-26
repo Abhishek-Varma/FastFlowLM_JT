@@ -153,23 +153,20 @@ bool DeepSeek_r1_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& inp
     }
 
     std::vector<int> tokens = this->tokenizer->encode(templated_text);
-
+    tokens.erase(tokens.begin());
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
-    // always remove first token
-    tokens.erase(tokens.begin());
-    bool success = this->_shared_insert(meta_info, tokens, is_cancelled);
-
-    // Remove the trailing reasoning placeholder appended by the chat template:
-    // \n" -> token ids [198].
-    {
-        auto& hist = this->token_history;
-        size_t n = hist.size();
-        if (n >= 1 &&
-            hist[n - 1] == this->newline_id) {
-            hist.resize(n - 1);
-        }
+    int restore_idx = -1;
+    llama_npu *llama_engine = dynamic_cast<llama_npu*>(this->lm_engine.get());
+    if (meta_info.restore_allowed) {
+        restore_idx = llama_engine->restore();
+        this->total_tokens = restore_idx;
+        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
+    bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+
+    checkpoint_his = token_history;
+    int checkpoint_idx = llama_engine->checkpoint();
 
     return success;
 }
@@ -189,29 +186,7 @@ std::string DeepSeek_r1_8b::generate(chat_meta_info_t& meta_info, int length_lim
     stop_reason_t reason = EOT_DETECTED;
     int last_sampled_token = this->last_token;
 
-
-    // Skip pushing every token into token_history until (and including) think_end_id is produced;
-    // also drop the immediate "\n" right after </think>.
-    bool reasoning_done = false;
-    bool skip_next_newline_after_think = false;
-    auto push_history_filtered = [&](int token) {
-        if (!reasoning_done) {
-            if (token == this->think_end_id) {
-                reasoning_done = true;
-                skip_next_newline_after_think = true;
-            }
-            return; // skip everything up to and including </think>
-        }
-        if (skip_next_newline_after_think) {
-            skip_next_newline_after_think = false;
-            if (token == this->double_newline_id) { // skip the "\n\n" right after </think>
-                return;
-            }
-        }
-        this->token_history.push_back(token);
-    };
-
-    push_history_filtered(this->last_token);
+    token_history.push_back(this->last_token);
     if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
         std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
         result += token_str;
@@ -253,7 +228,7 @@ std::string DeepSeek_r1_8b::generate(chat_meta_info_t& meta_info, int length_lim
             result += token_str;
         }
         this->profiler_list[TKOEN_DECODE_TIME].stop(1);
-        push_history_filtered(sampled_token);
+        token_history.push_back(sampled_token);
         if (this->is_eos(sampled_token)){
             meta_info.generated_tokens++;
             this->lm_engine->forward(last_sampled_token);
