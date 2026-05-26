@@ -9,7 +9,7 @@ parent: Models
 
 - **Type:** Text-to-Text
 - **Think:** Yes
-- **Tool Calling Support:** Yes
+- **Tool Calling Support:** No
 - **Base Model:** [Nanbeige/Nanbeige4.1-3B](https://huggingface.co/Nanbeige/Nanbeige4.1-3B)
 - **Quantization:** Q4_1
 - **Max Context Length:** 256k tokens 
