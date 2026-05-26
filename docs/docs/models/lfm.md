@@ -87,7 +87,7 @@ flm run lfm2.5-it:1.2b
 
 - **Type:** Text-to-Text
 - **Think:** Yes
-- **Tool Calling Support:** Yes
+- **Tool Calling Support:** No
 - **Base Model:** [LiquidAI/LFM2.5-1.2B-Thinking](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking)
 - **Quantization:** Q4_0
 - **Max Context Length:** 32k tokens 
