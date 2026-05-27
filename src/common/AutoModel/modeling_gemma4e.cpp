@@ -977,7 +977,7 @@ NonStreamResult Gemma4e::parse_nstream_content(const std::string response_text) 
         std::string tool_content = response_text.substr(start, tool_end_pos - start);
         auto parsed_tool = parse_gemma4e_tool_content(tool_content);
         result.tool_name = parsed_tool.first;
-        result.tool_args = parsed_tool.second;
+        result.tool_args = parsed_tool.second.dump();
     }
     // 3. Parse Normal Content
     else {
