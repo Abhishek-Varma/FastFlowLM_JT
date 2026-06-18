@@ -254,7 +254,10 @@ public:
     hrx_device_t dev = nullptr;
     hrx_stream_t stream = nullptr;
     std::mutex mu;
-    std::unordered_map<size_t, hrx_executable_t> exe_cache;  // control-hash -> exe
+    // L5: cache the executable AND its resolved "MLIR_AIE" export ordinal, so the
+    // string-keyed lookup runs once per distinct control program, not per dispatch.
+    struct CachedExe { hrx_executable_t exe = nullptr; uint32_t ord = 0; };
+    std::unordered_map<size_t, CachedExe> exe_cache;  // control-hash -> {exe,ord}
     std::vector<BoImpl*> pending_out;  // outputs written by un-flushed dispatches
     std::atomic<uint64_t> dispatched{0}, skipped{0}, exe_fail{0};
     std::atomic<uint64_t> alloc_ok{0}, alloc_fail{0};
@@ -328,7 +331,8 @@ public:
     // Build (or fetch cached) executable for this xclbin + control ELF.
     hrx_executable_t executable_for(const std::vector<uint8_t>& xclbin,
                                     const std::vector<uint8_t>& elf,
-                                    std::vector<uint32_t>* patch_out) {
+                                    std::vector<uint32_t>* patch_out,
+                                    uint32_t* ord_out) {
         static bool dbg = std::getenv("FLM_FORWARD_DEBUG") != nullptr;
         std::vector<uint32_t> cc;
         if (!parse_control_elf(elf, 3, &cc, patch_out) || cc.empty()) {
@@ -341,7 +345,7 @@ public:
         size_t h = std::hash<std::string_view>{}(std::string_view(
             (const char*)cc.data(), cc.size() * 4));
         auto it = exe_cache.find(h);
-        if (it != exe_cache.end()) return it->second;
+        if (it != exe_cache.end()) { if (ord_out) *ord_out = it->second.ord; return it->second.exe; }
         flm_hrx::XadxEntryPoint ep;
         ep.name = "MLIR_AIE";
         ep.pdi_index = 0;
@@ -371,7 +375,10 @@ public:
             if (dbg) std::fprintf(stderr, "[fwd] build_xadx threw: %s\n", e.what());
             exe = nullptr;
         }
-        exe_cache[h] = exe;
+        uint32_t ord = 0;
+        if (exe) hrx_executable_lookup_export_by_name(exe, "MLIR_AIE", &ord);
+        exe_cache[h] = {exe, ord};
+        if (ord_out) *ord_out = ord;
         return exe;
     }
 };
@@ -397,8 +404,9 @@ static void forward_dispatch(RunImpl* r) {
     std::lock_guard<std::mutex> lk(fwd.mu);
     if (!fwd.dev) return;
     std::vector<uint32_t> patch;
+    uint32_t ord = 0;
     hrx_executable_t exe =
-        fwd.executable_for(k->xclbin->bytes, k->module->elf->bytes, &patch);
+        fwd.executable_for(k->xclbin->bytes, k->module->elf->bytes, &patch, &ord);
     if (!exe) { fwd.exe_fail++; return; }
     // context-switch tracking: did this dispatch change xclbin from the last one?
     if (k->xclbin.get() == fwd.last_xclbin_disp) fwd.n_same++;
@@ -422,8 +430,6 @@ static void forward_dispatch(RunImpl* r) {
     }
     if (binds.empty()) { fwd.skipped++; return; }
     fwd.t_h2d += now_us() - t0;
-    uint32_t ord = 0;
-    hrx_executable_lookup_export_by_name(exe, "MLIR_AIE", &ord);
     hrx_dispatch_config_t cfg = {{1, 1, 1}, {1, 1, 1}, 0};
     uint64_t t1 = now_us();
     hrx_status_t s = hrx_stream_dispatch(fwd.stream, exe, ord, &cfg, nullptr, 0,
@@ -519,8 +525,11 @@ static void forward_runlist(std::vector<std::shared_ptr<RunImpl>>& runs) {
         }
     }
     fwd.t_h2d += now_us() - t0;
-    // phase 2: record every dispatch (no sync -> HRX coalesces into one chain)
+    // phase 2: record every dispatch (no sync -> HRX coalesces into one chain).
+    // L6: reuse one bindings vector across runs (clear() keeps capacity) so the
+    // hot loop does not heap-allocate a fresh vector per dispatch.
     std::vector<BoImpl*> outs; int n = 0;
+    std::vector<hrx_buffer_ref_t> binds;
     uint64_t t1 = now_us();
     for (auto& rp : runs) {
         RunImpl* r = rp.get(); if (!r || !r->kernel) continue;
@@ -529,13 +538,13 @@ static void forward_runlist(std::vector<std::shared_ptr<RunImpl>>& runs) {
         if (k->xclbin.get() == fwd.last_xclbin_disp) fwd.n_same++;
         else { fwd.n_switch++; fwd.last_xclbin_disp = k->xclbin.get(); }
         std::vector<uint32_t> patch;
-        hrx_executable_t exe = fwd.executable_for(k->xclbin->bytes, k->module->elf->bytes, &patch);
+        uint32_t ord = 0;
+        hrx_executable_t exe = fwd.executable_for(k->xclbin->bytes, k->module->elf->bytes, &patch, &ord);
         if (!exe) { fwd.exe_fail++; continue; }
-        std::vector<hrx_buffer_ref_t> binds; BoImpl* out = nullptr;
+        binds.clear(); BoImpl* out = nullptr;
         for (const auto& a : r->args) { if (!a.is_bo) continue; if (!a.hbuf) { out=nullptr; break; }
             if (!out) out = a.bi; binds.push_back({a.hbuf, 0, a.size}); }
         if (binds.empty()) continue;
-        uint32_t ord = 0; hrx_executable_lookup_export_by_name(exe, "MLIR_AIE", &ord);
         hrx_dispatch_config_t cfg = {{1,1,1},{1,1,1},0};
         if (hrx_status_is_ok(hrx_stream_dispatch(fwd.stream, exe, ord, &cfg, nullptr, 0,
                                                  binds.data(), binds.size(), HRX_DISPATCH_FLAG_NONE))) {
