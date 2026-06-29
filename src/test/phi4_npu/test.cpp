@@ -11,7 +11,7 @@
 #include "utils/vm_args.hpp"
 #include "metrices.hpp"
 
-xrt::device npu_device_global;
+hrx::device npu_device_global;
 
 
 
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
     std::pair<std::string, nlohmann::json> model_info_pair = model_list.get_model_info(tag);
     nlohmann::json model_info = model_info_pair.second;
     std::cout << "Model path: " << model_path << std::endl;
-    npu_device_global = xrt::device(0); 
+    npu_device_global = hrx::device(0); 
 
     std::unique_ptr<AutoModel> chat = std::make_unique<Phi4>(&npu_device_global);
 
@@ -68,11 +68,20 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
-        uniformed_input.prompt = "Can you explain Maxwell equations and its applications?";
+        uniformed_input.prompt = "Can you briefly explain Maxwell equations?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: ";
         chat->start_total_timer();
-        response = chat->generate_with_prompt(meta_info, uniformed_input, 4096, std::cout);
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 512, std::cout);
+        chat->stop_total_timer();
+        std::cout << std::endl;
+        std::cout << std::endl;
+        std::cout << chat->show_profile() << std::endl;
+        uniformed_input.prompt = "Which of those equations is most relevant to my EE major?";
+        std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
+        std::cout << "Response: ";
+        chat->start_total_timer();
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 512, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
