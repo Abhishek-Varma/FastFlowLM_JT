@@ -8,7 +8,7 @@
 #include "utils/vm_args.hpp"
 #include "metrices.hpp"
 
-xrt::device npu_device_global;
+hrx::device npu_device_global;
 
 // Model-specific factory function for Llama family and DeepSeek_r1_8b
 inline std::pair<std::string, std::unique_ptr<AutoModel>> get_lfm2_model(const std::string& model_tag) {
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     std::unique_ptr<AutoModel> chat = std::make_unique<LFM2>(&npu_device_global);
 
-    npu_device_global = xrt::device(0); 
+    npu_device_global = hrx::device(0); 
    
     chat->load_model(model_path, model_info, -1, preemption);
     chat->set_topk(1);
@@ -74,30 +74,30 @@ int main(int argc, char* argv[]) {
 
 
     if (short_prompt) {
-        uniformed_input.prompt = "Who are you? ";
+        uniformed_input.prompt = "What is the capital of the USA?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: ";
         chat->start_total_timer();
-        std::string response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
+        std::string response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
-        uniformed_input.prompt = "What is C. elegans?";
+        uniformed_input.prompt = "What is the capital of France?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: ";
         chat->start_total_timer();
-        response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
 
-        uniformed_input.prompt = "How many cells does it have?";
+        uniformed_input.prompt = "And what is the capital of Japan?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: ";
         chat->start_total_timer();
-        response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
