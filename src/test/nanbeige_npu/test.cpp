@@ -10,7 +10,7 @@
 #include "model_list.hpp"
 #include "utils/vm_args.hpp"
 
-xrt::device npu_device_global;
+hrx::device npu_device_global;
 
 int main(int argc, char* argv[]) {
     #ifdef __WINDOWS__
@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    npu_device_global = xrt::device(0); 
+    npu_device_global = hrx::device(0); 
    
     chat->load_model(model_path, model_info, -1, preemption);
     chat_meta_info_t meta_info;
@@ -62,31 +62,30 @@ int main(int argc, char* argv[]) {
     chat->set_topk(1);
 
     if (short_prompt) {
-        uniformed_input.prompt = "你好，请问法国的首都在哪？";
+        uniformed_input.prompt = "美国的首都是哪里？";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: ";
         chat->start_total_timer();
-        std::string response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
-        // chat->insert(meta_info, uniformed_input);
+        std::string response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
-        uniformed_input.prompt = "它离北京有多远？";
+        uniformed_input.prompt = "法国的首都是哪里？";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: " << std::endl;
         chat->start_total_timer();
-        response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
 
-        uniformed_input.prompt = "从北京骑自行车去法国的首都可能吗？";
+        uniformed_input.prompt = "日本的首都是哪里？";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: " << std::endl;
         chat->start_total_timer();
-        response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;
