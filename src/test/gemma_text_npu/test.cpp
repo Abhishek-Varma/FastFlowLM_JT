@@ -5,9 +5,9 @@
 #include "AutoModel/modeling_gemma3_text.hpp"
 #include "model_list.hpp"
 
-xrt::device npu_device_global;
+hrx::device npu_device_global;
 // Model-specific factory function for Gemma3 Text family only
-inline std::pair<std::string, std::unique_ptr<AutoModel>> get_gemma_text_model(const std::string& model_tag, xrt::device* npu_device_inst) {
+inline std::pair<std::string, std::unique_ptr<AutoModel>> get_gemma_text_model(const std::string& model_tag, hrx::device* npu_device_inst) {
     static std::unordered_set<std::string> gemma3_text_Tags = {
         "gemma3", "gemma3:270m", "gemma3:1b"
     };
@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Model info" << model_info.dump(4) << std::endl;
 
     
-    npu_device_global = xrt::device(0); 
+    npu_device_global = hrx::device(0); 
     std::unique_ptr<AutoModel> chat = std::make_unique<Gemma3_Text_Only>(&npu_device_global);
    
     chat->load_model(model_path, model_info, -1, preemption);
@@ -73,15 +73,24 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
-        // uniformed_input.prompt = "How far is it from Beijing?";
-        // std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
-        // std::cout << "Response: " << std::endl;
-        // chat->start_total_timer();
-        // response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
-        // chat->stop_total_timer();
-        // std::cout << std::endl;
-        // std::cout << std::endl;
-        // std::cout << chat->show_profile() << std::endl;
+        uniformed_input.prompt = "What is the capital of France?";
+        std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
+        std::cout << "Response: " << std::endl;
+        chat->start_total_timer();
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
+        chat->stop_total_timer();
+        std::cout << std::endl;
+        std::cout << std::endl;
+        std::cout << chat->show_profile() << std::endl;
+        uniformed_input.prompt = "And what is the capital of Japan?";
+        std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
+        std::cout << "Response: " << std::endl;
+        chat->start_total_timer();
+        response = chat->generate_with_prompt(meta_info, uniformed_input, 256, std::cout);
+        chat->stop_total_timer();
+        std::cout << std::endl;
+        std::cout << std::endl;
+        std::cout << chat->show_profile() << std::endl;
     }
     else{
         std::ifstream file("../../../../prompt.txt", std::ios::binary);

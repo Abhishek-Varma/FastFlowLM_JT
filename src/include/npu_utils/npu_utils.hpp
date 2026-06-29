@@ -35,6 +35,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <map>
 #include <stdio.h>
 #ifndef __WINDOWS__
 #include <fcntl.h>
