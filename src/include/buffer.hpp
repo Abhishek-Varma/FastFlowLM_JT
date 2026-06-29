@@ -14,15 +14,11 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <memory>
 
 #define __XRT__
 
 #ifdef __XRT__
-#include "xrt/xrt_bo.h"
-#include "xrt/xrt_kernel.h"
-#include "xrt/xrt_device.h"
-#include "xrt/experimental/xrt_ext.h"
+#include "hrx_cpp/hrx_cpp.hpp"
 #endif
 
 #include "utils/debug_utils.hpp"
@@ -38,8 +34,8 @@ protected:
     bool is_owner_;
 #ifdef __XRT__
     bool is_bo_owner_;
-    xrt::bo* bo_;
-    std::unique_ptr<xrt::bo> owned_bo_;
+    hrx::bo* bo_;
+    std::unique_ptr<hrx::bo> owned_bo_;
 #endif
 
 public:
@@ -113,7 +109,7 @@ public:
 #ifdef __XRT__
     /// \brief constructor
     /// \param bo the bo
-    bytes(xrt::bo& bo)
+    bytes(hrx::bo& bo)
         : owned_data_(nullptr), data_(bo.map<uint8_t*>()), size_(bo.size()), is_owner_(false), is_bo_owner_(false), bo_(&bo), owned_bo_(nullptr)
     {}
 
@@ -123,27 +119,27 @@ public:
     /// \param kernel the kernel
     /// \param group_id the group id
     /// \param flags the flags
-    bytes(xrt::device& device, size_t size)
+    bytes(hrx::device& device, size_t size)
         : owned_data_(nullptr), size_(size), is_owner_(false), is_bo_owner_(true)
     {
         if (size > 3ull * 1024 * 1024 * 1024 || size == 0){
             throw std::runtime_error("Invalid size for bytes allocation");
         }
         size_t alignment = 1024 * 1024;
-        int padded_size = (size + alignment - 1) / alignment * alignment; // 4KB alignment, , (xrt::ext::bo::access_mode)(xrt::ext::bo::access_mode::read_write | xrt::ext::bo::access_mode::process)
+        int padded_size = (size + alignment - 1) / alignment * alignment; // 1MB alignment
 
         try {
-            owned_bo_ = std::make_unique<xrt::ext::bo>(device, padded_size);
+            owned_bo_ = std::make_unique<hrx::ext::bo>(device, padded_size);
         }
         catch (const std::exception& e) {
-            throw std::runtime_error(std::string("Failed to allocate xrt::ext::bo: ") + e.what());
+            throw std::runtime_error(std::string("Failed to allocate hrx::ext::bo: ") + e.what());
         }
         
         // uint64_t bo_address = reinterpret_cast<uintptr_t>(owned_bo_->map<uint8_t*>());
         // while ( ((bo_address & 0xF0000000) == 0x60000000) ||
         //     ((bo_address & 0xF0000000) == 0x70000000) ) {
                 
-        //     owned_bo_ = std::make_unique<xrt::ext::bo>(device, padded_size);
+        //     owned_bo_ = std::make_unique<hrx::ext::bo>(device, padded_size);
         //     //header_print("info", "Re-allocating proj_weights for layer " + std::to_string(i) + " to avoid address in 0x60000000 - 0x7FFFFFFF, new address: " + std::to_string(reinterpret_cast<uintptr_t>(proj_weights[i].data())));
         //     bo_address = reinterpret_cast<uintptr_t>(owned_bo_->map<uint8_t*>());
         // }
@@ -304,15 +300,15 @@ public:
     /// \return the is bo owner
     bool is_bo_owner() const { return is_bo_owner_; }
 
-    /// \brief sync to device
-    void sync_to_device() { assert(bo_); bo_->sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+    /// \brief sync to device (host writes -> device)
+    void sync_to_device() { assert(bo_); bo_->flush(); }
 
-    /// \brief sync from device
-    void sync_from_device() { assert(bo_); bo_->sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
+    /// \brief sync from device (device writes -> host)
+    void sync_from_device() { assert(bo_); bo_->invalidate(); }
 
     /// \brief bo
     /// \return the bo
-    xrt::bo& bo() { assert(bo_); return *bo_; }
+    hrx::bo& bo() { assert(bo_); return *bo_; }
 #endif
 
     /// \brief from file
@@ -360,7 +356,7 @@ public:
 #ifdef __XRT__
     /// \brief constructor
     /// \param bo the bo
-    buffer(xrt::bo& bo) : bytes(bo) {}
+    buffer(hrx::bo& bo) : bytes(bo) {}
 
     /// \brief constructor
     /// \param count the count
@@ -368,7 +364,7 @@ public:
     /// \param kernel the kernel
     /// \param group_id the group id
     /// \param flags the flags
-    buffer(xrt::device& device, size_t count)
+    buffer(hrx::device& device, size_t count)
         : bytes(device, count * sizeof(T)) {}
 #endif
 
