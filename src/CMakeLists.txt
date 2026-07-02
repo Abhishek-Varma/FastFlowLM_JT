@@ -40,6 +40,15 @@ else()
 endif()
 
 # ———————————————————————————————————————————————
+# HRX backend (Linux): replaces XRT + aiebu for NPU dispatch.
+# Override HRX_DIR on the cmake command-line for other checkouts.
+# ———————————————————————————————————————————————
+if(NOT WIN32)
+    set(HRX_DIR   /home/nod/jorn_repro/hrx CACHE PATH "Where the HRX runtime source tree lives")
+    set(HRX_BUILD ${HRX_DIR}/build/cmake   CACHE PATH "Where the HRX build output lives")
+endif()
+
+# ———————————————————————————————————————————————
 # Add tokenizers-cpp subproject
 # ———————————————————————————————————————————————
 # Ensure C++17 is available for tokenizers-cpp
@@ -120,6 +129,16 @@ target_include_directories(flm PUBLIC
     ${XRT_INCLUDE_DIR}
 )
 
+if(NOT WIN32)
+    # HRX runtime headers (hrx_runtime.h, flatcc, generated runtime sources)
+    target_include_directories(flm PUBLIC
+        ${HRX_DIR}/libhrx/include
+        ${HRX_DIR}/runtime/src
+        ${HRX_BUILD}/runtime/src
+        ${HRX_BUILD}/_deps/flatcc-src/include
+    )
+endif()
+
 if(WIN32)
     target_include_directories(flm PUBLIC
         C:/dev/boost_1_88_0
@@ -169,7 +188,6 @@ endif()
 
 # Link your custom libraries (these may still be DLLs if no static versions available)
 target_link_libraries(flm PUBLIC
-    xrt_coreutil
     q4_npu_eXpress
     llama_npu
     qwen2_npu
@@ -194,12 +212,19 @@ target_link_libraries(flm PUBLIC
 
 if(WIN32)
     target_link_libraries(flm PUBLIC
+        xrt_coreutil
         aiebu_static
     )
 else()
+    # HRX replaces XRT (xrt_coreutil) + aiebu for NPU dispatch. These must be
+    # linked after the detail model libraries above so their libhrx references
+    # resolve.
     target_link_libraries(flm PUBLIC
-        aiebu
+        ${HRX_BUILD}/libhrx/src/libhrx/libhrx.so
+        ${HRX_BUILD}/libflatcc_runtime.a
     )
+    set_target_properties(flm PROPERTIES
+        BUILD_RPATH "${HRX_BUILD}/libhrx/src/libhrx;${CMAKE_SOURCE_DIR}/lib")
 endif()
 
 target_link_libraries(flm PUBLIC
