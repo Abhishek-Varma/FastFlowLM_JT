@@ -3,7 +3,7 @@
 ///        a TXN control-code stream (the output of npu_sequence::dump()).
 ///
 /// FLM's npu_app builds a TXN instruction stream (npu_sequence). Instead of
-/// assembling it into an ELF via aiebu and dispatching with xrt::, we wrap the
+/// assembling it into an ELF via aiebu and dispatching through XRT, we wrap the
 /// raw TXN stream into an HRX "direct executable" (XADX flatbuffer) and dispatch
 /// it through libhrx:
 ///

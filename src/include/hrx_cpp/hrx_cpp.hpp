@@ -212,8 +212,8 @@ public:
 };
 
 namespace info {
-// Argument to device::get_info<>(), mirroring xrt::info::device. FLM only
-// queries the human-readable device name for diagnostics.
+// Argument to device::get_info<>(), mirroring the legacy XRT device-info
+// enum. FLM only queries the human-readable device name for diagnostics.
 enum class device { name, architecture };
 }
 
@@ -224,9 +224,9 @@ public:
     uuid register_xclbin(const xclbin& /*xc*/) { return uuid{}; }
     void reset() {}
 
-    // Mirror of xrt::device::get_info<xrt::info::device::name>(): a
-    // human-readable device identity string for diagnostics. XRT returns the
-    // VBNV name; HRX returns the IREE HAL device name (e.g. "amdxdna") via
+    // Mirror of the legacy XRT device get_info(name) query: a human-readable
+    // device identity string for diagnostics. XRT returned the VBNV name; HRX
+    // returns the IREE HAL device name (e.g. "amdxdna") via
     // hrx_device_get_property().
     template <info::device P>
     std::string get_info() const {

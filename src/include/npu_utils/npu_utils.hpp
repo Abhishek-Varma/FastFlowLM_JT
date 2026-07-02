@@ -61,7 +61,7 @@ class npu_xclbin_manager;
 ///@param device the pointer to the device
 ///@param context the pointer to the context
 ///@param kernel_name the name of the kernel
-///@see xrt::kernel, xrt::device
+///@see hrx::kernel, hrx::device
 class npu_app {
 private:
     // from external
@@ -148,7 +148,7 @@ public:
     ///@param device the pointer to the device
     ///@param context the pointer to the context
     ///@param kernel_name the name of the kernel
-    ///@see xrt::device, xrt::hw_context, xrt::kernel
+    ///@see hrx::device, hrx::hw_context, hrx::kernel
     npu_app(npu_device device_gen, hrx::device* device, hrx::hw_context* context, std::string kernel_name, bool enable_preemption = false):
         device_gen(device_gen), device(device), context(context), kernel_name(kernel_name), enable_preemption(enable_preemption){
         this->module_valid = false;
@@ -178,7 +178,7 @@ public:
 
     ///@brief Operator() for running the kernel
     ///@param args arguments, shall be the buffers with real bo
-    ///@see xrt::run
+    ///@see hrx::run
     template<typename... BoArgs>
     ert_cmd_state operator()(BoArgs&&... args){
         if (this->module_valid == false || this->ctrl_seq->sequence_valid() == false || this->module_version != this->ctrl_seq->sequence_version()) {
@@ -198,7 +198,7 @@ public:
     
     ///@brief Operator() for running the kernel
     ///@param args arguments, shall be the buffers with real bo
-    ///@see xrt::run
+    ///@see hrx::run
     template<typename... BoArgs>
     ert_cmd_state safe_run(BoArgs&&... args){
         if (this->module_valid == false || this->ctrl_seq->sequence_valid() == false || this->module_version != this->ctrl_seq->sequence_version()) {
@@ -224,7 +224,7 @@ public:
     ///@brief Create a run object
     ///@param args arguments, shall be the buffers with real bo
     ///@return a run object for waiting
-    ///@see xrt::run
+    ///@see hrx::run
     template<typename... BoArgs>
     hrx::run create_run(BoArgs&&... args){
         if (this->module_valid == false || this->ctrl_seq->sequence_valid() == false || this->module_version != this->ctrl_seq->sequence_version()) {
@@ -269,7 +269,7 @@ public:
     ///@param device_gen the npu device
     ///@param device device object
     ///@param xclbin_name name of the xclbin file
-    ///@see xrt::device, xrt::xclbin
+    ///@see hrx::device, hrx::xclbin
     ///@note The function will initialize the npu_app_manager to nullptr
     npu_app_manager(){
         this->device_gen = device_npu2;
@@ -355,7 +355,7 @@ public:
     ///@param device_gen the npu device
     ///@param device device object
     ///@param xclbin_name name of the xclbin file
-    ///@see xrt::device, xrt::xclbin
+    ///@see hrx::device, hrx::xclbin
     npu_app_manager(npu_device device_gen, hrx::device* device, std::string xclbin_name, bool enable_preemption = false){
         assert(device != nullptr);
         assert(xclbin_name != "");
@@ -422,7 +422,7 @@ public:
 
     ///@brief Create a runlist
     ///@return a runlist object
-    ///@see xrt::runlist
+    ///@see hrx::runlist
     hrx::runlist create_runlist(){
         assert(this->xclbin_valid);
         assert(this->enable_preemption == false); // preemption is not supported for runlist
@@ -449,7 +449,7 @@ public:
     ///@brief Constructor, this shall not invoke by user, it shall only be invoked by main
     ///@param device the npu device
     ///@param device_id the device id
-    ///@see xrt::device
+    ///@see hrx::device
     npu_xclbin_manager(npu_device device = device_npu2, hrx::device* device_inst = nullptr, bool enable_preemption = false){
         this->device = device_inst;
         // this->npu_xclbins.resize(max_xclbins);
