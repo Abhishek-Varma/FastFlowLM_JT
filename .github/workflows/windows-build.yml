@@ -31,7 +31,7 @@ jobs:
       - name: Configure CMake
         shell: powershell
         run: |
-          cmake --preset windows-default
+          cmake --preset windows-vs18
 
       - name: Build
         shell: powershell

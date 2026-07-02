@@ -43,6 +43,17 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "windows-vs18",
+      "displayName": "Windows VS18",
+      "description": "Configuration for Windows using Visual Studio 18 2026",
+      "inherits": "common-default",
+      "generator": "Visual Studio 18 2026",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
