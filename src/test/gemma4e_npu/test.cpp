@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<AutoModel> chat = std::make_unique<Gemma4e>(&npu_device_global);
     std::cout <<"Chat model initialized" << std::endl;
     npu_device_global = hrx::device(0); 
-    std::cout << "NPU Device initialized (HRX)" << std::endl;
+    std::cout << "NPU Device initialized: " << npu_device_global.get_info<hrx::info::device::name>() << std::endl;
     chat->load_model(model_path, model_info, -1, preemption);
     header_print("info", "Model loaded");
     chat_meta_info_t meta_info;

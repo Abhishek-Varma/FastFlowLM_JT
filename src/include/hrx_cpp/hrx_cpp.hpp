@@ -211,12 +211,33 @@ public:
     std::shared_ptr<std::vector<uint8_t>> bytes_shared() const { return bytes_; }
 };
 
+namespace info {
+// Argument to device::get_info<>(), mirroring xrt::info::device. FLM only
+// queries the human-readable device name for diagnostics.
+enum class device { name, architecture };
+}
+
 class device {
 public:
     device() = default;
     explicit device(unsigned int /*index*/) { rt(); }
     uuid register_xclbin(const xclbin& /*xc*/) { return uuid{}; }
     void reset() {}
+
+    // Mirror of xrt::device::get_info<xrt::info::device::name>(): a
+    // human-readable device identity string for diagnostics. XRT returns the
+    // VBNV name; HRX returns the IREE HAL device name (e.g. "amdxdna") via
+    // hrx_device_get_property().
+    template <info::device P>
+    std::string get_info() const {
+        char buf[128] = {0};
+        hrx_device_get_property(
+            rt().dev,
+            P == info::device::architecture ? HRX_DEVICE_PROPERTY_ARCHITECTURE
+                                            : HRX_DEVICE_PROPERTY_NAME,
+            buf, sizeof(buf));
+        return std::string(buf);
+    }
 };
 
 class hw_context {
