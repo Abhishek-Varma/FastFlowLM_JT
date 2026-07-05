@@ -87,7 +87,6 @@ static json normalize_messages(json messages) {
             current_msg["content"] = merged_content_array;
         }
         else if (role == "assistant") {
-            std::cout << "Removing assistant fields..." << std::endl;
             // Strip prior assistant "thinking" / reasoning fields so they are not
             // fed back into the model on subsequent turns.
             if (current_msg.contains("thinking")) {
