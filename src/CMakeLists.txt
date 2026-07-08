@@ -695,11 +695,6 @@ else()
                 message(WARNING \"XRT libraries not found in /usr/lib or /usr/lib/x86_64-linux-gnu\")
             endif()
         ")
-
-        if(ZLIB_BUILT_FROM_SOURCE)
-            # Bundle zlib static library into the portable lib/ directory
-            install(FILES ${ZLIB_STATIC_LIB} DESTINATION lib)
-        endif()
     endif()
 
     if(FLM_PORTABLE_BUILD)
