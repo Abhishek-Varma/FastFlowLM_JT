@@ -76,22 +76,15 @@ std::string find_xclbin_path() {
         }
     }
 
-    // 2. Check for install prefix
+    // 2. Check current working directory
+    if (std::filesystem::exists("xclbins")) {
+        return "xclbins";
+    }
+
+    // 3. Check for install prefix
     std::string installed_path = xclbin_prefix;
     if (std::filesystem::exists(installed_path)) {
         return installed_path;
-    }
-
-    // 3. Check relative to executable
-    std::string exe_dir = get_executable_directory();
-    std::string exe_relative_path = exe_dir;
-    if (std::filesystem::exists(exe_relative_path)) {
-        return exe_relative_path;
-    }
-
-    // 4. Check current working directory
-    if (std::filesystem::exists("xclbins")) {
-        return "xclbins";
     }
 
     // If not found, throw an error
