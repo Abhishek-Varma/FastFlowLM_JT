@@ -148,7 +148,7 @@ inline hrx_executable_t build_or_get_executable(
     try {
         std::vector<uint8_t> xadx = flm_hrx::build_xadx(xclbin_bytes, {ep});
         hrx_status_t s = hrx_executable_load_data(rt().dev, xadx.data(),
-                                                  xadx.size(), "", &exe);
+                                                  xadx.size(), "amdxdna-xclbin-fb", &exe);
         if (!hrx_status_is_ok(s)) {
             char* m = nullptr;
             size_t mn = 0;
