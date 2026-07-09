@@ -48,12 +48,18 @@ jobs:
       run: |
         apt-get update
         apt-get install -y uuid-dev nasm
-        apt-get install -y --no-install-recommends curl ca-certificates
+        apt-get install -y --no-install-recommends curl ca-certificates zstd
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
           sh -s -- -y --profile minimal --default-toolchain stable
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+    - name: Fetch pinned HRX release artifact
+      id: hrx
+      run: hrx-integration/fetch-hrx-release.sh
+
     - name: Build FLM portable distribution
+      env:
+        CMAKE_PREFIX_PATH: ${{ steps.hrx.outputs.prefix }}
       run: |
         cd src
         cmake --preset linux-portable
@@ -81,7 +87,9 @@ jobs:
           xclbins/ \
           model_list.json
         echo "Created tarball with symlinks preserved"
-        tar tzf $GITHUB_WORKSPACE/fastflowlm_${VERSION}_linux.tar.gz | grep libxrt
+        # The runtime engine now dispatches through the HRX (amdxdna) runtime
+        # rather than XRT, so confirm libhrx is bundled instead of libxrt.
+        tar tzf $GITHUB_WORKSPACE/fastflowlm_${VERSION}_linux.tar.gz | grep libhrx
 
     - name: Upload portable build artifact
       uses: actions/upload-artifact@v4
