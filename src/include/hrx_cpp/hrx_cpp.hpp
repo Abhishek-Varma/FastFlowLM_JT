@@ -1,10 +1,10 @@
 /// \file hrx_cpp.hpp
-/// \brief Minimal C++ `namespace hrx` mirroring the subset of the XRT API that
-///        FastFlowLM uses, implemented directly on top of libhrx (hrx_runtime.h).
+/// \brief Minimal C++ `namespace hrx` providing the device/buffer/kernel/run
+///        API that FastFlowLM uses, implemented directly on top of libhrx
+///        (hrx_runtime.h).
 ///
-/// This replaces the XRT dependency (and the interposer shim) with direct HRX
-/// calls. aiebu is dropped: NPU control code goes straight from
-/// npu_sequence::dump() into an HRX XADX "direct executable".
+/// NPU control code goes straight from npu_sequence::dump() into an HRX XADX
+/// "direct executable"; there is no separate assembler step.
 ///
 /// Coherence model: buffers are device-visible, host-coherent, mapped once
 /// (persistent). FastFlowLM already brackets device work with explicit
@@ -29,7 +29,7 @@
 #include "hrx_runtime.h"
 #include "hrx_cpp/hrx_xadx_builder.hpp"
 
-// ---- ert_cmd_state: FLM's npu_utils returns/maps these (originally xrt/ert.h).
+// ---- ert_cmd_state: command states that FLM's npu_utils returns/maps.
 #ifndef FLM_ERT_CMD_STATE_DEFINED
 #define FLM_ERT_CMD_STATE_DEFINED
 enum ert_cmd_state {
@@ -212,8 +212,8 @@ public:
 };
 
 namespace info {
-// Argument to device::get_info<>(), mirroring the legacy XRT device-info
-// enum. FLM only queries the human-readable device name for diagnostics.
+// Argument to device::get_info<>(). FLM only queries the human-readable
+// device name for diagnostics.
 enum class device { name, architecture };
 }
 
@@ -224,10 +224,8 @@ public:
     uuid register_xclbin(const xclbin& /*xc*/) { return uuid{}; }
     void reset() {}
 
-    // Mirror of the legacy XRT device get_info(name) query: a human-readable
-    // device identity string for diagnostics. XRT returned the VBNV name; HRX
-    // returns the IREE HAL device name (e.g. "amdxdna") via
-    // hrx_device_get_property().
+    // Returns a human-readable device identity string for diagnostics: the
+    // IREE HAL device name (e.g. "amdxdna") via hrx_device_get_property().
     template <info::device P>
     std::string get_info() const {
         char buf[128] = {0};

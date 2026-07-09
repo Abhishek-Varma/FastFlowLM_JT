@@ -15,9 +15,9 @@
 #include <string>
 #include <vector>
 
-#define __XRT__
+#define FLM_DEVICE_BUFFER
 
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
 #include "hrx_cpp/hrx_cpp.hpp"
 #endif
 
@@ -32,7 +32,7 @@ protected:
     uint8_t* data_;
     size_t size_;
     bool is_owner_;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
     bool is_bo_owner_;
     hrx::bo* bo_;
     std::unique_ptr<hrx::bo> owned_bo_;
@@ -43,7 +43,7 @@ public:
     /// \note This is a buffer wrapper that maps to a bo_buffer or other memory without performing a deep copy.
     /// \note A copy (or mapping) does not duplicate the underlying memory; it only maps the pointer.
     bytes() : data_(nullptr), size_(0), is_owner_(false)
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         , is_bo_owner_(false), bo_(nullptr), owned_bo_(nullptr)
 #endif
     {}
@@ -51,7 +51,7 @@ public:
     /// \brief copy constructor
     /// \param other the other bytes
     bytes(const bytes& other) : owned_data_(nullptr), data_(other.data_), size_(other.size_), is_owner_(false)
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         , is_bo_owner_(false), bo_(other.bo_), owned_bo_(nullptr)
 #endif
     {}
@@ -60,14 +60,14 @@ public:
     /// \param other the other bytes
     bytes(bytes&& other) noexcept
         : owned_data_(std::move(other.owned_data_)), data_(other.data_), size_(other.size_), is_owner_(other.is_owner_)
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         , is_bo_owner_(other.is_bo_owner_), bo_(other.bo_), owned_bo_(std::move(other.owned_bo_))
 #endif
     {
         other.data_ = nullptr;
         other.size_ = 0;
         other.is_owner_ = false;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         other.is_bo_owner_ = false;
         other.bo_ = nullptr;
         other.owned_bo_ = nullptr;
@@ -78,7 +78,7 @@ public:
     /// \param size the size
     bytes(size_t size)
         : size_(size), is_owner_(true)
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         , is_bo_owner_(false), bo_(nullptr), owned_bo_(nullptr)
 #endif
     {
@@ -101,12 +101,12 @@ public:
     /// \param size the size
     bytes(uint8_t* data, size_t size)
         : owned_data_(nullptr), data_(data), size_(size), is_owner_(false)
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         , is_bo_owner_(false), bo_(nullptr), owned_bo_(nullptr)
 #endif
     {}
 
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
     /// \brief constructor
     /// \param bo the bo
     bytes(hrx::bo& bo)
@@ -155,7 +155,7 @@ public:
             owned_data_.reset();
         }
         data_ = nullptr;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         if (is_bo_owner_) {
             owned_bo_.reset();
         }
@@ -173,7 +173,7 @@ public:
             data_ = other.data_;
             size_ = other.size_;
             is_owner_ = false;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
             if (is_bo_owner_){
                 owned_bo_.reset();
             }
@@ -195,7 +195,7 @@ public:
             data_ = other.data_;
             size_ = other.size_;
             is_owner_ = other.is_owner_;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
             if (is_bo_owner_){
                 owned_bo_.reset();
             }
@@ -245,7 +245,7 @@ public:
     /// \brief resize
     /// \param new_size the new size
     void resize(size_t new_size) {
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         assert(!is_bo_owner_);
 #endif
         if (data_ != nullptr && !is_owner_) {
@@ -267,7 +267,7 @@ public:
 
     /// \brief free, release the memory or the bo
     void free() {
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         assert(!is_bo_owner_);
 #endif
         if (is_owner_){
@@ -276,7 +276,7 @@ public:
         data_ = nullptr;
         size_ = 0;
         is_owner_ = false;
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
         if (is_bo_owner_){
             owned_bo_.reset();
         }
@@ -295,7 +295,7 @@ public:
     /// \brief is owner
     /// \return the is owner
     bool is_owner() const { return is_owner_; }
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
     /// \brief is bo owner
     /// \return the is bo owner
     bool is_bo_owner() const { return is_bo_owner_; }
@@ -353,7 +353,7 @@ public:
     /// \param other the other buffer
     buffer(const buffer& other) : bytes(other) {}
 
-#ifdef __XRT__
+#ifdef FLM_DEVICE_BUFFER
     /// \brief constructor
     /// \param bo the bo
     buffer(hrx::bo& bo) : bytes(bo) {}

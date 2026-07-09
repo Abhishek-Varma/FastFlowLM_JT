@@ -165,8 +165,8 @@ public:
     }
 
     void load_elf(std::string elf_name){
-        // ELF-based control loading relied on aiebu/xrt and is not used on the
-        // HRX backend (control code comes from ctrl_seq->dump()).
+        // ELF-based control loading is not used on the HRX backend (control
+        // code comes from ctrl_seq->dump()).
         (void)elf_name;
         header_print("warning", "npu_app::load_elf is not supported on the HRX backend (ignored)");
     }
@@ -444,7 +444,7 @@ private:
     bool enable_preemption;
     npu_device npu_gen;
 public:
-    constexpr static int max_xclbins = 16; // This is hard constraint from the XRT driver
+    constexpr static int max_xclbins = 16; // hard constraint inherited from the NPU runtime
     
     ///@brief Constructor, this shall not invoke by user, it shall only be invoked by main
     ///@param device the npu device

@@ -170,12 +170,14 @@ if(WIN32)
 endif()
 
 target_link_directories(flm PUBLIC
-    ${XRT_LIB_DIR}
     ${CMAKE_SOURCE_DIR}/lib
 )
 
 if(WIN32)
+    # XRT libs (xrt_coreutil) are only linked on Windows; on Linux HRX replaces
+    # XRT, so ${XRT_LIB_DIR} must not be added to the link/rpath there.
     target_link_directories(flm PUBLIC
+        ${XRT_LIB_DIR}
         C:/dev/boost_1_88_0/stage/lib
         C:/dev/vcpkg/installed/x64-windows/lib
     )
