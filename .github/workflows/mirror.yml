@@ -24,30 +24,25 @@ jobs:
       - name: Push mirror to ROCm/FastFlowLM
         env:
           SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
           set -euo pipefail
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Load the deploy key for the target repo.
-          mkdir -p ~/.ssh
-          printf '%s\n' "${MIRROR_SSH_KEY}" > ~/.ssh/mirror_key
-          chmod 600 ~/.ssh/mirror_key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/mirror_key -o IdentitiesOnly=yes"
 
           # Bare mirror clone of the source (this repo) — all branches and tags.
           git clone --mirror \
             "https://x-access-token:${SOURCE_TOKEN}@github.com/${{ github.repository }}.git" repo.git
           cd repo.git
 
-          # Push all branches and tags to the target over SSH. --prune deletes
-          # branches/tags on the target that no longer exist on the source, so it
-          # stays an exact copy. We push heads + tags explicitly (not --mirror)
-          # because GitHub rejects the read-only refs/pull/* refs, which would
-          # otherwise fail the whole push.
+          # Push all branches and tags to the target over HTTPS with a PAT that
+          # carries the `workflow` scope (required to mirror .github/workflows/*).
+          # --prune deletes branches/tags on the target that no longer exist on the
+          # source, so it stays an exact copy. We push heads + tags explicitly (not
+          # --mirror) because GitHub rejects the read-only refs/pull/* refs, which
+          # would otherwise fail the whole push.
           # Keep ROCm/FastFlowLM read-only during this phase or its refs get clobbered.
-          git push --prune git@github.com:ROCm/FastFlowLM.git \
+          git push --prune \
+            "https://x-access-token:${MIRROR_TOKEN}@github.com/ROCm/FastFlowLM.git" \
             'refs/heads/*:refs/heads/*' \
             'refs/tags/*:refs/tags/*'
