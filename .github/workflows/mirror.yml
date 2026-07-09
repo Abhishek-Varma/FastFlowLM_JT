@@ -21,10 +21,19 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Mint token for the target repo
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.MIRROR_APP_ID }}
+          private-key: ${{ secrets.MIRROR_APP_PRIVATE_KEY }}
+          owner: ROCm
+          repositories: FastFlowLM
+
       - name: Push mirror to ROCm/FastFlowLM
         env:
           SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          MIRROR_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           git config --global user.name "github-actions[bot]"
@@ -35,12 +44,12 @@ jobs:
             "https://x-access-token:${SOURCE_TOKEN}@github.com/${{ github.repository }}.git" repo.git
           cd repo.git
 
-          # Push all branches and tags to the target over HTTPS with a PAT that
-          # carries the `workflow` scope (required to mirror .github/workflows/*).
-          # --prune deletes branches/tags on the target that no longer exist on the
-          # source, so it stays an exact copy. We push heads + tags explicitly (not
-          # --mirror) because GitHub rejects the read-only refs/pull/* refs, which
-          # would otherwise fail the whole push.
+          # Push all branches and tags to the target over HTTPS with a short-lived
+          # GitHub App installation token (carries Contents + Workflows write, so it
+          # can mirror .github/workflows/*). --prune deletes branches/tags on the
+          # target that no longer exist on the source, so it stays an exact copy.
+          # We push heads + tags explicitly (not --mirror) because GitHub rejects the
+          # read-only refs/pull/* refs, which would otherwise fail the whole push.
           # Keep ROCm/FastFlowLM read-only during this phase or its refs get clobbered.
           git push --prune \
             "https://x-access-token:${MIRROR_TOKEN}@github.com/ROCm/FastFlowLM.git" \
