@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<AutoModel> chat = std::make_unique<Gemma3>(&npu_device_global);
    
     chat->load_model(model_path, model_info, -1, preemption);
+    chat->set_topk(1);
     chat_meta_info_t meta_info;
     lm_uniform_input_t uniformed_input;
     std::string response;

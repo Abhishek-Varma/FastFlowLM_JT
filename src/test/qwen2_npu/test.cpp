@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<AutoModel> chat = std::make_unique<Qwen2>(&npu_device_global);
    
     chat->load_model(model_path, model_info, -1, preemption);
+    chat->set_topk(1);
     chat->set_topp(0.8f);
     chat->set_temperature(0.7f);
     chat->set_repetition_penalty(1.01f);
