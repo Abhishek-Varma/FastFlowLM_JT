@@ -63,9 +63,12 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << std::endl;
 
-        return 0;
+        // return 0;
         std::cout << chat->show_profile() << std::endl;
-        uniformed_input.prompt = "How far is it from Beijing?";
+        chat->clear_context(); 
+
+        meta_info.restore_allowed = true;
+        uniformed_input.prompt = "How far is the previous city from Beijing?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: " << std::endl;
         chat->start_total_timer();
@@ -74,6 +77,7 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
+        chat->clear_context();
 
         uniformed_input.prompt = "Is it possible to go to the capital of France from Beijing by bicycle?";
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
@@ -81,9 +85,11 @@ int main(int argc, char* argv[]) {
         chat->start_total_timer();
         response = chat->generate_with_prompt(meta_info, uniformed_input, 1024, std::cout);
         chat->stop_total_timer();
+      
         std::cout << std::endl;
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
+      chat->clear_context();            
     }
     else{
         std::ifstream file("../../../../prompt.txt", std::ios::binary);
