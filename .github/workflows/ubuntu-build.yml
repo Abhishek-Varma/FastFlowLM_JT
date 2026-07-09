@@ -78,6 +78,9 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version
 
+      - name: Fetch pinned HRX release artifact
+        run: hrx-integration/fetch-hrx-release.sh
+
       - name: Build Debian package
         working-directory: ${{ github.workspace }}
         env:

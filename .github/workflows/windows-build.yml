@@ -28,6 +28,14 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Fetch pinned Windows HRX release artifact
+        shell: powershell
+        working-directory: ${{ github.workspace }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          .\hrx-integration\fetch-hrx-release.ps1
+
       - name: Configure CMake
         shell: powershell
         run: |
@@ -57,6 +65,10 @@ jobs:
           Copy-Item -Path .\xclbins -Destination $dist\ -Recurse -Force
           Copy-Item -Path .\model_list.json -Destination $dist\ -Force
           Copy-Item -Path .\lib\*.dll -Destination $dist\ -Force
+
+          # HRX runtime DLL (from the pinned Windows HRX artifact) — required by flm.exe at runtime
+          $hrxDll = Get-ChildItem -Path ..\hrx-integration\.hrx-release\hrx-amdxdna-*-windows-x86_64\HRX_BUILD\libhrx\src\libhrx\hrx.dll -ErrorAction Stop | Select-Object -First 1
+          Copy-Item -Path $hrxDll.FullName -Destination $dist\ -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

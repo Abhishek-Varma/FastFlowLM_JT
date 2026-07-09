@@ -59,36 +59,6 @@ std::atomic<bool> should_exit(false);
 std::mutex exit_mutex;
 std::condition_variable exit_cv;
 
-#ifndef _WIN32
-///@brief Preload critical XRT libraries from the executable directory
-///@details This ensures that dlopen() calls within libraries find the bundled versions
-///@note Only on Linux/Unix; Windows handles DLL loading differently
-void preload_bundled_libraries() {
-    std::string exe_dir = utils::get_executable_directory();
-
-    // When running inside a snap, LD_LIBRARY_PATH already points at the
-    // bundled XRT libs (e.g. $SNAP/usr/lib/x86_64-linux-gnu).  Passing a
-    // bare library name lets the dynamic linker resolve it via
-    // LD_LIBRARY_PATH, which avoids hard-coding the arch triplet.
-    // Outside of a snap the bundled libraries are expected to live in
-    // lib/ relative to the executable.
-    const char* snap_env = std::getenv("SNAP");
-    std::string lib_prefix = snap_env && *snap_env ? "" : exe_dir + "/lib/";
-
-    const std::vector<std::string> libraries = {
-        "libxrt_core.so.2",           // Core - no dependencies
-        "libxrt_coreutil.so.2",       // Depends on core
-        "libxrt_driver_xdna.so.2",    // Driver
-    };
-
-    // Try to load the library with RTLD_GLOBAL so symbols are available to dependent libraries
-    // Don't care about failures
-    for (const auto& lib : libraries) {
-        std::string lib_path = lib_prefix + lib;
-        void* handle = dlopen(lib_path.c_str(), RTLD_LAZY | RTLD_GLOBAL);
-    }
-}
-#endif
 
 
 
@@ -463,9 +433,6 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
-#else
-    // Preload bundled libraries from executable directory
-    preload_bundled_libraries();
 #endif
     
     // Parse command line arguments using Boost Program Options

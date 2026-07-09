@@ -53,6 +53,9 @@ jobs:
           sh -s -- -y --profile minimal --default-toolchain stable
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+    - name: Fetch pinned HRX release artifact
+      run: hrx-integration/fetch-hrx-release.sh
+
     - name: Build FLM portable distribution
       run: |
         cd src
