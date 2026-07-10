@@ -29,53 +29,56 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build/)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # ———————————————————————————————————————————————
-# User-tweakable XRT settings (override on cmake command-line)
-# ———————————————————————————————————————————————
-if(WIN32)
-    set(XRT_INCLUDE_DIR C:/dev/XRT/src/runtime_src/core/include CACHE PATH   "Where XRT headers live")
-    set(XRT_LIB_DIR     C:/dev/xrtNPUfromDLL     CACHE PATH   "Where XRT libs live")
-else()
-    set(XRT_INCLUDE_DIR /opt/xilinx/xrt/include CACHE PATH   "Where XRT headers live")
-    set(XRT_LIB_DIR     /opt/xilinx/xrt/lib     CACHE PATH   "Where XRT libs live")
-endif()
-
-# ———————————————————————————————————————————————
-# HRX amdxdna runtime for NPU dispatch (Linux).
+# HRX amdxdna runtime for NPU dispatch (Linux + Windows).
 #
-# Consumed from the pinned release artifact fetched by
-# hrx-integration/fetch-hrx-release.sh (pin: hrx-integration/hrx-release.env).
+# Linux:   consumed from the pinned release artifact fetched by
+#          hrx-integration/fetch-hrx-release.sh (pin: hrx-integration/hrx-release.env).
+# Windows: build HRX from source (branch amdxdna-hal-native) with
+#          -DIREE_HAL_DRIVER_AMDXDNA=ON so hrx.dll includes the Windows MCDM NPU
+#          HAL — see docs/windows-dll-build.md.
+#
 # Source the artifact's env.sh (exports HRX_DIR / HRX_BUILD) or override
 # HRX_DIR / HRX_BUILD on the cmake command line.
 # ———————————————————————————————————————————————
-if(NOT WIN32)
-    if(NOT HRX_DIR AND DEFINED ENV{HRX_DIR})
-        set(HRX_DIR "$ENV{HRX_DIR}")
-    endif()
-    if(NOT HRX_BUILD AND DEFINED ENV{HRX_BUILD})
-        set(HRX_BUILD "$ENV{HRX_BUILD}")
-    endif()
-    if(NOT HRX_DIR OR NOT HRX_BUILD)
-        file(GLOB _hrx_artifact_roots
-            "${CMAKE_CURRENT_SOURCE_DIR}/../hrx-integration/.hrx-release/hrx-amdxdna-*")
-        if(_hrx_artifact_roots)
-            list(GET _hrx_artifact_roots 0 _hrx_artifact_root)
-            if(NOT HRX_DIR)
-                set(HRX_DIR "${_hrx_artifact_root}/HRX_DIR")
-            endif()
-            if(NOT HRX_BUILD)
-                set(HRX_BUILD "${_hrx_artifact_root}/HRX_BUILD")
-            endif()
+if(NOT HRX_DIR AND DEFINED ENV{HRX_DIR})
+    set(HRX_DIR "$ENV{HRX_DIR}")
+endif()
+if(NOT HRX_BUILD AND DEFINED ENV{HRX_BUILD})
+    set(HRX_BUILD "$ENV{HRX_BUILD}")
+endif()
+if(NOT HRX_DIR OR NOT HRX_BUILD)
+    file(GLOB _hrx_artifact_roots
+        "${CMAKE_CURRENT_SOURCE_DIR}/../hrx-integration/.hrx-release/hrx-amdxdna-*")
+    if(_hrx_artifact_roots)
+        list(GET _hrx_artifact_roots 0 _hrx_artifact_root)
+        if(NOT HRX_DIR)
+            set(HRX_DIR "${_hrx_artifact_root}/HRX_DIR")
+        endif()
+        if(NOT HRX_BUILD)
+            set(HRX_BUILD "${_hrx_artifact_root}/HRX_BUILD")
         endif()
     endif()
-    if(NOT EXISTS "${HRX_BUILD}/libhrx/src/libhrx/libhrx.so")
-        message(FATAL_ERROR
-            "HRX artifact not found at '${HRX_BUILD}'. Run "
-            "hrx-integration/fetch-hrx-release.sh (or `source <artifact>/env.sh`) "
-            "before building, or override HRX_DIR/HRX_BUILD on the cmake command line.")
-    endif()
-    set(HRX_DIR   "${HRX_DIR}"   CACHE PATH "Where the HRX runtime source tree lives")
-    set(HRX_BUILD "${HRX_BUILD}" CACHE PATH "Where the HRX build output lives")
 endif()
+
+# Platform-specific HRX libraries (import/shared lib + flatcc runtime). Override
+# HRX_LIB / HRX_FLATCC_LIB if your HRX build lays them out differently.
+if(WIN32)
+    set(HRX_LIB        "${HRX_BUILD}/libhrx/src/libhrx/hrx.lib" CACHE FILEPATH "HRX import library")
+    set(HRX_FLATCC_LIB "${HRX_BUILD}/flatcc_runtime.lib"        CACHE FILEPATH "flatcc runtime library")
+else()
+    set(HRX_LIB        "${HRX_BUILD}/libhrx/src/libhrx/libhrx.so" CACHE FILEPATH "HRX shared library")
+    set(HRX_FLATCC_LIB "${HRX_BUILD}/libflatcc_runtime.a"         CACHE FILEPATH "flatcc runtime library")
+endif()
+
+if(NOT EXISTS "${HRX_LIB}")
+    message(FATAL_ERROR
+        "HRX not found at '${HRX_LIB}'. On Linux run "
+        "hrx-integration/fetch-hrx-release.sh (or `source <artifact>/env.sh`); "
+        "on Windows build HRX with -DIREE_HAL_DRIVER_AMDXDNA=ON (see "
+        "docs/windows-dll-build.md). Or override HRX_DIR / HRX_BUILD / HRX_LIB.")
+endif()
+set(HRX_DIR   "${HRX_DIR}"   CACHE PATH "Where the HRX runtime source tree lives")
+set(HRX_BUILD "${HRX_BUILD}" CACHE PATH "Where the HRX build output lives")
 
 # ———————————————————————————————————————————————
 # Add tokenizers-cpp subproject
@@ -155,18 +158,18 @@ target_include_directories(flm PUBLIC
     ${CMAKE_SOURCE_DIR}/runner
     ${CMAKE_SOURCE_DIR}/server
     ${CMAKE_SOURCE_DIR}/pull
-    ${XRT_INCLUDE_DIR}
 )
 
-if(NOT WIN32)
-    # HRX runtime headers (hrx_runtime.h, flatcc, generated runtime sources)
-    target_include_directories(flm PUBLIC
-        ${HRX_DIR}/libhrx/include
-        ${HRX_DIR}/runtime/src
-        ${HRX_BUILD}/runtime/src
-        ${HRX_BUILD}/_deps/flatcc-src/include
-    )
-endif()
+# HRX runtime headers (hrx_runtime.h, flatcc, generated runtime sources).
+# FLM reaches into HRX/IREE internal + generated headers (flatcc builder and the
+# generated amdxdna xclbin schema), so consume the HRX source + build tree on all
+# platforms rather than the public find_package(hrx) install.
+target_include_directories(flm PUBLIC
+    ${HRX_DIR}/libhrx/include
+    ${HRX_DIR}/runtime/src
+    ${HRX_BUILD}/runtime/src
+    ${HRX_BUILD}/_deps/flatcc-src/include
+)
 
 if(WIN32)
     target_include_directories(flm PUBLIC
@@ -203,9 +206,8 @@ target_link_directories(flm PUBLIC
 )
 
 if(WIN32)
-    # XRT link/rpath directories are only needed on Windows.
+    # boost / vcpkg link directories (Windows).
     target_link_directories(flm PUBLIC
-        ${XRT_LIB_DIR}
         C:/dev/boost_1_88_0/stage/lib
         C:/dev/vcpkg/installed/x64-windows/lib
     )
@@ -240,18 +242,13 @@ target_link_libraries(flm PUBLIC
     mha
 )
 
-if(WIN32)
-    target_link_libraries(flm PUBLIC
-        xrt_coreutil
-        aiebu_static
-    )
-else()
-    # Link the HRX runtime after the detail model libraries above so their
-    # libhrx references resolve.
-    target_link_libraries(flm PUBLIC
-        ${HRX_BUILD}/libhrx/src/libhrx/libhrx.so
-        ${HRX_BUILD}/libflatcc_runtime.a
-    )
+# Link the HRX runtime after the detail model libraries above so their libhrx
+# references resolve. (Windows: hrx.lib import lib for hrx.dll; Linux: libhrx.so.)
+target_link_libraries(flm PUBLIC
+    ${HRX_LIB}
+    ${HRX_FLATCC_LIB}
+)
+if(NOT WIN32)
     set_target_properties(flm PROPERTIES
         BUILD_RPATH "${HRX_BUILD}/libhrx/src/libhrx;${CMAKE_SOURCE_DIR}/lib")
 endif()
