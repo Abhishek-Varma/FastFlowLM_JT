@@ -660,8 +660,8 @@ class npu_sequence{
         }
 
         ///@brief Build the host patch table for the current control code (TXN).
-        ///@note For every DDR address-patch op we locate the matching shim-DMA
-        ///      BLOCKWRITE BD
+        ///@note Replaces the relocations aiebu used to emit. For every DDR
+        ///      address-patch op we locate the matching shim-DMA BLOCKWRITE BD
         ///      (same col/row/bd_id) and emit a triple
         ///      (byte_offset_of_BD_length_word, arg_idx, arg_offset).
         ///      The amdxdna host-patch path reads addr-low at offset+4 and
@@ -677,10 +677,7 @@ class npu_sequence{
             std::unordered_map<uint32_t, size_t> bd_to_word;
             size_t word = 4; // 4-word TXN header precedes the ops
             for (auto& c : this->cmds){
-                if (auto* b = dynamic_cast<npu_dma_block_cmd*>(c.get())){
-                    uint32_t key = (b->col << 16) | (b->row << 8) | b->bd_id;
-                    bd_to_word[key] = word;
-                } else if (auto* d = dynamic_cast<npu_ddr_cmd*>(c.get())){
+                if (auto* d = dynamic_cast<npu_ddr_cmd*>(c.get())){
                     uint32_t key = (d->col << 16) | (d->row << 8) | d->bd_id;
                     auto it = bd_to_word.find(key);
                     if (it != bd_to_word.end()){
@@ -691,6 +688,12 @@ class npu_sequence{
                         patch.push_back(d->arg_idx);
                         patch.push_back(d->arg_offset);
                     }
+                    word += c->get_op_lines();
+                    continue;
+                }
+                if (auto* b = dynamic_cast<npu_dma_block_cmd*>(c.get())){
+                    uint32_t key = (b->col << 16) | (b->row << 8) | b->bd_id;
+                    bd_to_word[key] = word;
                 }
                 word += c->get_op_lines();
             }

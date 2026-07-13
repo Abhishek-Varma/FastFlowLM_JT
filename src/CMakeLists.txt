@@ -172,9 +172,47 @@ target_include_directories(flm PUBLIC
 )
 
 if(WIN32)
+    set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{FASTFLOWLM_VCPKG_INSTALLED_DIR}" CACHE PATH "vcpkg installed/x64-windows root")
+    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR AND DEFINED ENV{VCPKG_INSTALLED_DIR})
+        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{VCPKG_INSTALLED_DIR}")
+    endif()
+    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR AND DEFINED ENV{VCPKG_ROOT})
+        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{VCPKG_ROOT}/installed/x64-windows")
+    endif()
+    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR)
+        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "C:/dev/vcpkg/installed/x64-windows")
+    endif()
+    file(TO_CMAKE_PATH "${FASTFLOWLM_VCPKG_INSTALLED_DIR}" FASTFLOWLM_VCPKG_INSTALLED_DIR)
+
+    set(FASTFLOWLM_BOOST_ROOT "$ENV{FASTFLOWLM_BOOST_ROOT}" CACHE PATH "Boost root for Windows FastFlowLM builds")
+    if(NOT FASTFLOWLM_BOOST_ROOT AND DEFINED ENV{BOOST_ROOT})
+        set(FASTFLOWLM_BOOST_ROOT "$ENV{BOOST_ROOT}")
+    endif()
+    if(NOT FASTFLOWLM_BOOST_ROOT AND DEFINED ENV{BOOSTROOT})
+        set(FASTFLOWLM_BOOST_ROOT "$ENV{BOOSTROOT}")
+    endif()
+    if(NOT FASTFLOWLM_BOOST_ROOT)
+        if(EXISTS "C:/dev/boost_1_88_0")
+            set(FASTFLOWLM_BOOST_ROOT "C:/dev/boost_1_88_0")
+        elseif(EXISTS "C:/Program Files/boost/boost_1_88_0")
+            set(FASTFLOWLM_BOOST_ROOT "C:/Program Files/boost/boost_1_88_0")
+        elseif(EXISTS "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include/boost")
+            set(FASTFLOWLM_BOOST_ROOT "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include")
+        endif()
+    endif()
+    file(TO_CMAKE_PATH "${FASTFLOWLM_BOOST_ROOT}" FASTFLOWLM_BOOST_ROOT)
+
+    set(_fastflowlm_windows_lib_dirs)
+    if(FASTFLOWLM_BOOST_ROOT AND EXISTS "${FASTFLOWLM_BOOST_ROOT}/stage/lib")
+        list(APPEND _fastflowlm_windows_lib_dirs "${FASTFLOWLM_BOOST_ROOT}/stage/lib")
+    endif()
+    if(FASTFLOWLM_VCPKG_INSTALLED_DIR AND EXISTS "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/lib")
+        list(APPEND _fastflowlm_windows_lib_dirs "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/lib")
+    endif()
+
     target_include_directories(flm PUBLIC
-        C:/dev/boost_1_88_0
-        C:/dev/vcpkg/installed/x64-windows/include/
+        ${FASTFLOWLM_BOOST_ROOT}
+        ${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include
     )
 endif()
 
@@ -206,11 +244,28 @@ target_link_directories(flm PUBLIC
 )
 
 if(WIN32)
-    # boost / vcpkg link directories (Windows).
-    target_link_directories(flm PUBLIC
-        C:/dev/boost_1_88_0/stage/lib
-        C:/dev/vcpkg/installed/x64-windows/lib
-    )
+    target_link_directories(flm PUBLIC ${_fastflowlm_windows_lib_dirs})
+    find_library(FASTFLOWLM_CURL_LIB NAMES libcurl curl PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB
+        NAMES libboost_program_options-vc143-mt-x64-1_91 boost_program_options-vc143-mt-x64-1_91 libboost_program_options-vc143-mt-x64-1_88 boost_program_options-vc143-mt-x64-1_88 boost_program_options
+        PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_FFTW3_LIB  NAMES libfftw3-3 fftw3  PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_FFTW3F_LIB NAMES libfftw3f-3 fftw3f PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_FFTW3L_LIB NAMES libfftw3l-3 fftw3l PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_AVFORMAT_LIB   NAMES avformat   PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_AVCODEC_LIB    NAMES avcodec    PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_AVUTIL_LIB     NAMES avutil     PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_SWSCALE_LIB    NAMES swscale    PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    find_library(FASTFLOWLM_SWRESAMPLE_LIB NAMES swresample PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
+    foreach(_fastflowlm_required_lib
+            FASTFLOWLM_CURL_LIB FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB
+            FASTFLOWLM_FFTW3_LIB FASTFLOWLM_FFTW3F_LIB FASTFLOWLM_FFTW3L_LIB
+            FASTFLOWLM_AVFORMAT_LIB FASTFLOWLM_AVCODEC_LIB FASTFLOWLM_AVUTIL_LIB
+            FASTFLOWLM_SWSCALE_LIB FASTFLOWLM_SWRESAMPLE_LIB)
+        if(NOT ${_fastflowlm_required_lib})
+            message(FATAL_ERROR "${_fastflowlm_required_lib} not found in: ${_fastflowlm_windows_lib_dirs}")
+        endif()
+    endforeach()
 endif()
 
 # Link static libraries first
@@ -254,24 +309,26 @@ if(NOT WIN32)
         BUILD_RPATH "${HRX_BUILD}/libhrx/src/libhrx;${CMAKE_SOURCE_DIR}/lib")
 endif()
 
-target_link_libraries(flm PUBLIC
-    avformat
-    avcodec
-    avutil
-    swscale
-    swresample
-)
-
 if(WIN32)
     target_link_libraries(flm PUBLIC
-        libcurl
-        libboost_program_options-vc143-mt-x64-1_88
-        libfftw3-3
-        libfftw3f-3
-        libfftw3l-3
+        ${FASTFLOWLM_AVFORMAT_LIB}
+        ${FASTFLOWLM_AVCODEC_LIB}
+        ${FASTFLOWLM_AVUTIL_LIB}
+        ${FASTFLOWLM_SWSCALE_LIB}
+        ${FASTFLOWLM_SWRESAMPLE_LIB}
+        ${FASTFLOWLM_CURL_LIB}
+        ${FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB}
+        ${FASTFLOWLM_FFTW3_LIB}
+        ${FASTFLOWLM_FFTW3F_LIB}
+        ${FASTFLOWLM_FFTW3L_LIB}
     )
 else()
     target_link_libraries(flm PUBLIC
+        avformat
+        avcodec
+        avutil
+        swscale
+        swresample
         CURL::libcurl
         Boost::program_options
     )

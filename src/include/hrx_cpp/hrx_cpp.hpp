@@ -65,7 +65,12 @@ public:
 
     void ensure() {
         if (dev) return;
-        if (hrx_status_is_ok(hrx_gpu_initialize(0)) &&
+        hrx_status_t init_status = hrx_gpu_initialize(0);
+        const bool initialized =
+            hrx_status_is_ok(init_status) ||
+            hrx_status_code(init_status) == HRX_STATUS_ALREADY_EXISTS;
+        hrx_status_ignore(init_status);
+        if (initialized &&
             hrx_status_is_ok(hrx_gpu_device_get(0, &dev)) &&
             hrx_status_is_ok(hrx_stream_create(dev, 0, &stream))) {
             ok = true;
@@ -104,23 +109,37 @@ inline bool hrx_report(hrx_status_t s, const char* where) {
 }
 
 // ---------------------------------------------------------------------------
-// Executable cache: build one HRX XADX executable per distinct control program
-// (keyed by the control-code hash) and resolve its export ordinal once.
+// Executable cache: build one HRX XADX executable per distinct executable
+// identity (xclbin + control program + host patch table) and resolve its export
+// ordinal once.
 // ---------------------------------------------------------------------------
 struct CachedExe {
     hrx_executable_t exe = nullptr;
     uint32_t ord = 0;
 };
 
+inline void append_key_bytes(std::string& key, const void* data,
+                             size_t byte_count) {
+    const uint64_t length = static_cast<uint64_t>(byte_count);
+    key.append(reinterpret_cast<const char*>(&length), sizeof(length));
+    if (data && byte_count) {
+        key.append(reinterpret_cast<const char*>(data), byte_count);
+    }
+}
+
 inline hrx_executable_t build_or_get_executable(
     const std::vector<uint8_t>& xclbin_bytes, const uint32_t* cc, size_t n,
     const uint32_t* patch, size_t patch_n, uint32_t* ord_out) {
     static std::mutex mu;
-    static std::unordered_map<size_t, CachedExe> cache;
-    size_t h = std::hash<std::string_view>{}(
-        std::string_view(reinterpret_cast<const char*>(cc), n * sizeof(uint32_t)));
+    static std::unordered_map<std::string, CachedExe> cache;
+    std::string key;
+    key.reserve(xclbin_bytes.size() + (n + patch_n) * sizeof(uint32_t) +
+                3 * sizeof(uint64_t));
+    append_key_bytes(key, xclbin_bytes.data(), xclbin_bytes.size());
+    append_key_bytes(key, cc, n * sizeof(uint32_t));
+    append_key_bytes(key, patch, patch_n * sizeof(uint32_t));
     std::lock_guard<std::mutex> lk(mu);
-    auto it = cache.find(h);
+    auto it = cache.find(key);
     if (it != cache.end()) {
         if (ord_out) *ord_out = it->second.ord;
         return it->second.exe;
@@ -164,7 +183,7 @@ inline hrx_executable_t build_or_get_executable(
         exe = nullptr;
     }
     if (exe) hrx_executable_lookup_export_by_name(exe, "MLIR_AIE", &ord);
-    cache[h] = {exe, ord};
+    cache.emplace(std::move(key), CachedExe{exe, ord});
     if (ord_out) *ord_out = ord;
     return exe;
 }
