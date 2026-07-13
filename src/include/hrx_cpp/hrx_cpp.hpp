@@ -328,7 +328,8 @@ public:
             throw std::runtime_error("hrx::ext::bo: hrx_buffer_allocate failed");
         }
         void* p = nullptr;
-        s = hrx_buffer_map_persistent(hbuf_, HRX_MAP_READ | HRX_MAP_WRITE, &p);
+        s = hrx_buffer_map_with_mode(hbuf_, HRX_MAPPING_MODE_PERSISTENT,
+                                     HRX_MAP_READ | HRX_MAP_WRITE, 0, sz, &p);
         if (!hrx_status_is_ok(s) || !p) {
             hrx_status_ignore(s);
             hrx_buffer_release(hbuf_);
