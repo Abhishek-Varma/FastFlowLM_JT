@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 project(flm LANGUAGES CXX VERSION 0.1.0)
 
+if(POLICY CMP0207)
+    cmake_policy(SET CMP0207 NEW)
+endif()
+
 if(NOT DEFINED FLM_VERSION)
     message(FATAL_ERROR "FLM_VERSION must be specified externally. Use -DFLM_VERSION=<version> when running cmake.")
 endif()
@@ -30,55 +34,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # ———————————————————————————————————————————————
 # HRX amdxdna runtime for NPU dispatch (Linux + Windows).
-#
-# Linux:   consumed from the pinned release artifact fetched by
-#          hrx-integration/fetch-hrx-release.sh (pin: hrx-integration/hrx-release.env).
-# Windows: build HRX from source (branch amdxdna-hal-native) with
-#          -DIREE_HAL_DRIVER_AMDXDNA=ON so hrx.dll includes the Windows MCDM NPU
-#          HAL — see docs/windows-dll-build.md.
-#
-# Source the artifact's env.sh (exports HRX_DIR / HRX_BUILD) or override
-# HRX_DIR / HRX_BUILD on the cmake command line.
 # ———————————————————————————————————————————————
-if(NOT HRX_DIR AND DEFINED ENV{HRX_DIR})
-    set(HRX_DIR "$ENV{HRX_DIR}")
-endif()
-if(NOT HRX_BUILD AND DEFINED ENV{HRX_BUILD})
-    set(HRX_BUILD "$ENV{HRX_BUILD}")
-endif()
-if(NOT HRX_DIR OR NOT HRX_BUILD)
-    file(GLOB _hrx_artifact_roots
-        "${CMAKE_CURRENT_SOURCE_DIR}/../hrx-integration/.hrx-release/hrx-amdxdna-*")
-    if(_hrx_artifact_roots)
-        list(GET _hrx_artifact_roots 0 _hrx_artifact_root)
-        if(NOT HRX_DIR)
-            set(HRX_DIR "${_hrx_artifact_root}/HRX_DIR")
-        endif()
-        if(NOT HRX_BUILD)
-            set(HRX_BUILD "${_hrx_artifact_root}/HRX_BUILD")
-        endif()
-    endif()
-endif()
-
-# Platform-specific HRX libraries (import/shared lib + flatcc runtime). Override
-# HRX_LIB / HRX_FLATCC_LIB if your HRX build lays them out differently.
-if(WIN32)
-    set(HRX_LIB        "${HRX_BUILD}/libhrx/src/libhrx/hrx.lib" CACHE FILEPATH "HRX import library")
-    set(HRX_FLATCC_LIB "${HRX_BUILD}/flatcc_runtime.lib"        CACHE FILEPATH "flatcc runtime library")
-else()
-    set(HRX_LIB        "${HRX_BUILD}/libhrx/src/libhrx/libhrx.so" CACHE FILEPATH "HRX shared library")
-    set(HRX_FLATCC_LIB "${HRX_BUILD}/libflatcc_runtime.a"         CACHE FILEPATH "flatcc runtime library")
-endif()
-
-if(NOT EXISTS "${HRX_LIB}")
-    message(FATAL_ERROR
-        "HRX not found at '${HRX_LIB}'. On Linux run "
-        "hrx-integration/fetch-hrx-release.sh (or `source <artifact>/env.sh`); "
-        "on Windows build HRX with -DIREE_HAL_DRIVER_AMDXDNA=ON (see "
-        "docs/windows-dll-build.md). Or override HRX_DIR / HRX_BUILD / HRX_LIB.")
-endif()
-set(HRX_DIR   "${HRX_DIR}"   CACHE PATH "Where the HRX runtime source tree lives")
-set(HRX_BUILD "${HRX_BUILD}" CACHE PATH "Where the HRX build output lives")
+find_package(hrx CONFIG REQUIRED)
 
 # ———————————————————————————————————————————————
 # Add tokenizers-cpp subproject
@@ -129,25 +86,17 @@ endif()
 
 add_executable(flm ${SOURCES} ${HEADERS})
 
+find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
+find_package(CURL CONFIG REQUIRED)
+find_package(FFMPEG REQUIRED)
+find_package(FFTW3 CONFIG REQUIRED)
+find_package(FFTW3f CONFIG REQUIRED)
+find_package(FFTW3l CONFIG REQUIRED)
 if(NOT WIN32)
     find_package(Threads REQUIRED)
-    find_package(Boost REQUIRED COMPONENTS program_options)
-    find_package(CURL REQUIRED)
-    find_package(PkgConfig)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(FFTW3_PKG fftw3)
-        pkg_check_modules(FFTW3F_PKG fftw3f)
-        pkg_check_modules(FFTW3L_PKG fftw3l)
-        pkg_check_modules(AVFORMAT_PKG libavformat)
-        pkg_check_modules(AVCODEC_PKG libavcodec)
-        pkg_check_modules(AVUTIL_PKG libavutil)
-        pkg_check_modules(SWSCALE_PKG libswscale)
-        pkg_check_modules(SWRESAMPLE_PKG libswresample)
-    endif()
-    find_path(READLINE_INCLUDE_DIR readline/readline.h)
-    find_library(READLINE_LIBRARY readline)
-    find_library(READLINE_TINFO_LIBRARY tinfo)
-    find_library(READLINE_NCURSES_LIBRARY ncurses)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(readline REQUIRED IMPORTED_TARGET readline)
+    pkg_check_modules(ncurses REQUIRED IMPORTED_TARGET ncursesw)
 endif()
 
 # ———————————————————————————————————————————————
@@ -158,63 +107,8 @@ target_include_directories(flm PUBLIC
     ${CMAKE_SOURCE_DIR}/runner
     ${CMAKE_SOURCE_DIR}/server
     ${CMAKE_SOURCE_DIR}/pull
+    ${FFMPEG_INCLUDE_DIRS}
 )
-
-# HRX runtime headers (hrx_runtime.h, flatcc, generated runtime sources).
-# FLM reaches into HRX/IREE internal + generated headers (flatcc builder and the
-# generated amdxdna xclbin schema), so consume the HRX source + build tree on all
-# platforms rather than the public find_package(hrx) install.
-target_include_directories(flm PUBLIC
-    ${HRX_DIR}/libhrx/include
-    ${HRX_DIR}/runtime/src
-    ${HRX_BUILD}/runtime/src
-    ${HRX_BUILD}/_deps/flatcc-src/include
-)
-
-if(WIN32)
-    set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{FASTFLOWLM_VCPKG_INSTALLED_DIR}" CACHE PATH "vcpkg installed/x64-windows root")
-    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR AND DEFINED ENV{VCPKG_INSTALLED_DIR})
-        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{VCPKG_INSTALLED_DIR}")
-    endif()
-    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR AND DEFINED ENV{VCPKG_ROOT})
-        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "$ENV{VCPKG_ROOT}/installed/x64-windows")
-    endif()
-    if(NOT FASTFLOWLM_VCPKG_INSTALLED_DIR)
-        set(FASTFLOWLM_VCPKG_INSTALLED_DIR "C:/dev/vcpkg/installed/x64-windows")
-    endif()
-    file(TO_CMAKE_PATH "${FASTFLOWLM_VCPKG_INSTALLED_DIR}" FASTFLOWLM_VCPKG_INSTALLED_DIR)
-
-    set(FASTFLOWLM_BOOST_ROOT "$ENV{FASTFLOWLM_BOOST_ROOT}" CACHE PATH "Boost root for Windows FastFlowLM builds")
-    if(NOT FASTFLOWLM_BOOST_ROOT AND DEFINED ENV{BOOST_ROOT})
-        set(FASTFLOWLM_BOOST_ROOT "$ENV{BOOST_ROOT}")
-    endif()
-    if(NOT FASTFLOWLM_BOOST_ROOT AND DEFINED ENV{BOOSTROOT})
-        set(FASTFLOWLM_BOOST_ROOT "$ENV{BOOSTROOT}")
-    endif()
-    if(NOT FASTFLOWLM_BOOST_ROOT)
-        if(EXISTS "C:/dev/boost_1_88_0")
-            set(FASTFLOWLM_BOOST_ROOT "C:/dev/boost_1_88_0")
-        elseif(EXISTS "C:/Program Files/boost/boost_1_88_0")
-            set(FASTFLOWLM_BOOST_ROOT "C:/Program Files/boost/boost_1_88_0")
-        elseif(EXISTS "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include/boost")
-            set(FASTFLOWLM_BOOST_ROOT "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include")
-        endif()
-    endif()
-    file(TO_CMAKE_PATH "${FASTFLOWLM_BOOST_ROOT}" FASTFLOWLM_BOOST_ROOT)
-
-    set(_fastflowlm_windows_lib_dirs)
-    if(FASTFLOWLM_BOOST_ROOT AND EXISTS "${FASTFLOWLM_BOOST_ROOT}/stage/lib")
-        list(APPEND _fastflowlm_windows_lib_dirs "${FASTFLOWLM_BOOST_ROOT}/stage/lib")
-    endif()
-    if(FASTFLOWLM_VCPKG_INSTALLED_DIR AND EXISTS "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/lib")
-        list(APPEND _fastflowlm_windows_lib_dirs "${FASTFLOWLM_VCPKG_INSTALLED_DIR}/lib")
-    endif()
-
-    target_include_directories(flm PUBLIC
-        ${FASTFLOWLM_BOOST_ROOT}
-        ${FASTFLOWLM_VCPKG_INSTALLED_DIR}/include
-    )
-endif()
 
 target_compile_definitions(flm PUBLIC
     DISABLE_ABI_CHECK=1
@@ -228,10 +122,6 @@ if(WIN32)
     target_compile_definitions(flm PUBLIC
         WIN32_LEAN_AND_MEAN
         NOMINMAX
-        # Additional definitions for static linking
-        CURL_STATICLIB
-        BOOST_ALL_NO_LIB
-        BOOST_ALL_STATIC_LINK
         # Handle legacy stdio functions
         _CRT_SECURE_NO_WARNINGS
         _CRT_NONSTDC_NO_DEPRECATE
@@ -241,32 +131,8 @@ endif()
 
 target_link_directories(flm PUBLIC
     ${CMAKE_SOURCE_DIR}/lib
+    ${FFMPEG_LIBRARY_DIRS}
 )
-
-if(WIN32)
-    target_link_directories(flm PUBLIC ${_fastflowlm_windows_lib_dirs})
-    find_library(FASTFLOWLM_CURL_LIB NAMES libcurl curl PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB
-        NAMES libboost_program_options-vc143-mt-x64-1_91 boost_program_options-vc143-mt-x64-1_91 libboost_program_options-vc143-mt-x64-1_88 boost_program_options-vc143-mt-x64-1_88 boost_program_options
-        PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_FFTW3_LIB  NAMES libfftw3-3 fftw3  PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_FFTW3F_LIB NAMES libfftw3f-3 fftw3f PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_FFTW3L_LIB NAMES libfftw3l-3 fftw3l PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_AVFORMAT_LIB   NAMES avformat   PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_AVCODEC_LIB    NAMES avcodec    PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_AVUTIL_LIB     NAMES avutil     PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_SWSCALE_LIB    NAMES swscale    PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    find_library(FASTFLOWLM_SWRESAMPLE_LIB NAMES swresample PATHS ${_fastflowlm_windows_lib_dirs} NO_DEFAULT_PATH)
-    foreach(_fastflowlm_required_lib
-            FASTFLOWLM_CURL_LIB FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB
-            FASTFLOWLM_FFTW3_LIB FASTFLOWLM_FFTW3F_LIB FASTFLOWLM_FFTW3L_LIB
-            FASTFLOWLM_AVFORMAT_LIB FASTFLOWLM_AVCODEC_LIB FASTFLOWLM_AVUTIL_LIB
-            FASTFLOWLM_SWSCALE_LIB FASTFLOWLM_SWRESAMPLE_LIB)
-        if(NOT ${_fastflowlm_required_lib})
-            message(FATAL_ERROR "${_fastflowlm_required_lib} not found in: ${_fastflowlm_windows_lib_dirs}")
-        endif()
-    endforeach()
-endif()
 
 # Link static libraries first
 if(MSVC)
@@ -300,93 +166,26 @@ target_link_libraries(flm PUBLIC
 
 # Link the HRX runtime after the detail model libraries above so their libhrx
 # references resolve. (Windows: hrx.lib import lib for hrx.dll; Linux: libhrx.so.)
-target_link_libraries(flm PUBLIC
-    ${HRX_LIB}
-    ${HRX_FLATCC_LIB}
-)
+target_link_libraries(flm PUBLIC hrx::hrx)
 if(NOT WIN32)
     set_target_properties(flm PROPERTIES
-        BUILD_RPATH "${HRX_BUILD}/libhrx/src/libhrx;${CMAKE_SOURCE_DIR}/lib")
+        BUILD_RPATH "$<TARGET_FILE_DIR:hrx::hrx>;${CMAKE_SOURCE_DIR}/lib")
 endif()
 
-if(WIN32)
-    target_link_libraries(flm PUBLIC
-        ${FASTFLOWLM_AVFORMAT_LIB}
-        ${FASTFLOWLM_AVCODEC_LIB}
-        ${FASTFLOWLM_AVUTIL_LIB}
-        ${FASTFLOWLM_SWSCALE_LIB}
-        ${FASTFLOWLM_SWRESAMPLE_LIB}
-        ${FASTFLOWLM_CURL_LIB}
-        ${FASTFLOWLM_BOOST_PROGRAM_OPTIONS_LIB}
-        ${FASTFLOWLM_FFTW3_LIB}
-        ${FASTFLOWLM_FFTW3F_LIB}
-        ${FASTFLOWLM_FFTW3L_LIB}
-    )
-else()
-    target_link_libraries(flm PUBLIC
-        avformat
-        avcodec
-        avutil
-        swscale
-        swresample
-        CURL::libcurl
-        Boost::program_options
-    )
+target_link_libraries(flm PUBLIC
+    ${FFMPEG_LIBRARIES}
+    Boost::program_options
+    CURL::libcurl
+    FFTW3::fftw3
+    FFTW3::fftw3f
+    FFTW3::fftw3l
+)
 
+if(NOT WIN32)
     target_compile_options(flm PUBLIC -mavx -mavx2)
 
-    if(FFTW3_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${FFTW3_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${FFTW3_PKG_LIBRARIES})
-    else()
-        target_link_libraries(flm PUBLIC fftw3)
-    endif()
-    if(FFTW3F_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${FFTW3F_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${FFTW3F_PKG_LIBRARIES})
-    else()
-        target_link_libraries(flm PUBLIC fftw3f)
-    endif()
-    if(FFTW3L_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${FFTW3L_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${FFTW3L_PKG_LIBRARIES})
-    else()
-        target_link_libraries(flm PUBLIC fftw3l)
-    endif()
-
-    if(AVFORMAT_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${AVFORMAT_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${AVFORMAT_PKG_LIBRARIES})
-    endif()
-    if(AVCODEC_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${AVCODEC_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${AVCODEC_PKG_LIBRARIES})
-    endif()
-    if(AVUTIL_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${AVUTIL_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${AVUTIL_PKG_LIBRARIES})
-    endif()
-    if(SWSCALE_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${SWSCALE_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${SWSCALE_PKG_LIBRARIES})
-    endif()
-    if(SWRESAMPLE_PKG_FOUND)
-        target_include_directories(flm PUBLIC ${SWRESAMPLE_PKG_INCLUDE_DIRS})
-        target_link_libraries(flm PUBLIC ${SWRESAMPLE_PKG_LIBRARIES})
-    endif()
-
-    if(READLINE_LIBRARY)
-        target_compile_definitions(flm PUBLIC FASTFLOWLM_USE_READLINE=1)
-        if(READLINE_INCLUDE_DIR)
-            target_include_directories(flm PUBLIC ${READLINE_INCLUDE_DIR})
-        endif()
-        target_link_libraries(flm PUBLIC ${READLINE_LIBRARY})
-        if(READLINE_TINFO_LIBRARY)
-            target_link_libraries(flm PUBLIC ${READLINE_TINFO_LIBRARY})
-        elseif(READLINE_NCURSES_LIBRARY)
-            target_link_libraries(flm PUBLIC ${READLINE_NCURSES_LIBRARY})
-        endif()
-    endif()
+    target_compile_definitions(flm PUBLIC FASTFLOWLM_USE_READLINE=1)
+    target_link_libraries(flm PUBLIC PkgConfig::readline PkgConfig::ncurses)
 
     # Link with dl library for dlopen() support (used for preloading bundled libraries)
     target_link_libraries(flm PUBLIC dl)
@@ -438,28 +237,41 @@ else()
         set(CMAKE_INSTALL_LIBDIR "lib")
     endif()
 
-    file(GLOB so_libs "${CMAKE_SOURCE_DIR}/lib/*.so")
+    file(GLOB so_libs "${CMAKE_SOURCE_DIR}/lib/*.so*")
     install(FILES ${so_libs} DESTINATION "${CMAKE_INSTALL_LIBDIR}/flm")
     set_target_properties(flm PROPERTIES
-        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/flm")
+        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/flm;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 endif()
-install(TARGETS flm
-    RUNTIME DESTINATION bin
-    BUNDLE DESTINATION .
-)
+if(WIN32)
+    install(TARGETS flm
+        RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
+        RUNTIME DESTINATION bin)
+    install(RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
+        DESTINATION bin
+        DIRECTORIES
+            "${CMAKE_SOURCE_DIR}/lib"
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+            "$<TARGET_FILE_DIR:hrx::hrx>"
+        PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
+        POST_EXCLUDE_REGEXES ".*[Ww]indows[/\\\\][Ss]ystem32[/\\\\].*")
+else()
+    install(TARGETS flm
+        RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
+        RUNTIME DESTINATION bin)
+    install(RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        DIRECTORIES
+            "${CMAKE_SOURCE_DIR}/lib"
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib"
+            "$<TARGET_FILE_DIR:hrx::hrx>"
+        PRE_EXCLUDE_REGEXES
+            "linux-vdso\\.so.*"
+            "ld-linux.*"
+            "lib(c|dl|m|pthread|rt)\\.so.*")
+endif()
 
 install(FILES model_list.json DESTINATION share/flm)
 
 # xclbins, which are loaded by shared libraries need to be in location
 # relative to the executable, so we install them to bin/xclbins
 install(DIRECTORY xclbins DESTINATION share/flm)
-
-if(NOT WIN32 AND NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr" AND NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr/local")
-    install(CODE "
-        message(STATUS \"Creating symlink for flm\")
-        file(MAKE_DIRECTORY \"$ENV{DESTDIR}/usr/local/bin\")
-        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
-            \"${CMAKE_INSTALL_PREFIX}/bin/flm\"
-            \"$ENV{DESTDIR}/usr/local/bin/flm\")"
-    )
-endif()

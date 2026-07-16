@@ -86,12 +86,9 @@ private:
         assert(data.first != nullptr);
         assert(data.second > 0);
         assert(this->context != nullptr);
-        // Host patch table: the addresses of bound buffers are patched into the
-        // control-code BD registers by the amdxdna host-patch path.
-        std::vector<uint32_t> patch = this->ctrl_seq->dump_patch_table();
         this->exe = hrx::build_or_get_executable(
             this->context->xclbin_bytes(), data.first, data.second,
-            patch.data(), patch.size(), &this->exe_ord);
+            &this->exe_ord);
         if (this->exe == nullptr){
             header_print_r("ERROR", "Failed to build HRX executable from ctrl_seq");
             exit(1);
