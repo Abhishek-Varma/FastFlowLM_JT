@@ -58,21 +58,19 @@ int main(int argc, char* argv[]) {
     lm_uniform_input_t uniformed_input;
     chat->set_topk(1); // deterministic (greedy) for a smoke test
 
-    constexpr bool use_image = false;
+    constexpr bool use_image = true;
 
     if (short_prompt) {
         if constexpr (use_image) {
-            uniformed_input.prompt = "What are these?";
+            uniformed_input.prompt = "Describe image 1 to 4; Translate image 5 to Chinese";
+            uniformed_input.images.push_back("../../../tb_files/mj_icon.jpg");
+            uniformed_input.images.push_back("../../../tb_files/pcb.jpg");
             uniformed_input.images.push_back("../../../tb_files/panda.png");
-            uniformed_input.audios.push_back("../../../tb_files/nvidia.mp3");
+            uniformed_input.images.push_back("../../../tb_files/google_icon.png");
+            uniformed_input.images.push_back("../../../tb_files/german.png");
         }
         else {
             uniformed_input.prompt = "Is Alibaba a good company?";
-            uniformed_input.images.push_back("../../../tb_files/mj_icon.jpg");
-            uniformed_input.images.push_back("../../../tb_files/google_icon.png");
-            uniformed_input.images.push_back("../../../tb_files/pcb.jpg");
-            uniformed_input.images.push_back("../../../tb_files/panda.png");
-
         }
     } else {
         uniformed_input.prompt = "Hello, introduce yourself briefly.";

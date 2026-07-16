@@ -42,25 +42,34 @@ LDFLAGS += -lqwen3_5_omni_npu
 LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
 LDFLAGS += -lfftw3f
 
-TEST_DEPS := $(test.cpp:.cpp=.d)
+# Map each source to an object file in BUILD_DIR (basenames are unique across
+# the source set). VPATH lets the pattern rule locate sources in their dirs.
+OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(SOURCES:.cpp=.o)))
+DEPS := $(OBJECTS:.o=.d)
+VPATH := $(sort $(dir $(SOURCES)))
 
-all: directories $(BUILD_DIR)/test_qwen3_5_omni_npu
+all: $(BUILD_DIR)/test_qwen3_5_omni_npu
 
-directories:
+$(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/test_qwen3_5_omni_npu: $(SOURCES) $(TEST_DEPS)
+# Compile each source only when it (or one of its headers) changes.
+$(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
+	$(CXX) $(CXX_FLAGS) -c $< -o $@
+
+# Link only when object files change.
+$(BUILD_DIR)/test_qwen3_5_omni_npu: $(OBJECTS)
 	$(CXX) $(CXX_FLAGS) -o $@ $^ $(LDFLAGS) $(DEPENDENCY_LDFLAGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
 
-test: $(BUILD_DIR)/
+test: $(BUILD_DIR)/test_qwen3_5_omni_npu
 	cp ../../model_list.json $(BUILD_DIR)/model_list.json
 	cd $(BUILD_DIR) && export LD_LIBRARY_PATH=../../../lib && ./test_qwen3_5_omni_npu --model qwen3.5-omni
 
--include $(TEST_DEPS)
-.PHONY: all clean test directories
+-include $(DEPS)
+.PHONY: all clean test
 
 else
 
