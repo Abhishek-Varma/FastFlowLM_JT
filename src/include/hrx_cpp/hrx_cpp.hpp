@@ -26,8 +26,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "hrx_amdxdna.h"
 #include "hrx_runtime.h"
-#include "hrx_cpp/hrx_xadx_builder.hpp"
 
 // ---- ert_cmd_state: command states that FLM's npu_utils returns/maps.
 #ifndef FLM_ERT_CMD_STATE_DEFINED
@@ -129,60 +129,53 @@ inline void append_key_bytes(std::string& key, const void* data,
 
 inline hrx_executable_t build_or_get_executable(
     const std::vector<uint8_t>& xclbin_bytes, const uint32_t* cc, size_t n,
-    const uint32_t* patch, size_t patch_n, uint32_t* ord_out) {
+    uint32_t* ord_out) {
     static std::mutex mu;
     static std::unordered_map<std::string, CachedExe> cache;
     std::string key;
-    key.reserve(xclbin_bytes.size() + (n + patch_n) * sizeof(uint32_t) +
-                3 * sizeof(uint64_t));
+    key.reserve(xclbin_bytes.size() + n * sizeof(uint32_t) +
+                2 * sizeof(uint64_t));
     append_key_bytes(key, xclbin_bytes.data(), xclbin_bytes.size());
     append_key_bytes(key, cc, n * sizeof(uint32_t));
-    append_key_bytes(key, patch, patch_n * sizeof(uint32_t));
     std::lock_guard<std::mutex> lk(mu);
     auto it = cache.find(key);
     if (it != cache.end()) {
         if (ord_out) *ord_out = it->second.ord;
         return it->second.exe;
     }
-    flm_hrx::XadxEntryPoint ep;
-    ep.name = "MLIR_AIE";
-    ep.pdi_index = 0;
-    ep.xclbin_index = 0;
-    flm_hrx::XadxRun run;
-    run.control_code.assign(cc, cc + n);  // raw TXN from npu_sequence::dump()
-    if (patch && patch_n) run.patch_table.assign(patch, patch + patch_n);
-    // A real FLM kernel always has buffer args that need host patching. An empty
-    // patch table means dump_patch_table() failed to find the DDR-patch ops; the
-    // amdxdna cmd-chain path then fails its patch_table_count==control_code_count
-    // precondition and the whole chain becomes a silent no-op.
-    if (!patch || patch_n == 0) {
-        std::fprintf(stderr,
-                     "[hrx][WARN] building executable with EMPTY patch table "
-                     "(%zu control words) -- cmd-chain will fail\n", n);
-    }
-    ep.runs.push_back(std::move(run));
-
+    hrx_const_byte_span_t xclbin = {xclbin_bytes.data(), xclbin_bytes.size()};
+    hrx_amdxdna_executable_run_t run = {};
+    run.record_length = sizeof(run);
+    run.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    run.transaction = {reinterpret_cast<const uint8_t*>(cc),
+                       n * sizeof(uint32_t)};
+    hrx_amdxdna_executable_entry_point_t entry_point = {};
+    entry_point.record_length = sizeof(entry_point);
+    entry_point.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    entry_point.name = {"MLIR_AIE", std::strlen("MLIR_AIE")};
+    entry_point.context_mode = HRX_AMDXDNA_CONTEXT_MODE_CREATE;
+    entry_point.runs = &run;
+    entry_point.run_count = 1;
+    hrx_amdxdna_executable_create_params_t params = {};
+    params.record_length = sizeof(params);
+    params.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    params.xclbins = &xclbin;
+    params.xclbin_count = 1;
+    params.entry_points = &entry_point;
+    params.entry_point_count = 1;
     hrx_executable_t exe = nullptr;
     uint32_t ord = 0;
-    try {
-        std::vector<uint8_t> xadx = flm_hrx::build_xadx(xclbin_bytes, {ep});
-        hrx_status_t s = hrx_executable_load_data(rt().dev, xadx.data(),
-                                                  xadx.size(), "amdxdna-xclbin-fb", &exe);
-        if (!hrx_status_is_ok(s)) {
-            char* m = nullptr;
-            size_t mn = 0;
-            hrx_status_to_string(s, &m, &mn);
-            std::fprintf(stderr, "[hrx] executable load_data FAILED: %s\n",
-                         m ? m : "?");
-            hrx_status_free_message(m);
-            hrx_status_ignore(s);
-            exe = nullptr;
-        }
-    } catch (const std::exception& e) {
-        std::fprintf(stderr, "[hrx] build_xadx threw: %s\n", e.what());
+    hrx_status_t create_status = hrx_amdxdna_executable_create(
+        rt().dev, &params, &exe);
+    if (hrx_report(create_status, "hrx_amdxdna_executable_create")) {
         exe = nullptr;
     }
-    if (exe) hrx_executable_lookup_export_by_name(exe, "MLIR_AIE", &ord);
+    if (exe && hrx_report(hrx_executable_lookup_export_by_name(
+                              exe, "MLIR_AIE", &ord),
+                          "hrx_executable_lookup_export_by_name")) {
+        hrx_executable_release(exe);
+        exe = nullptr;
+    }
     cache.emplace(std::move(key), CachedExe{exe, ord});
     if (ord_out) *ord_out = ord;
     return exe;
