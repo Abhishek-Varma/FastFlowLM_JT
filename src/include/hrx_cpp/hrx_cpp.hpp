@@ -144,21 +144,17 @@ inline hrx_executable_t build_or_get_executable(
         return it->second.exe;
     }
     hrx_const_byte_span_t xclbin = {xclbin_bytes.data(), xclbin_bytes.size()};
-    hrx_amdxdna_executable_run_t run = {};
-    run.record_length = sizeof(run);
-    run.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    hrx_amdxdna_executable_run_t run =
+        hrx_amdxdna_executable_run_default();
     run.transaction = {reinterpret_cast<const uint8_t*>(cc),
                        n * sizeof(uint32_t)};
-    hrx_amdxdna_executable_entry_point_t entry_point = {};
-    entry_point.record_length = sizeof(entry_point);
-    entry_point.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    hrx_amdxdna_executable_entry_point_t entry_point =
+        hrx_amdxdna_executable_entry_point_default();
     entry_point.name = {"MLIR_AIE", std::strlen("MLIR_AIE")};
-    entry_point.context_mode = HRX_AMDXDNA_CONTEXT_MODE_CREATE;
     entry_point.runs = &run;
     entry_point.run_count = 1;
-    hrx_amdxdna_executable_create_params_t params = {};
-    params.record_length = sizeof(params);
-    params.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_ABI_VERSION_0;
+    hrx_amdxdna_executable_create_params_t params =
+        hrx_amdxdna_executable_create_params_default();
     params.xclbins = &xclbin;
     params.xclbin_count = 1;
     params.entry_points = &entry_point;
