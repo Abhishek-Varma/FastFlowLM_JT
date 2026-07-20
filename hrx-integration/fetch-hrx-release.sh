@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# Fetch and verify the pinned HRX amdxdna release artifact.
+# Fetch and verify the pinned HRX amdxdna *public package* release artifact.
+#
+# After XADX removal, FLM consumes HRX via find_package(hrx CONFIG REQUIRED) from
+# the public package (CMake package config + libhrx.so + public headers), not the
+# former HRX_DIR/HRX_BUILD source+build tree. This script downloads + verifies +
+# extracts the package and prints its CMake package prefix (feed it to the FLM
+# build via -DCMAKE_PREFIX_PATH). The Linux agent owns finalizing this path.
 set -euo pipefail
 
 usage() {
   cat <<'USAGE'
 usage: fetch-hrx-release.sh [out-dir]
 
-Downloads the HRX release artifact pinned in ../hrx-release.env, verifies its
-checksum, extracts it, and prints the extracted artifact root.
+Downloads the HRX public package pinned in ./hrx-release.env, verifies its
+checksum, extracts it, locates the HRX CMake package config, and prints the
+package prefix for find_package(hrx).
 
 When running in GitHub Actions, the script also writes:
-  root=<artifact-root>
+  prefix=<package-prefix>
 to $GITHUB_OUTPUT.
 USAGE
 }
@@ -38,6 +45,12 @@ source "$release_env"
 : "${HRX_RELEASE_ASSET:?missing HRX_RELEASE_ASSET in $release_env}"
 : "${HRX_RELEASE_SHA256:?missing HRX_RELEASE_SHA256 in $release_env}"
 
+case "$HRX_RELEASE_TAG$HRX_RELEASE_ASSET$HRX_RELEASE_SHA256" in
+  *TODO*)
+    die "hrx-release.env still has TODO placeholders. The Linux agent must publish the HRX public package and fill in REPO/TAG/ASSET/SHA256 first."
+    ;;
+esac
+
 out_dir="${1:-$root/.hrx-release}"
 mkdir -p "$out_dir"
 
@@ -64,23 +77,34 @@ actual_sha="$(sha256sum "$tarball" | awk '{print $1}')"
 [[ "$actual_sha" == "$HRX_RELEASE_SHA256" ]] ||
   die "tarball sha256 mismatch: expected $HRX_RELEASE_SHA256, got $actual_sha"
 
-artifact_root_name="$(tar -tzf "$tarball" | sed -n '1s,/.*,,p')"
-[[ -n "$artifact_root_name" ]] || die "could not determine tarball root"
-case "$artifact_root_name" in
-  .|..) die "invalid tarball root: $artifact_root_name" ;;
+# Public package ships as .tar.zst (fall back to gzip for legacy assets).
+tar_flags="-xf"
+case "$HRX_RELEASE_ASSET" in
+  *.tar.zst) tar_flags="--zstd -xf" ;;
+  *.tar.gz|*.tgz) tar_flags="-xzf" ;;
 esac
 
-artifact_root="$out_dir/$artifact_root_name"
-rm -rf "$artifact_root"
-tar -C "$out_dir" -xzf "$tarball"
+tar -C "$out_dir" $tar_flags "$tarball"
 
-[[ -f "$artifact_root/env.sh" ]] || die "missing $artifact_root/env.sh"
-[[ -f "$artifact_root/HRX_BUILD/libhrx/src/libhrx/libhrx.so" ]] ||
-  die "missing packaged libhrx.so"
-[[ -f "$artifact_root/HRX_BUILD/libflatcc_runtime.a" ]] ||
-  die "missing packaged libflatcc_runtime.a"
+# Locate the HRX CMake package config; its dir feeds find_package(hrx CONFIG).
+config_file="$(find "$out_dir" -type f \( -name 'hrx-config.cmake' -o -name 'hrxConfig.cmake' \) 2>/dev/null | head -n1)"
+[[ -n "$config_file" ]] ||
+  die "no HRX CMake package config found under $out_dir -- is this a public HRX package built with the CMake packaging flow and IREE_HAL_DRIVER_AMDXDNA=ON?"
 
-echo "HRX_ARTIFACT_ROOT=$artifact_root"
+config_dir="$(dirname "$config_file")"
+# Prefer the install prefix (.../<prefix>/lib/cmake/hrx -> <prefix>); else the config dir.
+prefix="$config_dir"
+if [[ "$(basename "$config_dir")" == "hrx" ]]; then
+  cmake_dir="$(dirname "$config_dir")"
+  if [[ "$(basename "$cmake_dir")" == "cmake" ]]; then
+    prefix="$(dirname "$(dirname "$cmake_dir")")"
+  fi
+fi
+
+echo "HRX_CMAKE_CONFIG=$config_file"
+echo "HRX_CMAKE_PREFIX=$prefix"
+echo ""
+echo "Configure FLM with: -DCMAKE_PREFIX_PATH=\"$prefix\""
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "root=$artifact_root" >> "$GITHUB_OUTPUT"
+  echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 fi

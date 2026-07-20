@@ -1,17 +1,23 @@
 <#
 .SYNOPSIS
-  Fetch and verify the pinned HRX amdxdna *Windows* release artifact.
+  Fetch and verify the pinned HRX amdxdna *Windows public package* release.
 
 .DESCRIPTION
   Windows counterpart of fetch-hrx-release.sh. Downloads the Windows .zip pinned
   in hrx-release.env (HRX_RELEASE_ASSET_WINDOWS / HRX_RELEASE_SHA256_WINDOWS),
-  verifies its checksum, extracts it, and prints the extracted artifact root.
+  verifies its checksum, extracts it, locates the HRX CMake package config, and
+  prints the package prefix to feed find_package(hrx) via CMAKE_PREFIX_PATH.
 
-  The artifact is extracted into <script-dir>\.hrx-release\<artifact-root> — the
-  same location the CMake HRX discovery logic globs (hrx-integration/.hrx-release/
-  hrx-amdxdna-*), so no HRX_DIR / HRX_BUILD env vars are required after running it.
+  After XADX removal, FLM consumes HRX through find_package(hrx CONFIG REQUIRED)
+  from the public package (CMake package config + hrx.dll/import lib + public
+  headers), not the former HRX_DIR/HRX_BUILD source+build tree. So configure the
+  FLM build with:
 
-  When running in GitHub Actions, also writes `root=<artifact-root>` to
+      -DCMAKE_PREFIX_PATH=<the HRX_CMAKE_PREFIX printed below>
+
+  The archive is extracted into <script-dir>\.hrx-release\<artifact-root>.
+
+  When running in GitHub Actions, also writes `prefix=<package-prefix>` to
   $env:GITHUB_OUTPUT.
 
 .PARAMETER OutDir
@@ -54,6 +60,11 @@ $repo   = Require-Var 'HRX_RELEASE_REPO'
 $tag    = Require-Var 'HRX_RELEASE_TAG'
 $asset  = Require-Var 'HRX_RELEASE_ASSET_WINDOWS'
 $sha256 = (Require-Var 'HRX_RELEASE_SHA256_WINDOWS').ToLower()
+
+if ($tag -like 'TODO*' -or $asset -like '*TODO*' -or $sha256 -like 'todo*') {
+    throw "hrx-release.env still has TODO placeholders. The Linux agent must " +
+          "publish the HRX public package and fill in REPO/TAG/ASSET/SHA256 first."
+}
 
 if (-not $OutDir) { $OutDir = Join-Path $here '.hrx-release' }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
@@ -100,14 +111,41 @@ if (Test-Path -LiteralPath $artifactRoot) {
 
 Expand-Archive -LiteralPath $zip -DestinationPath $OutDir -Force
 
-$envPs1    = Join-Path $artifactRoot 'env.ps1'
-$hrxLib    = Join-Path $artifactRoot 'HRX_BUILD\libhrx\src\libhrx\hrx.lib'
-$flatccLib = Join-Path $artifactRoot 'HRX_BUILD\flatcc_runtime.lib'
-foreach ($f in @($envPs1, $hrxLib, $flatccLib)) {
-    if (-not (Test-Path -LiteralPath $f)) { throw "missing packaged file: $f" }
+# Some archives contain the package files at the top level rather than under a
+# directory named after the asset; fall back to the extraction dir in that case.
+if (-not (Test-Path -LiteralPath $artifactRoot)) {
+    $artifactRoot = $OutDir
+}
+
+# Locate the HRX CMake package config (hrx-config.cmake / hrxConfig.cmake). Its
+# containing dir is what find_package(hrx CONFIG) needs on CMAKE_PREFIX_PATH; we
+# report the package prefix (two levels up from lib/cmake/hrx when present).
+$configFile = Get-ChildItem -LiteralPath $artifactRoot -Recurse -File `
+    -Include 'hrx-config.cmake', 'hrxConfig.cmake' -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $configFile) {
+    throw "no HRX CMake package config (hrx-config.cmake/hrxConfig.cmake) found " +
+          "under $artifactRoot -- is this a public HRX package built with the " +
+          "CMake packaging flow and IREE_HAL_DRIVER_AMDXDNA=ON?"
+}
+
+$configDir = Split-Path -Parent $configFile.FullName
+# Prefer the install prefix (…/<prefix>/lib/cmake/hrx -> <prefix>); else use the
+# config dir directly. Both are valid on CMAKE_PREFIX_PATH.
+$prefix = $configDir
+if ((Split-Path -Leaf $configDir) -ieq 'hrx') {
+    $cmakeDir = Split-Path -Parent $configDir
+    if ((Split-Path -Leaf $cmakeDir) -ieq 'cmake') {
+        $libDir = Split-Path -Parent $cmakeDir
+        $prefix = Split-Path -Parent $libDir
+    }
 }
 
 Write-Host "HRX_ARTIFACT_ROOT=$artifactRoot"
+Write-Host "HRX_CMAKE_CONFIG=$($configFile.FullName)"
+Write-Host "HRX_CMAKE_PREFIX=$prefix"
+Write-Host ""
+Write-Host "Configure FLM with: -DCMAKE_PREFIX_PATH=`"$prefix`""
 if ($env:GITHUB_OUTPUT) {
-    "root=$artifactRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+    "prefix=$prefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 }
