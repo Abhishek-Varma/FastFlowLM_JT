@@ -480,7 +480,7 @@ int main(int argc, char* argv[]) {
     std::string config_path;
     try {
         config_path = utils::find_model_list();
-        header_print("FLM", "Fetching models from: " + config_path);
+        // header_print("FLM", "Fetching models from: " + config_path);
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
