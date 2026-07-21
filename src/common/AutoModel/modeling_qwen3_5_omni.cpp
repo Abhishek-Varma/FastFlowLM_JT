@@ -3,6 +3,8 @@
 /// \author FastFlowLM Team
 
 #include "AutoModel/modeling_qwen3_5_omni.hpp"
+#include "tensor_utils/safe_tensors.hpp"
+#include "error_measure.hpp"
 
 Qwen3_5_Omni::Qwen3_5_Omni(xrt::device* npu_device_inst)
     : AutoModel(npu_device_inst) {}
@@ -115,8 +117,18 @@ void Qwen3_5_Omni::load_model(std::string model_path, json model_info, int defau
         this->vision_image_mean = json_fp32(vision_config, "rescale_mean", this->vision_image_mean);
         this->vision_image_std = json_fp32(vision_config, "rescale_std", this->vision_image_std);
     }
+    if (jc.contains("audio_input_config") ) {
 
+        const nlohmann::json &audio_input_Config = this->lm_config->_json_config["audio_input_config"];
 
+        this->audio_sampling_rate          = json_u32(audio_input_Config, "sampling_rate", this->patch_size);
+        this->audio_downsample_time        = json_u32(audio_input_Config, "downsample_time", this->audio_downsample_time);
+        this->audio_downsample_chunk_size  = json_u32(audio_input_Config, "audio_downsample_chunk_size", this->audio_downsample_chunk_size);
+        this->audio_timestamp_interval     = json_u32(audio_input_Config, "audio_timestamp_interval", this->audio_timestamp_interval);
+        this->audio_hop_length             = json_u32(audio_input_Config, "audio_hop_length", this->audio_hop_length);
+        this->audio_window_attention_length= json_u32(audio_input_Config, "audio_window_attention_length", this->audio_window_attention_length);
+    }
+    
     this->engine = std::make_unique<qwen3_5_omni>(*this->lm_config, this->npu.get(), this->MAX_L);
     {
         Q4NX q4nx(this->model_path);
@@ -191,27 +203,112 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
     }
 
     // ---- audio preprocessing ----
-    constexpr double max_support_audio_length_seconds = 30.0;
+
     std::vector<audio_data_t> audio_data_list;
     for (const auto& aud_str : input.audios) {
-        audio_data_t audio_data = this->load_audio(aud_str, this->audio_resample_rate, MonoDownmixMode::MEAN);
+        audio_data_t audio_data = this->load_audio(aud_str, this->audio_sampling_rate, MonoDownmixMode::MEAN);
         if (audio_data.channels > 1) {
             header_print("ERROR", "only mono audio is supported");
             return false;
         }
-        std::vector<audio_data_t> clipped = this->clip_audio_length(audio_data, max_support_audio_length_seconds);
-        audio_data_list.insert(audio_data_list.end(), clipped.begin(), clipped.end());
-        if (clipped.size() > 1) {
-            header_print_g("FLM", "Audio split into " + std::to_string(clipped.size()) + " chunks for processing.");
-        }
+        std::cout << "audi size is " << audio_data.num_samples << std::endl;
+        audio_data_list.push_back(audio_data);
+
     }
+
+
+    // now, load refereance and compare this, 
+    // SafeTensors reference_tensor("/scratch/shdu/models/Qwen3.5-OMNI-NPU2/audio_debug.safetensors");
+    // for(int i = 0; i < audio_data_list.size(); i++){
+    //     buffer<float> raw_audio_ref;
+    //     reference_tensor.load_weights( raw_audio_ref, "raw_audio_input_"+std::to_string(i));
+
+    //     print_error_metrics<float, float>(
+    //         audio_data_list[i].samples.data(), raw_audio_ref.data(),
+    //         1,
+    //         1, raw_audio_ref.size(),
+    //         1, raw_audio_ref.size()
+    //     );
+    // }
+    
+
+    pad_audio(audio_data_list);
+
+
+
+
+    // SafeTensors reference_tensor("/scratch/shdu/models/Qwen3.5-OMNI-NPU2/audio_debug.safetensors");
+    // for(int i = 0; i < audio_data_list.size(); i++){
+    //     buffer<float> raw_audio_ref;
+    //     reference_tensor.load_weights( raw_audio_ref, "padded_audio_input_"+std::to_string(i));
+    //     assert(raw_audio_ref.size() == audio_data_list[i].samples.size() );
+    //     print_error_metrics<float, float>(
+    //         audio_data_list[i].samples.data(), raw_audio_ref.data(),
+    //         1,
+    //         1, raw_audio_ref.size(),
+    //         1, raw_audio_ref.size()
+    //     );
+    // }
+    
+
+
+
+
     if (!audio_data_list.empty()) {
         this->extract_spectrogram(audio_data_list, audio_payload);
+       
+        // buffer<float> after_extract_bank_feature;
+        // reference_tensor.load_weights( after_extract_bank_feature, "after_extract_fbank_features");
+
+        // Reference layout: [3, 128, 41600] (bins-first, padded to 41600 frames).
+        // Our layout:       [frames, 128]  (frames-first).
+        // Transpose our output to [128, frames] to match the reference slice,
+        // then compare against the per-audio slice at offset i*128*41600.
+        // constexpr int ref_bins   = 128;
+        // constexpr int ref_frames = 41600;
+
+        // for(int i = 0; i < (int)audio_data_list.size(); i++){
+        //     const int n_bins   = (int)audio_payload.mel_spectrogram_bins_per_audio[i];
+        //     const int n_frames = (int)audio_payload.mel_spectrogram_frames_per_audio[i];
+
+        //     // std::cout << "mel_spectrogram_bins_per_audio "   << n_bins   << std::endl;
+        //     // std::cout << "mel_spectrogram_frames_per_audio " << n_frames << std::endl;
+        //     // std::cout << "mel_spectrogram_size "             << audio_payload.mel_spectrograms[i].size() << std::endl;
+
+        //     // // Transpose [frames, bins] -> [bins, frames] into a float buffer
+        //     // std::vector<float> transposed(n_bins * n_frames);
+        //     // const bf16* src = audio_payload.mel_spectrograms[i].data();
+        //     // for (int f = 0; f < n_frames; f++)
+        //     //     for (int b = 0; b < n_bins; b++)
+        //     //         transposed[b * n_frames + f] = static_cast<float>(src[f * n_bins + b]);
+
+        //     // Reference slice: audio i starts at i * ref_bins * ref_frames
+        //     // const float* ref_slice = after_extract_bank_feature.data() + (long long)i * ref_bins * ref_frames;
+
+        //     // // a=ref_slice [n_bins, ref_frames] (padded, stride=ref_frames)
+        //     // // b=transposed [n_bins, n_frames] (dense, stride=n_frames)
+        //     // print_error_metrics<float, float>(
+        //     //     const_cast<float*>(ref_slice), transposed.data(),
+        //     //     1,
+        //     //     n_bins, n_frames,
+        //     //     n_bins, ref_frames
+        //     // );
+        // }
+        //TODO: FIXME later: it 
         for (unsigned int i = 0; i < audio_payload.num_audios; i++) {
-            audio_payload.num_soft_tokens_per_audio.push_back(
-                this->compute_audio_soft_tokens(audio_payload.mel_spectrogram_frames_per_audio[i]));
+            audio_payload.audio_tokens.push_back(
+                get_audio_tokens(
+                    _get_feat_extract_output_length(
+                        audio_payload.mel_spectrogram_frames_per_audio[i]
+                    )
+                )
+            );
+
+
         }
     }
+    // std::cout << "existing as planned" << std::endl;
+    // exit(-1);
 
     // ---- build templated text ----
     std::string templated_text;
@@ -241,13 +338,10 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
     for (unsigned int i = 0; i < image_payload.num_images; i++) {
         total_image_tokens += image_payload.num_soft_tokens_per_image[i];
     }
-    int total_audio_tokens = 0;
-    for (unsigned int i = 0; i < audio_payload.num_audios; i++) {
-        total_audio_tokens += audio_payload.num_soft_tokens_per_audio[i] + 2; // +boa/eoa
-    }
+    auto total_audio_tokens= 0;
 
     std::vector<int> tokens;
-    tokens.reserve(tokens_init.size() + total_image_tokens + total_audio_tokens);
+    tokens.reserve(tokens_init.size() + total_image_tokens );
     int image_counter = 0;
     int audio_counter = 0;
     for (size_t i = 0; i < tokens_init.size(); i++) {
@@ -257,12 +351,21 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
             }
             image_counter++;
         } else if (tokens_init[i] == audio_token_id) {
+            // first, do a tokenizer on the new message
+            // insert this into the tokens_init
+            std::vector<int> new_audio_tokens = this->tokenizer->encode(
+                audio_payload.audio_tokens[audio_counter]
+            );
+             total_audio_tokens+= new_audio_tokens.size();
+
             tokens.push_back(audio_start_token_id);
-            for (unsigned int j = 0; j < audio_payload.num_soft_tokens_per_audio[audio_counter]; j++) {
-                tokens.push_back(audio_token_id);
+            for(size_t j = 0; j < new_audio_tokens.size(); j++){
+                tokens.push_back(new_audio_tokens[j]);
             }
             tokens.push_back(audio_end_token_id);
+
             audio_counter++;
+            // replace it with the message generated
         } else {
             tokens.push_back(tokens_init[i]);
         }

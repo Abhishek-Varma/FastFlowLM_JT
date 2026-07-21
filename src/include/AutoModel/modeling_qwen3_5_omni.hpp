@@ -86,7 +86,12 @@ private:
     audio_data_t load_audio_base64(const std::string& base64_str, int resample_rate, MonoDownmixMode downmix = MonoDownmixMode::MEAN);
     std::vector<audio_data_t> clip_audio_length(audio_data_t& audio, double max_duration_second);
     void extract_spectrogram(std::vector<audio_data_t>& audio_inputs, qwen3_5_omni_audio_payload_t& audio_payload);
-    unsigned int compute_audio_soft_tokens(int num_mel_frames);
+    std::string get_audio_tokens(int audio_length ) ;
+    
+
+    void pad_audio(std::vector<audio_data_t>& audio_inputs);
+
+
 
     // vision config (thinker_config.vision_config), with VL fallbacks
     uint32_t patch_size          = 16;
@@ -99,11 +104,32 @@ private:
     float    vision_image_std       = 0.5f;
 
     // // audio input resample rate
-    int audio_resample_rate = 16000; //TODO: load from config
+    int audio_sampling_rate = 16000; 
+    int audio_downsample_time = 4;
+    int audio_downsample_chunk_size = 100;
+    int audio_timestamp_interval = 60;
+    int audio_hop_length=160;
+    int audio_window_attention_length=56;
 
 
 
+    inline int _get_feat_extract_output_length(int input_lengths){
+        // exact python function
+        // Given an input audio length(after pre-processded), it computes the output legnth of the audio encoder( sequence length of the audio prefill)
 
+        int input_lengths_leave = input_lengths % audio_downsample_chunk_size;
+        if (input_lengths_leave > 0) {
+            for (int i = 0; i < audio_downsample_time; i++){
+                input_lengths_leave = (input_lengths_leave - 1) / 2 + 1;
+            }
+        }
+
+        return input_lengths_leave + (input_lengths / audio_downsample_chunk_size) * std::ceil(100.0f / std::pow(2,audio_downsample_time));
+
+
+
+    }
+    
 
     // ----- owned engine (not a causal_lm; inherited lm_engine stays null) -----
     std::unique_ptr<qwen3_5_omni> engine = nullptr;

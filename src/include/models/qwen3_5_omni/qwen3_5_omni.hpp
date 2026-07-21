@@ -42,7 +42,9 @@ struct qwen3_5_omni_audio_payload_t {
     std::vector<int> mel_spectrogram_frames_per_audio;             // [num_audios]
     std::vector<int> mel_spectrogram_bins_per_audio;               // [num_audios]
     unsigned int num_audios = 0;
-    std::vector<unsigned int> num_soft_tokens_per_audio; // [num_audios
+
+
+    std::vector<std::string> audio_tokens; // [num_audios, string of tokens ]
 };
 
 
