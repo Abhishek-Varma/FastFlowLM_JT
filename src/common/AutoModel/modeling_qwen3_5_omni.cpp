@@ -179,6 +179,7 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
     std::vector<audio_data_t> audio_data_list;
 
 
+    // ---- build templated text ----
     std::string templated_text;
 
     if (!input.messages.empty()) { // Server Processing
