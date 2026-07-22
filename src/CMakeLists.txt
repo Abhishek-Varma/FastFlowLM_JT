@@ -253,6 +253,14 @@ if(WIN32)
             "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
             "$<TARGET_FILE_DIR:hrx::hrx>"
         PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
+            # Optional Windows feature-on-demand / attestation / lockdown DLLs
+            # that are not present as files on all hosts, so the resolver would
+            # report them unresolved. They are OS components, never bundled.
+            # Patterns are case-insensitive because PE import names are lowercase.
+            "[Aa][Zz][Uu][Rr][Ee][Aa][Tt][Tt][Ee][Ss][Tt].*"
+            "[Hh][Vv][Ss][Ii][Ff][Ii][Ll][Ee][Tt][Rr][Uu][Ss][Tt].*"
+            "[Pp][Dd][Mm][Uu][Tt][Ii][Ll][Ii][Tt][Ii][Ee][Ss].*"
+            "[Ww][Pp][Aa][Xx][Hh][Oo][Ll][Dd][Ee][Rr].*"
         POST_EXCLUDE_REGEXES ".*[Ww]indows[/\\\\][Ss]ystem32[/\\\\].*")
 else()
     install(TARGETS flm
