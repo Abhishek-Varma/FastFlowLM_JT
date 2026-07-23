@@ -247,6 +247,11 @@ if(WIN32)
     )
 endif()
 
+# Default install location for model_list.json / xclbins (matches the app's
+# relocatable "<exe_dir>/../share/flm" lookup). Overridden to the prefix root for
+# the flat portable layout below.
+set(FLM_SHARE_DESTINATION "share/flm")
+
 # Add a custom target to check for remaining DLL dependencies
 if(WIN32)
     add_custom_target(check_dependencies ALL
@@ -260,10 +265,67 @@ else()
         set(CMAKE_INSTALL_LIBDIR "lib")
     endif()
 
+    # ————————————————————————————————————————————————————————————
+    # Install layout. Portable = flat, self-contained tree rooted at the install
+    # prefix (consumed by the portable tarball workflow); otherwise an FHS layout
+    # (bin/, lib/, share/) consumed by the .deb packaging.
+    # ————————————————————————————————————————————————————————————
+    if(FLM_PORTABLE_BUILD)
+        set(FLM_BIN_DESTINATION ".")
+        set(FLM_ENGINE_LIB_DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        set(FLM_SHARE_DESTINATION ".")
+        set(FLM_FLM_INSTALL_RPATH "$ORIGIN/${CMAKE_INSTALL_LIBDIR}")
+        # Engine libs sit next to libhrx in <root>/lib.
+        set(FLM_ENGINE_INSTALL_RPATH "$ORIGIN")
+    else()
+        set(FLM_BIN_DESTINATION "bin")
+        set(FLM_ENGINE_LIB_DESTINATION "${CMAKE_INSTALL_LIBDIR}/flm")
+        set(FLM_SHARE_DESTINATION "share/flm")
+        set(FLM_FLM_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/flm;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+        # Engine libs sit in <prefix>/lib/flm; libhrx is bundled one level up in <prefix>/lib.
+        set(FLM_ENGINE_INSTALL_RPATH "$ORIGIN:$ORIGIN/..")
+    endif()
+
     file(GLOB so_libs "${CMAKE_SOURCE_DIR}/lib/*.so*")
-    install(FILES ${so_libs} DESTINATION "${CMAKE_INSTALL_LIBDIR}/flm")
-    set_target_properties(flm PROPERTIES
-        INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/flm;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    install(FILES ${so_libs} DESTINATION "${FLM_ENGINE_LIB_DESTINATION}")
+    set_target_properties(flm PROPERTIES INSTALL_RPATH "${FLM_FLM_INSTALL_RPATH}")
+
+    # The prebuilt engine .so ship with an absolute build-machine RUNPATH and a
+    # libhrx.so.0 NEEDED entry. Rewrite the RUNPATH to a relocatable $ORIGIN-based
+    # one so libhrx resolves at runtime and, crucially, so dpkg-shlibdeps can locate
+    # it during .deb packaging. Only the engine libs (by name) are patched, so
+    # libhrx / bundled system libs that may share the dir in portable mode are left
+    # untouched.
+    find_program(PATCHELF_EXECUTABLE patchelf REQUIRED)
+    set(_flm_engine_names "")
+    foreach(_flm_src ${so_libs})
+        get_filename_component(_flm_name "${_flm_src}" NAME)
+        list(APPEND _flm_engine_names "${_flm_name}")
+    endforeach()
+    install(CODE "
+        set(_flm_engine_names \"${_flm_engine_names}\")
+        foreach(_flm_name \${_flm_engine_names})
+            set(_flm_lib \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${FLM_ENGINE_LIB_DESTINATION}/\${_flm_name}\")
+            if(EXISTS \"\${_flm_lib}\" AND NOT IS_SYMLINK \"\${_flm_lib}\")
+                execute_process(
+                    COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \"${FLM_ENGINE_INSTALL_RPATH}\" \"\${_flm_lib}\"
+                    RESULT_VARIABLE _flm_patchelf_rc)
+                if(NOT _flm_patchelf_rc EQUAL 0)
+                    message(FATAL_ERROR \"patchelf --set-rpath failed for \${_flm_lib}\")
+                endif()
+            endif()
+        endforeach()
+    ")
+
+    # Portable build ships a small wrapper as `flm`; the packaging step renames the
+    # real binary to `flm-real` and this wrapper to `flm`.
+    if(FLM_PORTABLE_BUILD)
+        configure_file(
+            "${CMAKE_SOURCE_DIR}/flm-wrapper.sh.in"
+            "${CMAKE_BINARY_DIR}/flm-wrapper.sh"
+            @ONLY)
+        install(PROGRAMS "${CMAKE_BINARY_DIR}/flm-wrapper.sh" DESTINATION "${FLM_SHARE_DESTINATION}")
+    endif()
 endif()
 if(WIN32)
     install(TARGETS flm
@@ -288,7 +350,7 @@ if(WIN32)
 else()
     install(TARGETS flm
         RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
-        RUNTIME DESTINATION bin)
+        RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
     install(RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
         DESTINATION "${CMAKE_INSTALL_LIBDIR}"
         DIRECTORIES
@@ -301,8 +363,8 @@ else()
             "lib(c|dl|m|pthread|rt)\\.so.*")
 endif()
 
-install(FILES model_list.json DESTINATION share/flm)
+install(FILES model_list.json DESTINATION "${FLM_SHARE_DESTINATION}")
 
 # xclbins, which are loaded by shared libraries need to be in location
-# relative to the executable, so we install them to bin/xclbins
-install(DIRECTORY xclbins DESTINATION share/flm)
+# relative to the executable, so we install them relative to the binary.
+install(DIRECTORY xclbins DESTINATION "${FLM_SHARE_DESTINATION}")
