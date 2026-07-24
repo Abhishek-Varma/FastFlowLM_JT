@@ -42,7 +42,13 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ steps.hrx.outputs.prefix }}
         run: |
-          cmake --preset windows-vs18
+          # The native deps (Boost/CURL/FFMPEG/FFTW3) are resolved in CONFIG mode
+          # from the runner's vcpkg tree. Wire the vcpkg toolchain so those package
+          # configs (and VCPKG_INSTALLED_DIR, used for DLL bundling) resolve; the
+          # HRX prefix above is preserved by the toolchain via CMAKE_PREFIX_PATH.
+          cmake --preset windows-vs18 `
+            -DCMAKE_TOOLCHAIN_FILE=C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
         shell: powershell
