@@ -87,12 +87,24 @@ endif()
 add_executable(flm ${SOURCES} ${HEADERS})
 
 if(WIN32)
-    # On the self-hosted Windows runner the native deps are NOT resolved as
-    # CMake packages: Boost is a standalone b2 build under C:/dev/boost_1_88_0,
-    # and curl/ffmpeg/fftw come from the vcpkg tree but are linked by raw name.
-    # This mirrors the main branch (which builds green on this runner), so there
-    # is deliberately no find_package / vcpkg toolchain here — the include/link
-    # dirs and raw library names are wired explicitly below.
+    if(VCPKG_TOOLCHAIN)
+        # A vcpkg toolchain is active (e.g. the rocm-npu-staging dev.py build or
+        # a local CMakePresets build): the vcpkg tree ships CMake package configs,
+        # so resolve the native deps in CONFIG mode. find_package auto-detects the
+        # correct versioned import-lib names, so this works regardless of the
+        # installed Boost/FFTW versions.
+        find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
+        find_package(CURL CONFIG REQUIRED)
+        find_package(FFMPEG REQUIRED)
+        find_package(FFTW3 CONFIG REQUIRED)
+        find_package(FFTW3f CONFIG REQUIRED)
+        find_package(FFTW3l CONFIG REQUIRED)
+    endif()
+    # Otherwise (the bare self-hosted CI runner) there is no vcpkg toolchain and
+    # no Boost in vcpkg: Boost is a standalone b2 build under C:/dev/boost_1_88_0
+    # and curl/ffmpeg/fftw are linked by raw name from the vcpkg lib dir. That
+    # path (mirroring main, which builds green on this runner) is wired via the
+    # include/link dirs and raw library names guarded by NOT VCPKG_TOOLCHAIN below.
 else()
     find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
     # The Linux build environment installs these via apt, which provides the
@@ -121,8 +133,8 @@ target_include_directories(flm PUBLIC
     ${FFMPEG_INCLUDE_DIRS}
 )
 
-if(WIN32)
-    # Standalone Boost + vcpkg headers (curl/ffmpeg/fftw) on the Windows runner.
+if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+    # Bare CI runner: standalone Boost + vcpkg headers by absolute path.
     target_include_directories(flm PUBLIC
         C:/dev/boost_1_88_0
         C:/dev/vcpkg/installed/x64-windows/include/
@@ -141,14 +153,19 @@ if(WIN32)
     target_compile_definitions(flm PUBLIC
         WIN32_LEAN_AND_MEAN
         NOMINMAX
-        # Static-link the standalone Boost + curl on Windows (matches main).
-        CURL_STATICLIB
-        BOOST_ALL_NO_LIB
-        BOOST_ALL_STATIC_LINK
         # Handle legacy stdio functions
         _CRT_SECURE_NO_WARNINGS
         _CRT_NONSTDC_NO_DEPRECATE
         __WINDOWS__
+    )
+endif()
+
+if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+    # Bare CI runner: statically link the standalone Boost + curl (matches main).
+    target_compile_definitions(flm PUBLIC
+        CURL_STATICLIB
+        BOOST_ALL_NO_LIB
+        BOOST_ALL_STATIC_LINK
     )
 endif()
 
@@ -157,8 +174,8 @@ target_link_directories(flm PUBLIC
     ${FFMPEG_LIBRARY_DIRS}
 )
 
-if(WIN32)
-    # Standalone Boost stage libs + vcpkg import libs on the Windows runner.
+if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+    # Bare CI runner: standalone Boost stage libs + vcpkg import libs.
     target_link_directories(flm PUBLIC
         C:/dev/boost_1_88_0/stage/lib
         C:/dev/vcpkg/installed/x64-windows/lib
@@ -204,9 +221,20 @@ if(NOT WIN32)
         BUILD_RPATH "$<TARGET_FILE_DIR:hrx::hrx>;${CMAKE_SOURCE_DIR}/lib")
 endif()
 
-if(WIN32)
-    # Link the native deps by raw name from the standalone Boost + vcpkg lib
-    # dirs wired above (matches main; no CMake package configs on the runner).
+if(WIN32 AND VCPKG_TOOLCHAIN)
+    # Local/managed vcpkg: link the imported targets from the CONFIG packages
+    # found above (versioned import-lib names resolved automatically).
+    target_link_libraries(flm PUBLIC
+        ${FFMPEG_LIBRARIES}
+        Boost::program_options
+        CURL::libcurl
+        FFTW3::fftw3
+        FFTW3::fftw3f
+        FFTW3::fftw3l
+    )
+elseif(WIN32)
+    # Bare CI runner: link the native deps by raw name from the standalone Boost
+    # + vcpkg lib dirs wired above (mirrors main; no CMake package configs there).
     target_link_libraries(flm PUBLIC
         avformat
         avcodec
