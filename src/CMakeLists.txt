@@ -86,16 +86,15 @@ endif()
 
 add_executable(flm ${SOURCES} ${HEADERS})
 
-find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
 if(WIN32)
-    # On Windows the native deps come from vcpkg, which ships CMake package
-    # configs, so resolve them in CONFIG mode.
-    find_package(CURL CONFIG REQUIRED)
-    find_package(FFMPEG REQUIRED)
-    find_package(FFTW3 CONFIG REQUIRED)
-    find_package(FFTW3f CONFIG REQUIRED)
-    find_package(FFTW3l CONFIG REQUIRED)
+    # On the self-hosted Windows runner the native deps are NOT resolved as
+    # CMake packages: Boost is a standalone b2 build under C:/dev/boost_1_88_0,
+    # and curl/ffmpeg/fftw come from the vcpkg tree but are linked by raw name.
+    # This mirrors the main branch (which builds green on this runner), so there
+    # is deliberately no find_package / vcpkg toolchain here — the include/link
+    # dirs and raw library names are wired explicitly below.
 else()
+    find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
     # The Linux build environment installs these via apt, which provides the
     # CMake FindCURL module and pkg-config files rather than CMake package
     # configs. Resolve CURL via the module and FFmpeg/FFTW via pkg-config.
@@ -122,6 +121,14 @@ target_include_directories(flm PUBLIC
     ${FFMPEG_INCLUDE_DIRS}
 )
 
+if(WIN32)
+    # Standalone Boost + vcpkg headers (curl/ffmpeg/fftw) on the Windows runner.
+    target_include_directories(flm PUBLIC
+        C:/dev/boost_1_88_0
+        C:/dev/vcpkg/installed/x64-windows/include/
+    )
+endif()
+
 target_compile_definitions(flm PUBLIC
     DISABLE_ABI_CHECK=1
     CMAKE_INSTALL_PREFIX="${CMAKE_INSTALL_PREFIX}"
@@ -134,6 +141,10 @@ if(WIN32)
     target_compile_definitions(flm PUBLIC
         WIN32_LEAN_AND_MEAN
         NOMINMAX
+        # Static-link the standalone Boost + curl on Windows (matches main).
+        CURL_STATICLIB
+        BOOST_ALL_NO_LIB
+        BOOST_ALL_STATIC_LINK
         # Handle legacy stdio functions
         _CRT_SECURE_NO_WARNINGS
         _CRT_NONSTDC_NO_DEPRECATE
@@ -145,6 +156,14 @@ target_link_directories(flm PUBLIC
     ${CMAKE_SOURCE_DIR}/lib
     ${FFMPEG_LIBRARY_DIRS}
 )
+
+if(WIN32)
+    # Standalone Boost stage libs + vcpkg import libs on the Windows runner.
+    target_link_directories(flm PUBLIC
+        C:/dev/boost_1_88_0/stage/lib
+        C:/dev/vcpkg/installed/x64-windows/lib
+    )
+endif()
 
 # Link static libraries first
 if(MSVC)
@@ -185,19 +204,26 @@ if(NOT WIN32)
         BUILD_RPATH "$<TARGET_FILE_DIR:hrx::hrx>;${CMAKE_SOURCE_DIR}/lib")
 endif()
 
-target_link_libraries(flm PUBLIC
-    ${FFMPEG_LIBRARIES}
-    Boost::program_options
-    CURL::libcurl
-)
 if(WIN32)
+    # Link the native deps by raw name from the standalone Boost + vcpkg lib
+    # dirs wired above (matches main; no CMake package configs on the runner).
     target_link_libraries(flm PUBLIC
-        FFTW3::fftw3
-        FFTW3::fftw3f
-        FFTW3::fftw3l
+        avformat
+        avcodec
+        avutil
+        swscale
+        swresample
+        libcurl
+        libboost_program_options-vc143-mt-x64-1_88
+        libfftw3-3
+        libfftw3f-3
+        libfftw3l-3
     )
 else()
     target_link_libraries(flm PUBLIC
+        ${FFMPEG_LIBRARIES}
+        Boost::program_options
+        CURL::libcurl
         PkgConfig::FFTW3
         PkgConfig::FFTW3F
         PkgConfig::FFTW3L
