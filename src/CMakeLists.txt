@@ -298,9 +298,12 @@ else()
     # untouched.
     find_program(PATCHELF_EXECUTABLE patchelf REQUIRED)
     set(_flm_engine_names "")
+    set(_flm_engine_post_exclude "")
     foreach(_flm_src ${so_libs})
         get_filename_component(_flm_name "${_flm_src}" NAME)
         list(APPEND _flm_engine_names "${_flm_name}")
+        string(REPLACE "." "\\." _flm_name_re "${_flm_name}")
+        list(APPEND _flm_engine_post_exclude ".*/${_flm_name_re}$")
     endforeach()
     install(CODE "
         set(_flm_engine_names \"${_flm_engine_names}\")
@@ -360,7 +363,14 @@ else()
         PRE_EXCLUDE_REGEXES
             "linux-vdso\\.so.*"
             "ld-linux.*"
-            "lib(c|dl|m|pthread|rt)\\.so.*")
+            "lib(c|dl|m|pthread|rt)\\.so.*"
+        # The engine .so are installed (and RUNPATH-patched) explicitly into
+        # FLM_ENGINE_LIB_DESTINATION above. Exclude them here so the dependency
+        # resolver does not additionally drop unpatched copies (which retain the
+        # absolute build-machine RUNPATH) into ${CMAKE_INSTALL_LIBDIR}. Their
+        # transitive dependencies (libhrx, libgomp, ...) are still resolved and
+        # bundled because POST_EXCLUDE only skips installation, not traversal.
+        POST_EXCLUDE_REGEXES ${_flm_engine_post_exclude})
 endif()
 
 install(FILES model_list.json DESTINATION "${FLM_SHARE_DESTINATION}")
