@@ -356,7 +356,7 @@ else()
     foreach(_flm_src ${so_libs})
         get_filename_component(_flm_name "${_flm_src}" NAME)
         list(APPEND _flm_engine_names "${_flm_name}")
-        string(REPLACE "." "\\." _flm_name_re "${_flm_name}")
+        string(REPLACE "." "[.]" _flm_name_re "${_flm_name}")
         list(APPEND _flm_engine_post_exclude ".*/${_flm_name_re}$")
     endforeach()
     install(CODE "
@@ -405,26 +405,53 @@ if(WIN32)
             "[Ww][Pp][Aa][Xx][Hh][Oo][Ll][Dd][Ee][Rr].*"
         POST_EXCLUDE_REGEXES ".*[Ww]indows[/\\\\][Ss]ystem32[/\\\\].*")
 else()
-    install(TARGETS flm
-        RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
-        RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
-    install(RUNTIME_DEPENDENCY_SET fastflowlm_runtime_dependencies
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-        DIRECTORIES
-            "${CMAKE_SOURCE_DIR}/lib"
-            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib"
-            "$<TARGET_FILE_DIR:hrx::hrx>"
-        PRE_EXCLUDE_REGEXES
-            "linux-vdso\\.so.*"
-            "ld-linux.*"
-            "lib(c|dl|m|pthread|rt)\\.so.*"
-        # The engine .so are installed (and RUNPATH-patched) explicitly into
-        # FLM_ENGINE_LIB_DESTINATION above. Exclude them here so the dependency
-        # resolver does not additionally drop unpatched copies (which retain the
-        # absolute build-machine RUNPATH) into ${CMAKE_INSTALL_LIBDIR}. Their
-        # transitive dependencies (libhrx, libgomp, ...) are still resolved and
-        # bundled because POST_EXCLUDE only skips installation, not traversal.
-        POST_EXCLUDE_REGEXES ${_flm_engine_post_exclude})
+    # Bundle flm's third-party runtime dependencies into ${CMAKE_INSTALL_LIBDIR}.
+    #
+    # Subtlety: some private dependencies (libgomp, libmvec, ...) are pulled in
+    # ONLY by the prebuilt engine .so, not by flm itself. The engine .so are
+    # installed and RUNPATH-patched explicitly into FLM_ENGINE_LIB_DESTINATION
+    # above, so the resolver must NOT emit a second, unpatched copy of them
+    # (which would retain the absolute build-machine RUNPATH) — but their private
+    # deps DO need to be in the closure.
+    #
+    # A RUNTIME_DEPENDENCY_SET rooted only at flm cannot express this: listing
+    # the engine .so in POST_EXCLUDE_REGEXES also stops traversal INTO them, so
+    # their private deps silently drop out of the bundle (that is exactly how
+    # libgomp/libmvec went missing). Instead, scan flm together with the engine
+    # .so as ROOTS via file(GET_RUNTIME_DEPENDENCIES): roots are traversed for
+    # their dependencies but are never themselves emitted, so libgomp/libmvec are
+    # captured while the engine .so stay solely under the patched install above.
+    # The engine names are still POST_EXCLUDEd as a belt-and-suspenders guard for
+    # the case of one engine lib depending on another.
+    install(TARGETS flm RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
+    install(CODE "
+        set(_flm_engine_libs \"${so_libs}\")
+        set(_flm_engine_post_exclude \"${_flm_engine_post_exclude}\")
+        file(GET_RUNTIME_DEPENDENCIES
+            EXECUTABLES \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${FLM_BIN_DESTINATION}/flm\"
+            LIBRARIES \${_flm_engine_libs}
+            RESOLVED_DEPENDENCIES_VAR _flm_resolved
+            UNRESOLVED_DEPENDENCIES_VAR _flm_unresolved
+            DIRECTORIES
+                \"${CMAKE_SOURCE_DIR}/lib\"
+                \"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib\"
+                \"$<TARGET_FILE_DIR:hrx::hrx>\"
+            PRE_EXCLUDE_REGEXES
+                \"linux-vdso\\\\.so.*\"
+                \"ld-linux.*\"
+                \"lib(c|dl|m|pthread|rt)\\\\.so.*\"
+            POST_EXCLUDE_REGEXES \${_flm_engine_post_exclude})
+        if(_flm_unresolved)
+            message(FATAL_ERROR
+                \"FastFlowLM runtime dependency closure is incomplete; unresolved: \${_flm_unresolved}\")
+        endif()
+        # file(INSTALL) prepends \$ENV{DESTDIR} itself, so DESTINATION must not.
+        file(INSTALL
+            DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\"
+            TYPE SHARED_LIBRARY
+            FOLLOW_SYMLINK_CHAIN
+            FILES \${_flm_resolved})
+    ")
 endif()
 
 install(FILES model_list.json DESTINATION "${FLM_SHARE_DESTINATION}")
