@@ -1,6 +1,8 @@
 BUILD_DIR := build
 OUT_DIR   := out
-PWSH      := powershell.exe..PHONY: all clean run run-hrx serve install hrx
+PWSH      := powershell.exe
+
+.PHONY: all clean run run-hrx serve install hrx
 
 ifeq ($(OS),Windows_NT)
 
