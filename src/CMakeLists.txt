@@ -638,21 +638,28 @@ else()
     # LD_LIBRARY_PATH, and for the .deb XRT is an external dependency resolved
     # from the system.
     if(FLM_USE_HRX)
-        find_program(PATCHELF_EXECUTABLE patchelf REQUIRED)
-        install(CODE "
-            set(_flm_engine_names \"${_flm_engine_names}\")
-            foreach(_flm_name \${_flm_engine_names})
-                set(_flm_lib \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${FLM_ENGINE_LIB_DESTINATION}/\${_flm_name}\")
-                if(EXISTS \"\${_flm_lib}\" AND NOT IS_SYMLINK \"\${_flm_lib}\")
-                    execute_process(
-                        COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \"${FLM_ENGINE_INSTALL_RPATH}\" \"\${_flm_lib}\"
-                        RESULT_VARIABLE _flm_patchelf_rc)
-                    if(NOT _flm_patchelf_rc EQUAL 0)
-                        message(FATAL_ERROR \"patchelf --set-rpath failed for \${_flm_lib}\")
+        # Not REQUIRED at configure time: patchelf is only needed to install an HRX
+        # build, so demanding it up front would block a plain `cmake --build`.
+        find_program(PATCHELF_EXECUTABLE patchelf)
+        if(PATCHELF_EXECUTABLE)
+            install(CODE "
+                set(_flm_engine_names \"${_flm_engine_names}\")
+                foreach(_flm_name \${_flm_engine_names})
+                    set(_flm_lib \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${FLM_ENGINE_LIB_DESTINATION}/\${_flm_name}\")
+                    if(EXISTS \"\${_flm_lib}\" AND NOT IS_SYMLINK \"\${_flm_lib}\")
+                        execute_process(
+                            COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \"${FLM_ENGINE_INSTALL_RPATH}\" \"\${_flm_lib}\"
+                            RESULT_VARIABLE _flm_patchelf_rc)
+                        if(NOT _flm_patchelf_rc EQUAL 0)
+                            message(FATAL_ERROR \"patchelf --set-rpath failed for \${_flm_lib}\")
+                        endif()
                     endif()
-                endif()
-            endforeach()
-        ")
+                endforeach()
+            ")
+        else()
+            message(WARNING "patchelf not found: this HRX build can be compiled but not installed. Install patchelf and re-run CMake configure before `cmake --install`.")
+            install(CODE "message(FATAL_ERROR \"patchelf not found at configure time; it is required to install an HRX build. Install patchelf and re-run CMake configure.\")")
+        endif()
     endif()
 
     # Portable build ships a small wrapper as `flm`; the packaging step renames the
