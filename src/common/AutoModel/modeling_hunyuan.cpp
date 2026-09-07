@@ -10,9 +10,10 @@
 
 /************              hunyuan-dense family            **************/
 Hunyuan::Hunyuan(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Hunyuan") {
-    // the translator emits one short line per turn and the caller already has it
-    // from the stream / return value, so the raw dump would only double the log
-    this->log_raw_output = false;
+    // Keep the default log_raw_output=true: every other model emits the
+    // "Model RAW Output:" line, and downstream consumers (qualification,
+    // numerical-match) anchor per-turn/per-iteration parsing on it. Suppressing
+    // it made every hy-mt2 response read as empty even though generation works.
     // every turn either rewinds to the pinned prefix or clears, so the kv state
     // the trailing eos forward exists to preserve is discarded either way
     this->forward_on_eos = false;
