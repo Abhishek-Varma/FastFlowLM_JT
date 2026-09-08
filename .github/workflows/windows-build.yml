@@ -1,4 +1,4 @@
-name: Build Windows Package
+name: Build Windows Packages
 
 on:
   push:

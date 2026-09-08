@@ -1,4 +1,4 @@
-name: Portable
+name: Build Linux Portable
 
 on:
   push:
