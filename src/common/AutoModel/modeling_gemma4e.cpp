@@ -834,8 +834,11 @@ bool Gemma4e::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
         ? this->_shared_insert(meta_info, tokens, is_cancelled, &multi_modal_payload, last_image_token_index)
         : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
-    checkpoint_his = token_history;
-    int checkpoint_idx = gemma4e_engine->checkpoint();
+    if (this->enable_think) {
+        checkpoint_his = token_history;
+        int checkpoint_idx = gemma4e_engine->checkpoint();
+    }
+    
     return success;
 }
 

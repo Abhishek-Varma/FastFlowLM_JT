@@ -183,7 +183,9 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
         }
     }
     if (skip_count != idx) {
-        // header_print("FLM", "System prompt changed! Clearing context...");
+        if (is_server_mode) {
+            header_print("FLM", "Conversation context diverged from cache, clearing context...");
+        }
         clear_context();
         skip_count = 0;
     }

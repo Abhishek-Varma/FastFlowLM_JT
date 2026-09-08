@@ -157,6 +157,10 @@ protected:
 	///       turn can append to it. Models that rewind or clear between turns
 	///       throw that state away anyway, so for them it is a wasted step.
 	bool forward_on_eos = true;
+	/// \brief whether this instance is running under `flm serve`
+	/// \note off by default (`flm run`); the server sets it via set_server_mode()
+	///       so that serve-only diagnostics don't show up in the CLI.
+	bool is_server_mode = false;
 
 
 	uint32_t MAX_L = 0;
@@ -226,6 +230,10 @@ public:
 
 	/// \brief Clear the context
 	virtual void clear_context();
+
+	/// \brief Mark this instance as running under `flm serve` (vs. `flm run`)
+	/// \param value true if running under `flm serve`
+	void set_server_mode(bool value) { is_server_mode = value; }
 
 	/// \brief Get the current model
 	/// \return the current model
@@ -379,6 +387,9 @@ public:
 	virtual std::string generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; }) = 0;
 	virtual chat_template_type_t get_chat_template_type() {
 		return chat_template_type_t::chat_ml;
+	}
+	virtual bool check_using_checkpint() {
+		return true;
 	}
 	/// \brief Insert the tokens
 	/// \param tokens the tokens

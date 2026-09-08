@@ -386,6 +386,7 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag) {
         }
         std::pair<std::string, std::unique_ptr<AutoModel>> auto_model = get_auto_model(ensure_tag, this->supported_models, &this->npu_device_inst);
         auto_chat_engine = std::move(auto_model.second);
+        auto_chat_engine->set_server_mode(true);
         ensure_tag = auto_model.first;
         switch (downloader.is_model_downloaded(ensure_tag)) {
             case ModelDownloader::ModelStatus::Ready:
@@ -1125,9 +1126,10 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             if (can_use_prompt_cache) {
                 meta_info.restore_allowed = true;
                 header_print("FLM", "Use cached prompt!");
-                header_print("FLM", "Matched " + std::to_string(cache_info.matched_rounds) +
+                size_t matched_rounds = cache_info.matched_rounds + (auto_chat_engine->check_using_checkpint() ? 0 : 1);
+                header_print("FLM", "Matched " + std::to_string(matched_rounds) +
                     " out of " + std::to_string(cache_info.total_rounds) + " messages (" +
-                    std::to_string(cache_info.total_rounds - cache_info.matched_rounds) + " new to prefill).");
+                    std::to_string(cache_info.total_rounds - matched_rounds) + " new to prefill).");
             }
             else {
                 // cannot use cache, clear and re-insert all
