@@ -1127,6 +1127,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 }
             }
             if (has_assistant_msg) {
+                header_print("Warning", "Single-turn model received multi-turn request (assistant messages detected). Rejecting.");
                 json error_response = {{"error", "This model only supports single-turn requests. Multi-turn conversation history (assistant messages) is not allowed."}};
                 send_response(error_response);
                 return;

@@ -198,7 +198,30 @@ public:
 /// engine. gemma4e_flash is currently a byte-for-byte copy of gemma4e_npu and
 /// is the engine being tuned for short input prompts; Gemma4e stays the
 /// general-purpose path.
+///
+/// Logically single-turn: every insert() starts from a clean kv state. The one
+/// exception is the system prompt — if the request carries one, insert() pins
+/// its shared prefix with a KV-cache checkpoint on the first occurrence, then
+/// rewinds to that checkpoint on subsequent requests that carry the same system
+/// text.
 class Gemma4e_Flash : public Gemma4e {
+private:
+    /// \brief system text the current checkpoint was built from, empty when none
+    std::string pinned_system_text;
+
+    /// \brief token history at the time of the checkpoint
+    std::vector<int> system_his;
+
+    /// \brief number of tokens covered by the checkpoint, 0 when nothing is pinned
+    int system_tokens = 0;
+
+    /// \brief prefill the system prefix of `system_text` and checkpoint it
+    /// \return number of tokens pinned, 0 if the prefix could not be isolated
+    int _pin_system_prefix(const std::string& system_text);
+
+    /// \brief Drop everything the previous turn left behind, back to the pin.
+    void _reset_turn();
+
 protected:
     void create_engine() override;
     gemma4e_engine_config_t engine_config() const override;
@@ -211,5 +234,17 @@ public:
         this->image_softtoken_budget = 70;
         // Flash's context is short, so keep only the first 30 s chunk of any audio.
         this->max_audio_chunks = 1;
+        this->single_turn = true;
+    }
+
+    bool insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std::function<bool()> is_cancelled = [] { return false; }) override;
+    std::string generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; }) override;
+    std::string generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os = std::cout) override;
+
+    /// \brief Apply the chat template without tools — gemma4e_flash does not
+    ///        support tool calling, so the tools argument is always dropped.
+    std::string apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools = nlohmann::ordered_json::object()) override {
+        nlohmann::ordered_json no_tools = nlohmann::ordered_json::object();
+        return Gemma4e::apply_chat_template(messages, no_tools);
     }
 };

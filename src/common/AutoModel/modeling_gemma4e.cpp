@@ -448,6 +448,206 @@ void Gemma4e_Flash::create_engine() {
     this->lm_engine = std::make_unique<gemma4e_flash>(*this->lm_config, this->npu.get(), this->MAX_L);
 }
 
+int Gemma4e_Flash::_pin_system_prefix(const std::string& system_text) {
+    this->lm_engine->clear_context();
+    this->token_history.clear();
+    this->checkpoint_his.clear();
+    this->total_tokens = 0;
+    this->last_token = -1;
+    this->system_tokens = 0;
+    this->system_his.clear();
+    this->pinned_system_text = system_text;
+
+    if (system_text.empty()) {
+        return 0;
+    }
+
+    // Find the longest token prefix shared by all prompts that carry this
+    // system turn. Template two otherwise-identical prompts that differ only
+    // in the first character of the user message and take the common prefix.
+    auto templated = [&](const std::string& user_text) {
+        nlohmann::ordered_json messages = nlohmann::ordered_json::array();
+        messages.push_back({ {"role", "system"}, {"content", system_text} });
+        messages.push_back({ {"role", "user"}, {"content", user_text} });
+        return this->apply_chat_template(messages);
+    };
+    std::vector<int> probe_a = this->tokenizer->encode(templated("A"));
+    std::vector<int> probe_b = this->tokenizer->encode(templated("\xe4\xbd\xa0")); // U+4F60, CJK probe
+
+    size_t shared = 0;
+    while (shared < probe_a.size() && shared < probe_b.size() && probe_a[shared] == probe_b[shared]) {
+        shared++;
+    }
+    if (shared == 0) {
+        header_print("WARNING", "Gemma4e_Flash: could not isolate a reusable system prefix, every turn will prefill in full");
+        return 0;
+    }
+
+    std::vector<int> tokens(probe_a.begin(), probe_a.begin() + shared);
+    chat_meta_info_t pin_meta;
+    pin_meta.restore_allowed = false;
+    if (!this->_shared_insert(pin_meta, tokens, [] { return false; }, nullptr)) {
+        this->lm_engine->clear_context();
+        this->token_history.clear();
+        this->checkpoint_his.clear();
+        return 0;
+    }
+
+    this->system_his = this->token_history;
+    this->checkpoint_his = this->token_history;
+    this->lm_engine->checkpoint();
+    this->system_tokens = static_cast<int>(shared);
+
+    for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
+        this->profiler_list[i].reset();
+    }
+
+    header_print("FLM", "Gemma4e_Flash: system prefix pinned (" + std::to_string(this->system_tokens) + " tokens).");
+    return this->system_tokens;
+}
+
+void Gemma4e_Flash::_reset_turn() {
+    if (this->system_tokens > 0) {
+        this->total_tokens = static_cast<uint32_t>(this->lm_engine->restore());
+        this->token_history = this->system_his;
+        this->checkpoint_his = this->system_his;
+    } else {
+        this->lm_engine->clear_context();
+        this->token_history.clear();
+        this->checkpoint_his.clear();
+        this->total_tokens = 0;
+    }
+    this->sampler->reset_penalties();
+    this->last_token = -1;
+    this->reset_parser();
+    this->tool_name_.clear();
+    this->profiler_list[PREFILL_TIME].reset();
+    this->profiler_list[DECODING_TIME].reset();
+    this->profiler_list[SAMPLING_TIME].reset();
+    this->profiler_list[TKOEN_ENCODE_TIME].reset();
+    this->profiler_list[TKOEN_DECODE_TIME].reset();
+}
+
+bool Gemma4e_Flash::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std::function<bool()> is_cancelled) {
+    // Extract system text from the first message (if present).
+    std::string sys_text;
+    if (!input.messages.empty() && input.messages[0].value("role", "") == "system") {
+        const auto& content = input.messages[0]["content"];
+        if (content.is_string()) {
+            sys_text = content.get<std::string>();
+        } else if (content.is_array()) {
+            for (const auto& item : content) {
+                if (item.value("type", "") == "text") {
+                    sys_text += item.value("text", "");
+                }
+            }
+        }
+    }
+
+    if (sys_text != this->pinned_system_text) {
+        this->_pin_system_prefix(sys_text);
+    }
+
+    this->_reset_turn();
+
+    // Disable the prompt-cache restore path in the parent: _reset_turn() has
+    // already positioned the engine at the correct starting point (pin or
+    // clear). The parent's token_history now holds the pinned prefix, so
+    // _shared_insert's own prefix-match will skip those tokens automatically.
+    meta_info.restore_allowed = false;
+
+    return Gemma4e::insert(meta_info, input, is_cancelled);
+}
+
+std::string Gemma4e_Flash::generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
+    std::string result;
+    assert(this->last_token != -1);
+
+    stop_reason_t reason = EOT_DETECTED;
+    int last_sampled_token = this->last_token;
+
+    this->token_history.push_back(last_token);
+
+    if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1) {
+        std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+        result += token_str;
+        os << token_str << std::flush;
+    }
+    if (this->is_eos(last_sampled_token)) {
+        meta_info.stop_reason = reason;
+        return result;
+    }
+    this->profiler_list[DECODING_TIME].reset();
+    this->profiler_list[TKOEN_DECODE_TIME].reset();
+    if (this->total_tokens >= this->MAX_L) {
+        header_print("WARNING", "Max length reached, stopping generation...");
+        meta_info.stop_reason = MAX_LENGTH_REACHED;
+        return result;
+    }
+
+    while (this->total_tokens < this->MAX_L) {
+        if (is_cancelled()) {
+            reason = CANCEL_DETECTED;
+            buffer_.clear();
+            current_mode_ = StreamEventType::CONTENT;
+            tool_name_.clear();
+            is_in_tool_block_ = false;
+            break;
+        }
+
+        this->profiler_list[DECODING_TIME].start();
+        buffer<bf16> y = this->lm_engine->forward(last_sampled_token);
+        this->profiler_list[DECODING_TIME].stop(1);
+
+        this->profiler_list[SAMPLING_TIME].start();
+        int sampled_token = this->sampler->sample(y);
+        this->profiler_list[SAMPLING_TIME].stop(1);
+        this->total_tokens++;
+        last_sampled_token = sampled_token;
+
+        this->profiler_list[TKOEN_DECODE_TIME].start();
+        if (this->is_normal_token(sampled_token)) {
+            std::string token_str = this->tokenizer->run_time_decoder(sampled_token);
+            os << token_str << std::flush;
+            result += token_str;
+        }
+        this->profiler_list[TKOEN_DECODE_TIME].stop(1);
+
+        this->token_history.push_back(sampled_token);
+        meta_info.generated_tokens++;
+
+        if (this->is_eos(sampled_token)) {
+            // Single-turn: no forward_on_eos needed — kv cache is discarded
+            // by _reset_turn() at the start of every new request.
+            break;
+        }
+        if ((length_limit > 0) && (meta_info.generated_tokens >= length_limit)) {
+            reason = MAX_LENGTH_REACHED;
+            break;
+        }
+    }
+
+    meta_info.decoding_duration = (uint64_t)(time_utils::cast_to_us(this->profiler_list[DECODING_TIME].get_total_time()).first) * 1e3;
+    meta_info.stop_reason = reason;
+    if (this->total_tokens >= this->MAX_L) {
+        header_print("WARNING", "Max length reached, stopping generation...");
+    }
+    std::cout << std::endl;
+    header_print("FLM", "Model RAW Output: \n" + result);
+
+    // Single-turn: do not checkpoint here — the only checkpoint that matters
+    // is the pinned system prefix, which _pin_system_prefix() already owns.
+
+    return result;
+}
+
+std::string Gemma4e_Flash::generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os) {
+    if (!this->insert(meta_info, input)) {
+        return "";
+    }
+    return this->generate(meta_info, length_limit, os);
+}
+
 void Gemma4e::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption) {
     
     this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
