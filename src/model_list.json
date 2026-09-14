@@ -29,7 +29,8 @@
                     "quantization_level": "Q4_0"
                 },
                 "label": [
-                    "translation"
+                    "translation",
+                    "single-turn"
                 ],
                 "footprint": 1.5
             }
@@ -122,7 +123,8 @@
                 },
                 "label": [
                     "vision",
-                    "tool-calling"
+                    "tool-calling",
+                    "single-turn"
                 ],
                 "footprint": 3.9
             }
@@ -269,7 +271,8 @@
                     "vision",
                     "reasoning",
                     "tool-calling",
-                    "chat-transcription"
+                    "chat-transcription",
+                    "single-turn"
                 ],
                 "footprint": 6.0
             },
@@ -305,7 +308,8 @@
                     "vision",
                     "reasoning",
                     "tool-calling",
-                    "chat-transcription"
+                    "chat-transcription",
+                    "single-turn"
                 ],
                 "footprint": 9.1
             }
