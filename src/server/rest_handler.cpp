@@ -532,7 +532,7 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
     }
 }
 
-json RestHandler::build_nstream_response(std::string response_text) {
+json RestHandler::build_nstream_response(std::string response_text, chat_meta_info_t& meta_info) {
     // Get tool info
     NonStreamResult result = auto_chat_engine->parse_nstream_content(response_text);
 
@@ -582,13 +582,21 @@ json RestHandler::build_nstream_response(std::string response_text) {
     }
 
 
+    // Follow meta_info for the finish reason, same as the streaming path.
+    // A tool call is only visible after parsing the generated text, so promote
+    // the stop reason here; every other case (length, cancel, error) is already
+    // carried by meta_info and takes precedence, since a truncated or aborted
+    // generation must not be reported to the client as a complete tool call.
+    if (is_tool_call && meta_info.stop_reason == stop_reason_t::EOT_DETECTED) {
+        meta_info.stop_reason = stop_reason_t::TOOL_DETECTED;
+    }
     // Construct the final choice object
     return json::array({
         {
             {"index", 0},
             {"message", message},
             {"logprobs", nullptr},
-            {"finish_reason", is_tool_call ? "tool_calls" : "stop"}
+            {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
         }
     });
 }
@@ -1273,7 +1281,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 return;
             }
             // check response_text
-            json choices = build_nstream_response(response_text);
+            json choices = build_nstream_response(response_text, meta_info);
             response = {
                 {"id", "fastflowlm-chat-completion"},
                 {"object", "chat.completion"},
@@ -1485,7 +1493,7 @@ void RestHandler::handle_openai_completion(const json& request,
                         {"text", response_text},
                         {"index", 0},
                         {"logprobs", nullptr},
-                        {"finish_reason", "stop"}
+                        {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
                     }
                 })},
                 {"usage", {
