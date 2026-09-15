@@ -139,10 +139,19 @@ void AutoModel::_shared_load_model(std::string model_path, json model_info, int 
     }
     this->npu = std::make_unique<npu_xclbin_manager>(npu_device::device_npu2, this->npu_device_inst, enable_preemption);
     this->enable_preemption = enable_preemption;
+    // Single-turn models (e.g. dedicated translation models) don't support arbitrary
+    // context length overrides, so always fall back to the model's own default.
+    bool single_turn = model_info.contains("label") &&
+        std::find(model_info["label"].begin(), model_info["label"].end(), "single-turn") != model_info["label"].end();
     // Set context length: use provided value if not -1, otherwise use model default
-    if (default_context_length != -1) {
+    if (default_context_length != -1 && single_turn) {
+        header_print("FLM", "Single-turn model, 1k max context length allowed only!");
+        this->MAX_L = model_info["default_context_length"];
+    }
+    else if (default_context_length != -1) {
         this->MAX_L = default_context_length;
-    } else {
+    }
+    else {
         this->MAX_L = model_info["default_context_length"];
     }
     

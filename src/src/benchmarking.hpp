@@ -280,7 +280,7 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
     bool single_turn = model_info.contains("label") &&
         std::find(model_info["label"].begin(), model_info["label"].end(), "single-turn") != model_info["label"].end();
     if (single_turn)
-        bench_config["max_length"] = 4096;
+        bench_config["max_length"] = 1024;
 
     int max_len = bench_config["max_length"];
     if (!single_turn && max_len < 8192)

@@ -10,8 +10,8 @@
                 "modified_at": "2026-09-01T00:00:00Z",
                 "size": 1800000000,
                 "flm_min_version": "1.0.5",
-                "default_context_length": 512,
-                "max_prefill_len": 4096,
+                "default_context_length": 1024,
+                "max_prefill_len": 1024,
                 "files": [
                     "config.json",
                     "model.q4nx",
@@ -112,8 +112,8 @@
                     "vision_weight.q4nx"
                 ],
                 "vlm": true,
-                "default_context_length": 2048,
-                "max_prefill_len": 2048,
+                "default_context_length": 1024,
+                "max_prefill_len": 1024,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3vl-flash",
@@ -257,8 +257,8 @@
                 ],
                 "vlm": true,
                 "asr": true,
-                "default_context_length": 2048,
-                "max_prefill_len": 2048,
+                "default_context_length": 1024,
+                "max_prefill_len": 1024,
                 "details": {
                     "format": "NPU2",
                     "family": "gemma4e-flash",
@@ -294,8 +294,8 @@
                 ],
                 "vlm": true,
                 "asr": true,
-                "default_context_length": 2048,
-                "max_prefill_len": 2048,
+                "default_context_length": 1024,
+                "max_prefill_len": 1024,
                 "details": {
                     "format": "NPU2",
                     "family": "gemma4e-flash",
