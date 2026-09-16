@@ -217,6 +217,7 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
         header_print("WARNING", "Max length reached, stopping prefilling...");
     }
     this->profiler_list[SAMPLING_TIME].start();
+    this->_apply_tool_choice_mask(y, meta_info);
     this->last_token = this->sampler->sample(y);
     this->profiler_list[SAMPLING_TIME].stop(1);
     return true;
@@ -265,6 +266,20 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
     return y;
 }
 
+void AutoModel::_apply_tool_choice_mask(buffer<bf16>& y, const chat_meta_info_t& meta_info) {
+    if (meta_info.tool_choice != TOOL_CHOICE_NONE) {
+        return;
+    }
+    const int tool_start_token_id = this->get_tool_start_token_id();
+    if (tool_start_token_id < 0 || (size_t)tool_start_token_id >= y.size()) {
+        return;
+    }
+    // A large negative logit rather than -inf: every sampling path either takes
+    // the argmax or runs this through softmax, and a finite value can never turn
+    // into the inf - inf that would poison the whole distribution.
+    y[tool_start_token_id] = bf16(-1e30f);
+}
+
 std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
     std::vector<int> sampled_tokens;
     std::string result;
@@ -310,6 +325,7 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
         this->profiler_list[DECODING_TIME].stop(1);
 
         this->profiler_list[SAMPLING_TIME].start();
+        this->_apply_tool_choice_mask(y, meta_info);
         int sampled_token = this->sampler->sample(y);
         this->profiler_list[SAMPLING_TIME].stop(1);
         this->total_tokens++;

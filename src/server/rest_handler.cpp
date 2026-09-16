@@ -1107,6 +1107,18 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         json tools = request.value("tools", json::array());
         json options = request.value("options", json::object());
 
+        // Only "auto" and "none" are honoured; "required" and the per-function
+        // object form are not implemented yet, and a request asking for one is
+        // served as "auto" rather than refused.
+        json tool_choice = request.value("tool_choice", json("auto"));
+        tool_choice_t tool_choice_mode = TOOL_CHOICE_AUTO;
+        if (tool_choice.is_string() && tool_choice.get<std::string>() == "none") {
+            tool_choice_mode = TOOL_CHOICE_NONE;
+        }
+        else if (!(tool_choice.is_string() && tool_choice.get<std::string>() == "auto")) {
+            header_print("Warning", "Unsupported tool_choice " + tool_choice.dump() + ", falling back to auto.");
+        }
+
         auto load_start_time = time_utils::now();
         if (!ensure_model_loaded(model)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
@@ -1176,6 +1188,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         uniformed_input.tools = tools;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         meta_info.max_prefill_len = this->prefill_chunk_len;
+        meta_info.tool_choice = tool_choice_mode;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();

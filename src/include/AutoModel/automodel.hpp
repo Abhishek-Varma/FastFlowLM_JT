@@ -97,6 +97,15 @@ inline std::string stop_reason_to_string(stop_reason_t reason){
     }
 }
 
+/// \brief What the request allows the model to do about tool calls.
+/// \note Only the two modes the server parses today; "required" and the
+///       per-function object form are reported as unsupported and fall back
+///       to TOOL_CHOICE_AUTO.
+typedef enum {
+	TOOL_CHOICE_AUTO,   // the model may emit tool calls (default)
+	TOOL_CHOICE_NONE    // tool call tokens are masked out of the logits
+} tool_choice_t;
+
 struct chat_meta_info_t {
 	int max_prefill_len;
     int prompt_tokens;
@@ -107,8 +116,9 @@ struct chat_meta_info_t {
     uint64_t decoding_duration; // in nanoseconds
     stop_reason_t stop_reason;
 	bool restore_allowed;
+	tool_choice_t tool_choice;
 
-	chat_meta_info_t() : max_prefill_len(0), prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED), restore_allowed(false) {}
+	chat_meta_info_t() : max_prefill_len(0), prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED), restore_allowed(false), tool_choice(TOOL_CHOICE_AUTO) {}
 };
 
 typedef enum {
@@ -215,6 +225,13 @@ protected:
 	bool _shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled = [] { return false; }, void* payload = nullptr, int first_len_run = 0);
 	buffer<bf16> _chunked_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled = [] { return false; }, void* payload = nullptr, int first_len_run = 0);
 	std::string _shared_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; });
+
+	/// \brief Push the tool start token out of contention before sampling.
+	/// \param y the logits of the token about to be sampled
+	/// \param meta_info the meta information of the chat, carrying the tool choice
+	/// \note No-op unless the request asked for tool_choice=none and this model
+	///       reports a tool start token, so the default path is untouched.
+	void _apply_tool_choice_mask(buffer<bf16>& y, const chat_meta_info_t& meta_info);
 
 	StreamResult _shared_think_tool_calling_pasrsed(const std::string content);
 
@@ -397,6 +414,14 @@ public:
 	}
 	virtual bool check_using_checkpint() {
 		return true;
+	}
+
+	/// \brief The token that opens a tool call for this model
+	/// \return the token id, or -1 if this model has no single such token
+	/// \note Models that report an id can have tool calling suppressed through
+	///       tool_choice=none; the rest keep emitting tool calls either way.
+	virtual int get_tool_start_token_id() const {
+		return -1;
 	}
 	/// \brief Insert the tokens
 	/// \param tokens the tokens

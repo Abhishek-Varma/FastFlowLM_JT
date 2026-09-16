@@ -53,6 +53,8 @@ private:
     static constexpr int think_start_id = 100;
     static constexpr int think_end_id = 101;
 
+    static constexpr int tool_start_token_id = 48;
+
     bool enable_think = false;
     bool enable_tool = false;
     void setup_tokenizer(std::string model_path);
@@ -131,6 +133,10 @@ public:
     bool check_using_checkpint() {
 		return this->enable_think;
 	}
+
+    int get_tool_start_token_id() const override {
+        return this->enable_tool ? tool_start_token_id : -1;
+    }
 
     /// \brief Configure a parameter with type-erased value
 	/// \param parameter_name the name of the parameter
