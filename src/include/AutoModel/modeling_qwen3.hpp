@@ -81,6 +81,7 @@ public:
 class Qwen3_IT : public AutoModel {
 private:
     std::string current_model = "Qwen3_IT";
+    static constexpr int tool_start_token_id = 151657;
 
     void setup_tokenizer(std::string model_path);
 
@@ -98,6 +99,13 @@ public:
     bool check_using_checkpint() {
 		return false;
 	}
+
+    /// \note Qwen3-IT opens every tool call with <tool_call>, so masking that one
+    ///       token is enough to honour tool_choice=none. Reported unconditionally
+    ///       -- unlike the VL/MoE wrappers this class has no enable_tool gate.
+    int get_tool_start_token_id() const override {
+        return tool_start_token_id;
+    }
 };
 
 class Qwen3_TK : public AutoModel {

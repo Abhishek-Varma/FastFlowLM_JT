@@ -532,7 +532,7 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
     }
 }
 
-json RestHandler::build_nstream_response(std::string response_text) {
+json RestHandler::build_nstream_response(std::string response_text, chat_meta_info_t& meta_info) {
     // Get tool info
     NonStreamResult result = auto_chat_engine->parse_nstream_content(response_text);
 
@@ -582,13 +582,21 @@ json RestHandler::build_nstream_response(std::string response_text) {
     }
 
 
+    // Follow meta_info for the finish reason, same as the streaming path.
+    // A tool call is only visible after parsing the generated text, so promote
+    // the stop reason here; every other case (length, cancel, error) is already
+    // carried by meta_info and takes precedence, since a truncated or aborted
+    // generation must not be reported to the client as a complete tool call.
+    if (is_tool_call && meta_info.stop_reason == stop_reason_t::EOT_DETECTED) {
+        meta_info.stop_reason = stop_reason_t::TOOL_DETECTED;
+    }
     // Construct the final choice object
     return json::array({
         {
             {"index", 0},
             {"message", message},
             {"logprobs", nullptr},
-            {"finish_reason", is_tool_call ? "tool_calls" : "stop"}
+            {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
         }
     });
 }
@@ -1099,6 +1107,18 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         json tools = request.value("tools", json::array());
         json options = request.value("options", json::object());
 
+        // Only "auto" and "none" are honoured; "required" and the per-function
+        // object form are not implemented yet, and a request asking for one is
+        // served as "auto" rather than refused.
+        json tool_choice = request.value("tool_choice", json("auto"));
+        tool_choice_t tool_choice_mode = TOOL_CHOICE_AUTO;
+        if (tool_choice.is_string() && tool_choice.get<std::string>() == "none") {
+            tool_choice_mode = TOOL_CHOICE_NONE;
+        }
+        else if (!(tool_choice.is_string() && tool_choice.get<std::string>() == "auto")) {
+            header_print("Warning", "Unsupported tool_choice " + tool_choice.dump() + ", falling back to auto.");
+        }
+
         auto load_start_time = time_utils::now();
         if (!ensure_model_loaded(model)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
@@ -1168,6 +1188,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         uniformed_input.tools = tools;
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         meta_info.max_prefill_len = this->prefill_chunk_len;
+        meta_info.tool_choice = tool_choice_mode;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
@@ -1273,7 +1294,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 return;
             }
             // check response_text
-            json choices = build_nstream_response(response_text);
+            json choices = build_nstream_response(response_text, meta_info);
             response = {
                 {"id", "fastflowlm-chat-completion"},
                 {"object", "chat.completion"},
@@ -1485,7 +1506,7 @@ void RestHandler::handle_openai_completion(const json& request,
                         {"text", response_text},
                         {"index", 0},
                         {"logprobs", nullptr},
-                        {"finish_reason", "stop"}
+                        {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
                     }
                 })},
                 {"usage", {

@@ -41,6 +41,7 @@ private:
 
 protected:
     static constexpr int IMAGE_SOFT_TOKEN_ID = 151655;
+    static constexpr int TOOL_START_TOKEN_ID = 151657;
 
     qwen3vl_image_t load_image(const std::string& filename);
     qwen3vl_image_t load_image_base64(const std::string& base64_string);
@@ -81,6 +82,12 @@ public:
     bool check_using_checkpint() {
 		return false;
 	}
+
+    /// \note Qwen3-VL opens every tool call with <tool_call>, so masking that one
+    ///       token is enough to honour tool_choice=none.
+    int get_tool_start_token_id() const override {
+        return TOOL_START_TOKEN_ID;
+    }
 
     /// \brief Configure a parameter with type-erased value
 	/// \param parameter_name the name of the parameter

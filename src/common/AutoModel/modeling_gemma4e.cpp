@@ -1134,6 +1134,9 @@ std::string Gemma4e::generate(chat_meta_info_t& meta_info, int length_limit, std
         this->profiler_list[DECODING_TIME].stop(1);
 
         this->profiler_list[SAMPLING_TIME].start();
+        // Gemma4e runs its own decode loop instead of _shared_generate, so the
+        // tool_choice mask has to be applied here as well as in _shared_insert.
+        this->_apply_tool_choice_mask(y, meta_info);
         int sampled_token = this->sampler->sample(y);
         this->profiler_list[SAMPLING_TIME].stop(1);
         this->total_tokens++;

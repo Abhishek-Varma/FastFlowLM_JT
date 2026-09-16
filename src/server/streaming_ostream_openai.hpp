@@ -303,7 +303,11 @@ public:
         else {
             send_response("", false, true);
         }
-        if (stream_stop_reason == stop_reason_t::TOOL_DETECTED) {
+        // Only promote to a tool-call finish reason on an otherwise clean stop;
+        // length/cancel/error must win, so a truncated or aborted generation is
+        // never reported to the client as a complete tool call.
+        if (stream_stop_reason == stop_reason_t::TOOL_DETECTED
+            && meta_info.stop_reason == stop_reason_t::EOT_DETECTED) {
             meta_info.stop_reason = stream_stop_reason;
         }
         send_final_response(meta_info);
