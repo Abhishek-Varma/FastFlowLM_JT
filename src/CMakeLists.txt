@@ -61,23 +61,11 @@ endif()
 # and HRX-built .so/.dll/.lib never collide (see src/lib/xrt and src/lib/hrx).
 set(FLM_ENGINE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${FLM_RUNTIME_NAME}")
 
-function(flm_probe_optional_engine out_var lib_name)
-    find_library(_flm_optional_engine
-        NAMES "${lib_name}"
-        PATHS "${FLM_ENGINE_LIB_DIR}"
-        NO_DEFAULT_PATH
-        NO_CACHE)
-    if(_flm_optional_engine)
-        set(${out_var} 1 PARENT_SCOPE)
-        message(STATUS "Optional engine ${lib_name}: ${_flm_optional_engine}")
-    else()
-        set(${out_var} 0 PARENT_SCOPE)
-        message(STATUS "Optional engine ${lib_name}: not found in ${FLM_ENGINE_LIB_DIR}; model family will be disabled")
-    endif()
-endfunction()
-
-flm_probe_optional_engine(FLM_HAS_QWEN3VL_FLASH qwen3vl_flash)
-flm_probe_optional_engine(FLM_HAS_GEMMA4E_FLASH gemma4e_flash)
+# The flash engine libs (qwen3vl_flash, gemma4e_flash) are now always shipped in
+# src/lib/${FLM_RUNTIME_NAME} for every backend, so their model families are
+# unconditionally enabled -- no probe/gate needed.
+set(FLM_HAS_QWEN3VL_FLASH 1)
+set(FLM_HAS_GEMMA4E_FLASH 1)
 
 # ———————————————————————————————————————————————
 # NPU runtime discovery.
@@ -434,9 +422,7 @@ set(FLM_ENGINE_LINK_LIBS
     qwen3vl_npu
 )
 
-if(FLM_HAS_QWEN3VL_FLASH)
-    list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_flash)
-endif()
+list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_flash)
 
 list(APPEND FLM_ENGINE_LINK_LIBS
     qwen3_5vl_npu
@@ -447,9 +433,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     gemma4e_npu
 )
 
-if(FLM_HAS_GEMMA4E_FLASH)
-    list(APPEND FLM_ENGINE_LINK_LIBS gemma4e_flash)
-endif()
+list(APPEND FLM_ENGINE_LINK_LIBS gemma4e_flash)
 
 list(APPEND FLM_ENGINE_LINK_LIBS
     gemma4_12b_npu
