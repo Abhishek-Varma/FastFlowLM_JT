@@ -425,7 +425,6 @@ StreamResult Qwen3VL::parse_stream_content(const std::string content) {
 
 
 /************              Qwen3VL_Flash            **************/
-#if FLM_HAS_QWEN3VL_FLASH
 
 void Qwen3VL_Flash::create_engine() {
     this->lm_engine = std::make_unique<qwen3vl_flash>(*this->lm_config, this->npu.get(), this->MAX_L);
@@ -674,8 +673,6 @@ std::string Qwen3VL_Flash::generate_with_prompt(chat_meta_info_t& meta_info, lm_
     }
     return this->generate(meta_info, length_limit, os);
 }
-
-#endif
 
 
 /************              Qwen3VL_Thinking            **************/
