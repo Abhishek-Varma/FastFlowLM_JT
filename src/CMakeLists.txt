@@ -61,11 +61,9 @@ endif()
 # and HRX-built .so/.dll/.lib never collide (see src/lib/xrt and src/lib/hrx).
 set(FLM_ENGINE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${FLM_RUNTIME_NAME}")
 
-# The flash engine libs (qwen3vl_flash, gemma4e_flash) are now always shipped in
+# The flash engine libs (qwen3vl_flash, gemma4e_flash) are always shipped in
 # src/lib/${FLM_RUNTIME_NAME} for every backend, so their model families are
-# unconditionally enabled -- no probe/gate needed.
-set(FLM_HAS_QWEN3VL_FLASH 1)
-set(FLM_HAS_GEMMA4E_FLASH 1)
+# always compiled in -- no probe/gate/macro needed.
 
 # ———————————————————————————————————————————————
 # NPU runtime discovery.
@@ -274,10 +272,6 @@ endif()
 
 
 add_executable(flm ${SOURCES} ${HEADERS})
-target_compile_definitions(flm PUBLIC
-    FLM_HAS_QWEN3VL_FLASH=${FLM_HAS_QWEN3VL_FLASH}
-    FLM_HAS_GEMMA4E_FLASH=${FLM_HAS_GEMMA4E_FLASH}
-)
 
 if(WIN32)
     if(VCPKG_TOOLCHAIN)
