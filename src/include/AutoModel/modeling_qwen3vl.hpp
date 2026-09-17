@@ -68,6 +68,11 @@ protected:
     ///        prefill on the NPU. This is the single seam between them.
     virtual void create_engine();
 
+    /// \brief Longer-side target (pixels) that load_image/load_image_base64 must
+    ///        resize every decoded image to, applied before the user-configured
+    ///        img_pre_resize step. 0 means no forced resize (default).
+    virtual int _forced_long_side() const { return 0; }
+
 public:
     Qwen3VL(flm_rt::device* npu_device_inst);
 
@@ -173,6 +178,10 @@ private:
 protected:
     void create_engine() override;
 
+    /// \brief The flash engine is tuned for short contexts, so every image is
+    ///        forced down to a 256px longer side regardless of img_pre_resize.
+    int _forced_long_side() const override { return 256; }
+
     /// \brief Drop everything the previous turn left behind, back to the pin.
     /// \note  Deliberately not AutoModel::clear_context(): that also resets the
     ///        TTFT and TOTAL profilers, which the caller starts around the whole
@@ -191,6 +200,16 @@ public:
     std::string apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools = nlohmann::ordered_json::object()) override {
         nlohmann::ordered_json no_tools = nlohmann::ordered_json::object();
         return Qwen3VL::apply_chat_template(messages, no_tools);
+    }
+
+    /// \brief img_pre_resize is ignored — the flash engine always forces every
+    ///        image down to a 256px longer side (see _forced_long_side above).
+    bool configure_parameter(std::string parameter_name, const std::any& value) override {
+        if (parameter_name == "img_pre_resize") {
+            header_print_r("FLM", "Qwen3VL_Flash always resizes images to a 256px longer side; img_pre_resize is ignored");
+            return true;
+        }
+        return Qwen3VL::configure_parameter(parameter_name, value);
     }
 };
 
