@@ -12,15 +12,18 @@ parent: Models
 - **Tool Calling Support:** No
 - **Base Model:** [tencent/Hy-MT2-1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B)
 - **Quantization:** Q4_0
-- **Max Context Length:** 16k tokens
-- **Default Context Length:** 512 tokens ([change default](https://fastflowlm.com/docs/instructions/cli/#-change-default-context-length-max))
-- **[Set Context Length at Launch](https://fastflowlm.com/docs/instructions/cli/#-set-context-length-at-launch)**
+- **Max Context Length:** 1k tokens
+- **Default Context Length:** 1k tokens (fixed, see note below)
 
 ▶️ Run with FastFlowLM in PowerShell:
 
 ```shell
 flm run hy-mt2:1.8b
 ```
+
+⚠️ **Note:** **Starting from FLM v1.0.6**, Hy-MT2 is served as a single-turn model: every request starts from a clean KV state, and the context length is fixed at **1k tokens** — context-length overrides are ignored. This matches how the model is meant to be used, one short translation request at a time.
+
+> Earlier versions allowed longer contexts. The [benchmark results](https://fastflowlm.com/docs/benchmarks/hy-mt2_results/) were measured on v1.0.5 and therefore sweep up to 16k.
 
 📖 Prompt Guide
 
