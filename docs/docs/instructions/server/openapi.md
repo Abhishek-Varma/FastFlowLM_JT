@@ -421,9 +421,13 @@ gc.collect()
 
 **Flash** models — `gemma4e-flash:e2b`, `gemma4e-flash:e4b`, and `qwen3vl-flash:4b` — trade context length for a much faster time-to-first-token. They are built for high-throughput, short, independent requests: classification, captioning, extraction, routing.
 
-They are **single-turn**: every request starts from a clean KV state, so earlier turns are not carried over. The system prompt is the one exception — it is prefilled once and reused across requests that send the same system text, so keep everything fixed there and vary only the user message.
+They are **single-turn**: every request starts from a clean KV state, so earlier turns are not carried over. The system prompt is the one exception — it is prefilled once and cached, so keep it fixed and vary only the user message (and, for vision models, the image).
+
+Below, the same system prompt is pinned across requests that each caption a **different** image. The system-prompt KV is prefilled once on the first request; every request after that reuses it, so only the new image and text need to be prefilled — expect noticeably lower latency from the second request onward.
 
 ```python
+import time
+import base64
 from openai import OpenAI
 
 client = OpenAI(
@@ -432,16 +436,31 @@ client = OpenAI(
 )
 
 # Keep everything fixed in the system prompt — it is prefilled once and
-# reused across requests. Vary only the user message.
-SYSTEM_PROMPT = "You are a concise assistant. Answer in one short sentence."
+# reused across requests. Vary only the user message and image.
+SYSTEM_PROMPT = "You are a concise assistant. Describe the image in one short sentence."
 
-for question in ["Why is the sky blue?", "Why is grass green?"]:
-    print(f"\n> {question}")
+image_paths = [
+    r"C:\Users\info\OneDrive\Desktop\FLM\image_test\image0.jpg",
+    r"C:\Users\info\OneDrive\Desktop\FLM\image_test\image1.png",
+]
+
+for path in image_paths:
+    with open(path, "rb") as image_file:
+        image = base64.b64encode(image_file.read()).decode("utf-8")
+
+    print(f"\n> {path}")
+    start = time.time()
     stream = client.chat.completions.create(
-        model="gemma4e-flash:e2b",
+        model="qwen3vl-flash:4b",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},   # same every time
-            {"role": "user", "content": question},          # only this changes
+            {"role": "system", "content": SYSTEM_PROMPT},  # same every time — its KV is cached after the first call
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpg;base64,{image}"}},
+                ],
+            },
         ],
         stream=True,
     )
@@ -449,7 +468,9 @@ for question in ["Why is the sky blue?", "Why is grass green?"]:
         delta = chunk.choices[0].delta.content
         if delta:
             print(delta, end="", flush=True)
-    print()
+    print(f"\n[time to first response: {time.time() - start:.2f}s]")
+    # 1st image: pays the full system-prompt prefill cost.
+    # 2nd image onward: system-prompt KV is reused from cache — expect lower latency.
 
 # cleanup
 del stream, client
