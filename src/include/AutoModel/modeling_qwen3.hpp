@@ -11,7 +11,7 @@
 
 /************              qwen3            **************/
 class Qwen3 : public AutoModel {
-private:
+protected:
 
     bool enable_think = false;
     bool enable_tool = false;
