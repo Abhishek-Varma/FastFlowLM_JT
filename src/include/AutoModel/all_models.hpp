@@ -30,6 +30,7 @@
 #include "modeling_nanbeige_pure_hrx.hpp"
 #include "modeling_gemma4e.hpp"
 #include "modeling_hunyuan.hpp"
+#include "modeling_hunyuan_pure_hrx.hpp"
 #include "modeling_gemma4_12b.hpp"
 #include "model_list.hpp"
 #include "nlohmann/json.hpp"
@@ -66,6 +67,7 @@ typedef enum {
     nanbeige,
     nanbeige_pure_hrx,
     hunyuan,
+    hunyuan_pure_hrx,
     error_whiper,
     error_embedding
 } SupportedModelFamily;
@@ -105,6 +107,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"nanbeige", SupportedModelFamily::nanbeige},
         {"nanbeige-purehrx", SupportedModelFamily::nanbeige_pure_hrx},
         {"hunyuan", SupportedModelFamily::hunyuan},
+        {"hunyuan-purehrx", SupportedModelFamily::hunyuan_pure_hrx},
         {"whisper-v3", SupportedModelFamily::error_whiper},
         {"embed-gemma", SupportedModelFamily::error_embedding}
     };
@@ -202,6 +205,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             break;
         case SupportedModelFamily::nanbeige:
             auto_chat_engine = std::make_unique<Nanbeige>(npu_device_inst);
+            break;
+        case SupportedModelFamily::hunyuan_pure_hrx:
+            auto_chat_engine = std::make_unique<HunyuanPureHrx>(npu_device_inst);
             break;
         case SupportedModelFamily::hunyuan:
             auto_chat_engine = std::make_unique<Hunyuan>(npu_device_inst);

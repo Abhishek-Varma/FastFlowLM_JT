@@ -21,8 +21,9 @@
 
 /************              hunyuan-dense family            **************/
 class Hunyuan : public AutoModel {
-private:
+protected:
     void setup_tokenizer(std::string model_path);
+private:
 
     /// \brief prefill the reusable prefix of `system_text` and pin it
     /// \return the number of tokens pinned, 0 if none could be isolated

@@ -445,6 +445,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     nanbeige_npu
     nanbeige_npu_pure_hrx
     hunyuan_npu
+    hunyuan_npu_pure_hrx
 )
 
 # Link your custom libraries (these may still be DLLs if no static versions available)
