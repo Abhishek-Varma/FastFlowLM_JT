@@ -436,6 +436,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS gemma4e_flash)
 list(APPEND FLM_ENGINE_LINK_LIBS
     gemma4_12b_npu
     gpt_oss_npu
+    gpt_oss_npu_pure_hrx
     whisper_npu
     gemma_embedding
     lfm2_npu

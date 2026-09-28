@@ -1,0 +1,118 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  New version detected! (current v1.0.5, latest v1.0.6)
+[FLM]  Download link: https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi
+[FLM]  Using user-specified port: 8111
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\GPT-OSS-20B-NPU2
+[FLM]  Starting server on port 8111...
+[FLM]  WebServer started on port 8111 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:64813
+[TCP]  Read 591 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 22:11:50 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "gpt-oss:20b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 80 tokens
+[31m[FLM]  Creating checkpoint at context length 80[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<|channel|>analysis<|message|>We need to answer: "What is the capital of France?" The answer should be a short sentence. So we can say: "Paris." But they want a short sentence, so maybe "Paris is the capital of France." That is one sentence. Or just "Paris" might not be considered a full sentence. They said "Answer in one short sentence." So likely we need to
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:64813
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:64818
+[TCP]  Read 538 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 22:11:59 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "List the f...e numbers.",
+            "role": "user"
+        }
+    ],
+    "model": "gpt-oss:20b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 75 tokens
+[31m[FLM]  Creating checkpoint at context length 75[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<|channel|>analysis<|message|>We need to list the first 5 prime numbers. Prime numbers: 2,3,5,7,11. So answer: 2,3,5,7,11.
+
+<|end|><|start|>assistant<|channel|>final<|message|>The first five prime numbers are:
+
+1. **2**  
+2. **3**  
+3. **5**  
+4. **7**  
+5.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:64818
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:64824
+[TCP]  Read 540 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 22:12:07 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "Write one ...t the sun.",
+            "role": "user"
+        }
+    ],
+    "model": "gpt-oss:20b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 74 tokens
+[31m[FLM]  Creating checkpoint at context length 74[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<|channel|>analysis<|message|>We need to produce a single sentence about the sun. The user says: "Write one sentence about the sun." So we can write something like: "The Sun is a massive, luminous star at the center of our solar system that provides light and heat essential for life on Earth." That would be fine.
+
+We should output in final channel.<|end|><|start|>assistant<|channel|>final<|message|>The Sun is
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:64824

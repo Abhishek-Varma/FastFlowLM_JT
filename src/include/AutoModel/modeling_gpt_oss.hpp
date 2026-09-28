@@ -17,7 +17,9 @@ private:
     std::string model_identity = "You are ChatGPT, a large language model trained by OpenAI.";
     std::string role = "developer";
 
+protected:
     void setup_tokenizer(std::string model_path);
+private:
 
     enum ToolGrammarState {
         STATE_EXPECT_TO_FUNCTIONS,

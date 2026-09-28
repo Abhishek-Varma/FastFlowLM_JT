@@ -80,16 +80,17 @@ bool GPT_OSS::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     
     // hardware
     int restore_idx = -1;
-    gpt_oss_npu *gpt_oss_engine = dynamic_cast<gpt_oss_npu*>(this->lm_engine.get());
+    // restore()/checkpoint() are virtual on the causal_lm engine base, so call
+    // them through lm_engine -- works for gpt_oss_npu and gpt_oss_npu_pure_hrx.
     if (meta_info.restore_allowed) {
-        restore_idx = gpt_oss_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
     bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = gpt_oss_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
 
     return success;
 }

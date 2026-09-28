@@ -1426,6 +1426,36 @@
                 "footprint": 14.0
             }
         },
+        "gpt-oss-purehrx": {
+            "20b": {
+                "name": "GPT-OSS-20B-NPU2",
+                "url": "https://huggingface.co/FastFlowLM/GPT-OSS-20B-NPU2",
+                "file_url": "https://huggingface.co/api/models/FastFlowLM/GPT-OSS-20B-NPU2/tree/main",
+                "ms_url": "https://modelscope.cn/models/amd/GPT-OSS-20B-NPU2",
+                "modified_at": "2025-05-30T00:00:00Z",
+                "size": 20000000000,
+                "flm_min_version": "0.9.20",
+                "files": [
+                    "config.json",
+                    "model.q4nx",
+                    "tokenizer.json",
+                    "tokenizer_config.json"
+                ],
+                "default_context_length": 8192,
+                "max_prefill_len": 4096,
+                "details": {
+                    "family": "gpt-oss-purehrx",
+                    "think": true,
+                    "think_toggleable": false,
+                    "parameter_size": "20B",
+                    "quantization_level": "Q4_1"
+                },
+                "label":[
+                    "reasoning"
+                ],
+                "footprint": 14.0
+            }
+        },
         "gpt-oss-sg": {
             "20b": {
                 "name": "GPT-OSS-Safeguard-20b-NPU2",
