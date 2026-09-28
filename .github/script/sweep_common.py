@@ -55,6 +55,30 @@ DEFAULT_PORT = 52625
 IS_WINDOWS = os.name == "nt"
 
 
+def usage_to_dict(usage) -> dict:
+    """Flattens an SDK usage object into a plain dict.
+
+    FLM returns non-standard fields alongside the OpenAI ones -- the prefill
+    and decode durations and rates, KV occupancy. The SDK's models allow extra
+    fields, so model_dump() keeps them, but going through a dict means nothing
+    here depends on that or on any particular SDK version.
+    """
+    if usage is None:
+        return {}
+    if isinstance(usage, dict):
+        return usage
+    for method in ("model_dump", "to_dict", "dict"):
+        dump = getattr(usage, method, None)
+        if callable(dump):
+            try:
+                result = dump()
+            except Exception:
+                continue
+            if isinstance(result, dict):
+                return result
+    return dict(getattr(usage, "__dict__", {}) or {})
+
+
 # --------------------------------------------------------------------------
 # Arguments
 # --------------------------------------------------------------------------
@@ -208,6 +232,8 @@ class SweepTask:
         self.events: list[dict] = []
         self._started_at = time.monotonic()
         self._consecutive_failures = 0
+        # Usage block from the most recent chat(), consumed by format_usage().
+        self.last_usage: dict = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -612,6 +638,7 @@ class SweepTask:
         --request-timeout as a deadline on the whole response.
         """
         reasoning_content, output_content = "", ""
+        usage = None
         deadline = time.monotonic() + self.args.request_timeout
         for chunk in response:
             if time.monotonic() > deadline:
@@ -623,6 +650,12 @@ class SweepTask:
                     f"stream exceeded the {self.args.request_timeout:.0f}s "
                     f"request timeout after {len(output_content)} characters"
                 )
+            # FLM attaches usage to the final chunk, which also carries a
+            # choices entry with a null delta. Read it before the choices
+            # guard below, so a server that instead sends usage on its own
+            # terminal chunk (the stock OpenAI shape) still gets picked up.
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -630,10 +663,16 @@ class SweepTask:
                 reasoning_content += delta.reasoning_content
             if delta.content:
                 output_content += delta.content
-        return reasoning_content, output_content
+        return reasoning_content, output_content, usage
 
     def chat(self, model: str, messages: list, stream: bool = True) -> tuple[str, str]:
-        """One chat completion, returned as (reasoning_content, output_content)."""
+        """One chat completion, returned as (reasoning_content, output_content).
+
+        The server's usage block lands on self.last_usage rather than in the
+        return value: callers unpack a 2-tuple, and timing data is something
+        only the reporting cares about.
+        """
+        self.last_usage = {}
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -641,10 +680,77 @@ class SweepTask:
             **self.completion_kwargs(),
         )
         if stream:
-            return self.collect_stream(response)
-        message = response.choices[0].message
-        reasoning = getattr(message, "reasoning_content", None) or ""
-        return reasoning, message.content or ""
+            reasoning, output, usage = self.collect_stream(response)
+        else:
+            message = response.choices[0].message
+            reasoning = getattr(message, "reasoning_content", None) or ""
+            output = message.content or ""
+            usage = getattr(response, "usage", None)
+        self.last_usage = usage_to_dict(usage)
+        return reasoning, output
+
+    def format_usage(self) -> str:
+        """The server's own prefill/decode accounting, as one line.
+
+        FLM reports far more than the OpenAI-standard token counts: it breaks
+        the request into prefill and decode, each with a duration and a rate,
+        and says how much of the prompt the KV cache served. That is the part
+        worth seeing per request, since wall-clock latency alone cannot
+        distinguish a slow prefill from a slow decode.
+
+        Everything is optional. A server that reports only the standard fields
+        still gets a token count, and one that reports no usage at all gets an
+        empty string, leaving the caller's plain timing line as it was.
+        """
+        usage = self.last_usage
+        if not usage:
+            return ""
+
+        def num(key):
+            value = usage.get(key)
+            return value if isinstance(value, (int, float)) else None
+
+        segments = []
+
+        prompt = num("prompt_tokens")
+        if prompt is not None:
+            cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+            part = f"prefill {prompt} tok"
+            if isinstance(cached, (int, float)) and cached:
+                part += f" ({cached} cached)"
+            ttft = num("prefill_duration_ttft")
+            if ttft is not None:
+                part += f" in {ttft:.2f}s"
+            rate = num("prefill_speed_tps")
+            if rate is not None:
+                part += f" @ {rate:.1f} tps"
+            segments.append(part)
+
+        completion = num("completion_tokens")
+        if completion is not None:
+            part = f"decode {completion} tok"
+            duration = num("decoding_duration")
+            if duration is not None:
+                part += f" in {duration:.2f}s"
+            rate = num("decoding_speed_tps")
+            if rate is not None:
+                part += f" @ {rate:.1f} tps"
+            segments.append(part)
+
+        # Only meaningful on the first request against a model, where it is
+        # the difference between "the model is slow" and "it was still loading".
+        load = num("load_duration")
+        if load:
+            segments.append(f"load {load:.2f}s")
+
+        occupancy = num("kv_token_occupancy_rate_percentage")
+        if occupancy is not None:
+            active = num("active_kv_tokens")
+            capacity = num("max_kv_token_capacity")
+            if active is not None and capacity:
+                segments.append(f"kv {active}/{capacity} ({occupancy:.0f}%)")
+
+        return " | ".join(segments)
 
     @staticmethod
     def asset(filename: str) -> Path:

@@ -96,6 +96,9 @@ class VisionSweep(SweepTask):
             model=model,
         )
         print(f"    done in {elapsed}s, {len(output)} chars")
+        breakdown = self.format_usage()
+        if breakdown:
+            print(f"      {breakdown}")
         return output
 
     def run(self) -> None:

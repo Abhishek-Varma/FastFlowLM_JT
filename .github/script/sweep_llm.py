@@ -74,6 +74,11 @@ class LLMSweep(SweepTask):
             model=model,
         )
         print(f"    done in {elapsed}s, {len(output)} chars")
+        # Empty unless the server reported usage, so this adds a line only
+        # when there is something in it.
+        breakdown = self.format_usage()
+        if breakdown:
+            print(f"      {breakdown}")
         return output
 
     def run(self) -> None:
