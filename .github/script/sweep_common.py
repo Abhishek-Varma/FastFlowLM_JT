@@ -29,6 +29,17 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+# A sweep runs for tens of minutes and its progress output *is* the live status
+# on a CI runner. Python block-buffers stdout whenever it is not a terminal, so
+# under Actions every print would otherwise sit in an 8 KB buffer and arrive in
+# one burst when the job ends -- no way to tell which model is being tested, or
+# whether anything is happening at all. Line buffering here covers every print
+# in every task script, so individual calls do not have to remember flush=True.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(line_buffering=True)
+
 try:
     from openai import OpenAI
 except ImportError:  # pragma: no cover - surfaced immediately at runtime
@@ -400,7 +411,18 @@ class SweepTask:
         reported as failures they never got to be. Every decision here lands in
         self.events with its reason.
         """
+        total = len(models)
         for index, model in enumerate(models):
+            # Every task funnels through here, so one progress line covers all
+            # four. Position and elapsed time are what a watcher actually wants
+            # from a sweep that runs for tens of minutes: which model is up now,
+            # and how much of the list is left.
+            elapsed = int(time.monotonic() - self._started_at)
+            print(
+                f"[{self.name}] ({index + 1}/{total}) {model} "
+                f"-- {elapsed // 60}m{elapsed % 60:02d}s elapsed",
+                flush=True,
+            )
             failures_before = len(self.failures)
             yield model
 
