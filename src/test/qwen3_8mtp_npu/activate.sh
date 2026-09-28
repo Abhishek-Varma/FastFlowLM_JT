@@ -50,8 +50,9 @@ copy_if_different /scratch/michyu/Projects/FastFlowLM_IRON/FLM_Xclbin/Qwen3_8/vi
 # The vision tower's matmuls (N16), the other ~7 s of a 1200-patch image. Two
 # designs: A (m=64,k=384,n=48) serves every shape, B (m=32,k=384,n=128) exists
 # for merger.fc2 alone, whose N of 5120 is not a multiple of A's tile_N of 384.
-# BOTH sources are build/<design>/xclbins/mm.xclbin, so both must be renamed or
-# the second copy overwrites the first and the tower drives the wrong tile shape.
 # The engine wants both or it leaves the matmuls on the host; it never runs one.
-copy_if_different /scratch/michyu/Projects/FastFlowLM_IRON/FLM_Xclbin/Qwen3_8/vision_mm/build/VISION_MM_A/xclbins/mm.xclbin /scratch/michyu/FastFlowLM/src/xclbins/Qwen3.8-27B-NPU2/vision_mm_a.xclbin
-copy_if_different /scratch/michyu/Projects/FastFlowLM_IRON/FLM_Xclbin/Qwen3_8/vision_mm/build/VISION_MM_B/xclbins/mm.xclbin /scratch/michyu/FastFlowLM/src/xclbins/Qwen3.8-27B-NPU2/vision_mm_b.xclbin
+# Both designs ship in ONE CI artifact, so the build no longer names them both
+# mm.xclbin -- each is written out under the name it deploys as, and these two
+# copies are straight through with no rename. Build both with `make bitstream`.
+copy_if_different /scratch/michyu/Projects/FastFlowLM_IRON/FLM_Xclbin/Qwen3_8/vision_mm/build/VISION_MM_A/xclbins/vision_mm_a.xclbin /scratch/michyu/FastFlowLM/src/xclbins/Qwen3.8-27B-NPU2/
+copy_if_different /scratch/michyu/Projects/FastFlowLM_IRON/FLM_Xclbin/Qwen3_8/vision_mm/build/VISION_MM_B/xclbins/vision_mm_b.xclbin /scratch/michyu/FastFlowLM/src/xclbins/Qwen3.8-27B-NPU2/

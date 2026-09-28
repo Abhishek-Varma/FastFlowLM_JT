@@ -68,10 +68,10 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
         this->vision_image_mean          = cfg_get<float>(vc, "image_mean", 0.5f);
         this->vision_image_std           = cfg_get<float>(vc, "image_std", 0.5f);
     }
-    if (auto* eng = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
-        if (eng->has_vision_tower())
-            header_print("FLM", "vision backend: " << eng->vision_backend());
-    }
+    // if (auto* eng = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+    //     if (eng->has_vision_tower())
+    //         header_print("FLM", "vision backend: " << eng->vision_backend());
+    // }
 
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();

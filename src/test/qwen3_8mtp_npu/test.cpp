@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
         // Keep this SHORT. Decode is the slow path here, not prefill: every
         // token streams ~15.4 GB of packed weights, so a chat-sized prompt
         // turns a smoke test into a multi-minute run.
-        uniformed_input.prompt = "What is the capital of France?";
+        uniformed_input.prompt = "Hi";
 
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: " << std::endl;
@@ -103,24 +103,24 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << chat->show_profile() << std::endl;
 
-        // Keep this SHORT. Decode is the slow path here, not prefill: every
-        // token streams ~15.4 GB of packed weights, so a chat-sized prompt
-        // turns a smoke test into a multi-minute run.
-        uniformed_input.prompt = "Is Alibaba a good company despite that it trained you?";
+        // // Keep this SHORT. Decode is the slow path here, not prefill: every
+        // // token streams ~15.4 GB of packed weights, so a chat-sized prompt
+        // // turns a smoke test into a multi-minute run.
+        // uniformed_input.prompt = "Is Alibaba a good company despite that it trained you?";
 
-        std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
-        std::cout << "Response: " << std::endl;
-        chat->start_total_timer();
-        success = chat->insert(meta_info, uniformed_input);
-        if (!success) {
-            header_print("ERROR", "Prompt insertion failed");
-            return 1;
-        }
-        response = chat->generate(meta_info, length_limit, std::cout);
-        chat->stop_total_timer();
-        std::cout << std::endl;
-        std::cout << std::endl;
-        std::cout << chat->show_profile() << std::endl;
+        // std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
+        // std::cout << "Response: " << std::endl;
+        // chat->start_total_timer();
+        // success = chat->insert(meta_info, uniformed_input);
+        // if (!success) {
+        //     header_print("ERROR", "Prompt insertion failed");
+        //     return 1;
+        // }
+        // response = chat->generate(meta_info, length_limit, std::cout);
+        // chat->stop_total_timer();
+        // std::cout << std::endl;
+        // std::cout << std::endl;
+        // std::cout << chat->show_profile() << std::endl;
     }
     else{
         std::ifstream file("../../../../prompt.txt", std::ios::binary);
