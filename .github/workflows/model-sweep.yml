@@ -244,8 +244,18 @@ jobs:
       FLM_MODEL_PATH: /scratch
 
     steps:
-      - name: Checkout repository
+      # Only the sweep scripts and their test assets, never the sources: this
+      # job runs a prebuilt binary and compiles nothing. src/ is ~880 MB of
+      # code and test media that every sweep job would otherwise copy onto an
+      # NPU machine for no reason. Cone mode also brings the root files along,
+      # which are small enough not to matter.
+      - name: Checkout sweep scripts
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          # sparse-checkout alone still downloads every blob at this depth.
+          # blob:none makes git fetch only the blobs the sparse paths need.
+          filter: blob:none
 
       # Exactly one of the next two steps runs. Both land the same
       # fastflowlm_<version>_linux.tar.gz in build-artifact/, so the unpack
@@ -340,8 +350,18 @@ jobs:
         task: [llm, vision]
 
     steps:
-      - name: Checkout repository
+      # Only the sweep scripts and their test assets, never the sources: this
+      # job runs a prebuilt binary and compiles nothing. src/ is ~880 MB of
+      # code and test media that every sweep job would otherwise copy onto an
+      # NPU machine for no reason. Cone mode also brings the root files along,
+      # which are small enough not to matter.
+      - name: Checkout sweep scripts
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          # sparse-checkout alone still downloads every blob at this depth.
+          # blob:none makes git fetch only the blobs the sparse paths need.
+          filter: blob:none
 
       - name: Resolve model path
         shell: powershell
@@ -431,8 +451,18 @@ jobs:
     needs: [sweep-linux, sweep-windows]
     if: always()
     steps:
-      - name: Checkout repository
+      # Only the sweep scripts and their test assets, never the sources: this
+      # job runs a prebuilt binary and compiles nothing. src/ is ~880 MB of
+      # code and test media that every sweep job would otherwise copy onto an
+      # NPU machine for no reason. Cone mode also brings the root files along,
+      # which are small enough not to matter.
+      - name: Checkout sweep scripts
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          # sparse-checkout alone still downloads every blob at this depth.
+          # blob:none makes git fetch only the blobs the sparse paths need.
+          filter: blob:none
 
       - name: Download sweep artifacts
         uses: actions/download-artifact@v4
