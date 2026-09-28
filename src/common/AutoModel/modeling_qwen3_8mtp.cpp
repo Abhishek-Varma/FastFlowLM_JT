@@ -397,10 +397,17 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
     // base model's own argmax, so bad drafting costs only speed, not
     // correctness. The newline guards against running on from the last
     // streamed token when log_raw_output is off.
+    //
+    // speculation_stats() rather than report_speculation_stats(): same text,
+    // but printing it here lets the runtime name the window it covers. The
+    // counters now reset per session (clear_context()), while the "Decoding
+    // time" in show_profile() resets per turn -- two different windows, on
+    // purpose, and the engine cannot label either because it does not know
+    // what a session is.
     if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
         if (mtp->speculation_cycles() > 0) {
             if (!this->log_raw_output) std::cout << std::endl;
-            mtp->report_speculation_stats();
+            header_print("FLM", mtp->speculation_stats() + " [this session]");
         }
     }
 
@@ -563,6 +570,35 @@ std::string Qwen3_8MTP::show_profile() {
         ss += mtp->speculation_timing();
     }
     return ss;
+}
+
+/// \brief the session boundary: base reset, plus the MTP speculation counters
+/// \note The engine counts drafts and phase time cumulatively since the .so was
+///       loaded. Its own clear_context() resets speculation STATE -- the draft
+///       head's KV, mtp_hist, spec_prime_pending -- but deliberately not the
+///       STATISTICS, because "a session" is not a concept it has. This is the
+///       one place in the runtime that does, which is why the policy is here.
+/// \note Reached from every session start, including the automatic one:
+///       _shared_insert() calls clear_context() unqualified on a changed system
+///       prompt, so that dispatches virtually and lands here too.
+void Qwen3_8MTP::clear_context() {
+    // Base first. It resets profiler_list and calls the engine's clear_context(),
+    // so the spec counters end up zeroed in the same step as every other
+    // per-session number rather than in a second place that can drift from it.
+    //
+    // Ordering is not load-bearing: reset_speculation_stats() deliberately
+    // leaves spec_prime_pending alone (it is live state, not a statistic), so
+    // it cannot undo the disarm the base just did.
+    this->AutoModel::clear_context();
+
+    // Non-virtual on the engine and already exported by the shipped
+    // libqwen3_8mtp_npu.so, so this costs no rebuild and adds no vtable slot.
+    // The cast also guards the no-MTP-head case -- a checkpoint without the
+    // mtp.* tensors is still a qwen3_8mtp_npu, and zeroing counters that never
+    // moved is harmless.
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+        mtp->reset_speculation_stats();
+    }
 }
 
 std::string Qwen3_8MTP::generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os) {

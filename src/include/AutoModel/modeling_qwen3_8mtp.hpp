@@ -165,6 +165,16 @@ public:
     ///       non-greedy and no-MTP-head paths byte-identical to before.
     std::string show_profile() override;
 
+    /// \brief session reset: context, profilers, and the MTP speculation counters
+    /// \note Overridden because the engine's counters are cumulative since load
+    ///       and survive its own clear_context() -- by design, since the engine
+    ///       has no concept of a chat session. Only the runtime knows where one
+    ///       ends, so the reset policy lives here rather than in the .so.
+    /// \note Without this, the hit rate printed after a turn carries every cycle
+    ///       from the previous conversation, and a short chat can never move a
+    ///       number a long prior chat has already averaged down.
+    void clear_context() override;
+
 private:
     StreamResult parse_stream_content_impl(const std::string content, bool is_final);
 
