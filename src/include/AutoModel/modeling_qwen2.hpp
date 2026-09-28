@@ -11,7 +11,7 @@
 
 
 class Qwen2 : public AutoModel {
-private:
+protected:
     std::string current_model = "Qwen2";
 
     void setup_tokenizer(std::string model_path);
