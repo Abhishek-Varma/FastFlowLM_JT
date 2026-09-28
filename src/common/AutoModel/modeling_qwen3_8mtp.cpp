@@ -4,16 +4,14 @@
 /// \date 2026-09-16
 /// \version 0.9.28
 /// \note AutoModel wrapper for Qwen3.8-27B. Multimodal when the checkpoint
-///       ships vision_weight.q4nx; the image preprocessing itself lives in
+///       ships vision_weight.q4nx; image preprocessing lives in
 ///       modeling_qwen3_8mtp_image.cpp.
-/// \note Speculative decode IS wired up: causal_lm carries the
-///       supports_speculation()/speculate() hooks and AutoModel::
-///       _shared_generate() drives them under a greedy sampler.
-/// \note generate() therefore delegates its decode loop to _shared_generate()
-///       and keeps only the think-preamble replay. It previously carried a
-///       private copy of the loop that called forward() + sample() directly,
-///       which left speculation dead on the main chat path -- correct output,
-///       no speedup, and a hit rate that never printed because no cycle ran.
+/// \note Speculative decode lives here, not in AutoModel: this is the only
+///       engine that overrides causal_lm's speculate() hooks, so
+///       _speculative_generate() below drives them directly instead of going
+///       through AutoModel::_shared_generate()'s plain per-token loop.
+/// \note That means _speculative_generate() duplicates _shared_generate()'s
+///       seed/stop-rule/teardown structure -- keep the two in sync by hand.
 
 #include "AutoModel/modeling_qwen3_8mtp.hpp"
 
@@ -36,27 +34,22 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
     this->sampler.reset();
 
     this->enable_tool = true;
-
-    // Qwen3.5-family recommended decoding defaults; the test harness overrides
-    // these with set_topk(1) when it wants a reproducible stream.
+    
     sampler_config config;
     config.top_k = 20;
     config.top_p = 0.8;
     config.min_p = 0.0;
     config.temperature = 0.7;
     config.rep_penalty = 1.0;
-    config.freq_penalty = 1.0;
     config.pre_penalty = 1.5f;
 
     this->set_sampler(config);
 
-    // Image-processor geometry. patch_size / spatial_merge_size /
-    // temporal_patch_size are stated by config.json's vision_config and are
-    // read from it; the rest live in preprocessor_config.json, which the NPU2
-    // checkpoint does not ship, so they fall back to the values that file
-    // carries upstream for Qwen3.8-27B. A wrong factor here does not fail --
-    // it produces a grid the merger regroups across, which reads as a slightly
-    // confused caption.
+    // Image-processor geometry: patch/merge/temporal sizes come from
+    // config.json's vision_config; the rest fall back to Qwen3.8-27B's
+    // upstream preprocessor_config.json values, which the NPU2 checkpoint
+    // doesn't ship. A wrong factor here doesn't fail loudly -- it just reads
+    // as a slightly confused caption.
     {
         const nlohmann::json& vc = this->lm_config->sub("vision_config");
         this->vision_patch_size          = cfg_get<unsigned int>(vc, "patch_size", 16);
@@ -79,11 +72,10 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
 }
 
 void Qwen3_8MTP::setup_tokenizer(std::string model_path) {
-    // tokenizer_config.json already lists eos_token_id as
-    // [248044 <|endoftext|>, 248046 <|im_end|>, 248048], and
-    // _shared_setup_tokenizer registers every entry of that array. config.json
-    // alone would only give 248044, which the chat template never emits --
-    // that mismatch is the runaway-generation failure mode.
+    // tokenizer_config.json lists eos_token_id as [248044, 248046, 248048];
+    // _shared_setup_tokenizer registers all of them. config.json alone would
+    // only give 248044, which the chat template never emits -- using just
+    // that one causes runaway generation.
     auto tokenizer_config = this->_shared_setup_tokenizer(model_path);
 }
 
@@ -107,43 +99,36 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
         return false;
     }
 
-    // <|image_pad|>, verified against tokenizer.json and against config.json's
-    // image_token_id. The engine reads the same id out of its own config, so a
-    // disagreement here surfaces as a span-count mismatch and a throw, not as
-    // a scrambled prompt.
+    // <|image_pad|>, verified against tokenizer.json / config.json's
+    // image_token_id. The engine reads the same id, so a mismatch here throws
+    // instead of silently scrambling the prompt.
     constexpr int image_soft_token_id = 248056;
 
     qwen3_8mtp_npu* qwen3_8mtp_engine = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get());
 
-    // A checkpoint without vision_weight.q4nx (or with FLM_Q38_VISION=0) has no
-    // tower, so an image would be templated into <|vision_start|><|image_pad|>
-    // ... placeholders that nothing ever fills -- the prompt would prefill
-    // garbage rather than fail. Drop them loudly in that case only.
+    // No vision_weight.q4nx (or FLM_Q38_VISION=0) means no tower: an image
+    // would template into placeholders nothing fills and prefill garbage.
+    // Drop it loudly instead.
     const bool vision_ok = qwen3_8mtp_engine && qwen3_8mtp_engine->has_vision_tower();
     if (!vision_ok && !input.images.empty()) {
         header_print("WARNING", "Qwen3.8-27B is loaded without a vision tower; ignoring "
                                 << input.images.size() << " image(s)");
         input.images.clear();
     }
-    // Audio is not ported at all: the checkpoint carries no audio tower and
-    // there is no audio path in this engine.
+    // Audio is not ported: no audio tower, no audio path in this engine.
     if (!input.audios.empty()) {
         header_print("WARNING", "Qwen3.8-27B has no audio path; ignoring "
                                 << input.audios.size() << " audio clip(s)");
         input.audios.clear();
     }
 
-    // ----------------------------------------------------------------------
-    // Decode and preprocess every image BEFORE templating, so that an image
-    // that fails to load never gets a placeholder. If it did, the payload
-    // would fall out of step with the placeholders and the engine would
-    // splice image n's rows into image n+1's slots -- which every downstream
-    // stage accepts.
+    // Decode and preprocess every image BEFORE templating: a failed image
+    // must never get a placeholder, or the payload falls out of step and the
+    // engine splices image n's rows into image n+1's slots.
     //
-    // `pixels` is one contiguous fp32 buffer for the whole prompt and it grows
-    // as images are appended, so the engine-facing pointers cannot be taken
-    // until every image is in. `pixel_offsets` records where each one landed.
-    // ----------------------------------------------------------------------
+    // `pixels` is one contiguous fp32 buffer that grows as images are
+    // appended, so engine-facing pointers can't be taken until all images are
+    // in. `pixel_offsets` records where each one landed.
     std::vector<qwen3_8mtp_host_image_t> host_images;
     std::vector<size_t> pixel_offsets;
     std::vector<float>  pixels;
@@ -253,32 +238,23 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
             }
         }
         if (image_counter != host_images.size()) {
-            // The template produced fewer placeholders than we staged images
-            // for, so some image's pixels have no slots to land in. Refusing is
-            // the only safe answer: prefilling would put image n's rows into
-            // image n+1's positions and read as a mildly confused caption.
+            // Fewer placeholders than staged images: some image's pixels have
+            // nowhere to land. Refuse rather than prefill a scrambled caption.
             header_print("ERROR", "templated " << image_counter << " image placeholder(s) "
                                   "for " << host_images.size() << " image(s); refusing to prefill");
             return false;
         }
-        header_print("FLM", "Total images: " << host_images.size()
-                            << " (" << total_image_tokens << " image tokens)");
+        header_print("FLM", "Total images: " << image_counter);
     }
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
 
-    // ----------------------------------------------------------------------
-    // Prompt-cache aware image alignment.
-    //
-    // AutoModel::_shared_insert prefix-matches `tokens` against
-    // `checkpoint_his` over the FULL length of checkpoint_his, and erases that
-    // prefix before prefilling only if every token of it matches. We must NOT
-    // erase `tokens` here -- _shared_insert needs the untrimmed sequence to
-    // run that very check. What does need fixing up locally is the payload,
-    // which holds pixels for the WHOLE prompt including images already in the
-    // cache from earlier turns: drop the fully-cached leading images so the
-    // survivors line up with the image tokens that survive the erase.
-    // ----------------------------------------------------------------------
+    // Prompt-cache aware image alignment. _shared_insert prefix-matches
+    // `tokens` against checkpoint_his and erases that prefix itself, so
+    // `tokens` must stay untrimmed here. What needs fixing up locally is the
+    // image payload: it still holds pixels for cached leading images, so drop
+    // those descriptors to keep the survivors aligned with the tokens that
+    // survive the erase.
     size_t prefix_skip_count = 0;
     if (!host_images.empty()) {
         const size_t idx = this->checkpoint_his.size();
@@ -286,8 +262,8 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
             if (i < tokens.size() && tokens[i] == this->checkpoint_his[i]) prefix_skip_count++;
             else break;
         }
-        // Must match the entirety of checkpoint_his, otherwise _shared_insert
-        // clears the context and skips nothing.
+        // Must match all of checkpoint_his, or _shared_insert clears the
+        // context and skips nothing.
         if (prefix_skip_count != idx) prefix_skip_count = 0;
 
         if (prefix_skip_count > 0) {
@@ -308,10 +284,9 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
             }
 
             if (images_to_drop > 0) {
-                // The pixels themselves are NOT erased. pixel_offsets are
-                // absolute indices into `pixels`, so dropping the descriptors
-                // is enough and erasing the front of a 400 MB buffer to save
-                // nothing would be the only cost here.
+                // pixel_offsets are absolute indices into `pixels`, so
+                // dropping the descriptors is enough -- no need to erase the
+                // (multi-hundred-MB) buffer itself.
                 host_images.erase(host_images.begin(),
                                   host_images.begin() + images_to_drop);
                 pixel_offsets.erase(pixel_offsets.begin(),
@@ -322,11 +297,9 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
         }
     }
 
-    // The last image token's index, expressed relative to the tokens that will
-    // SURVIVE _shared_insert's prefix erase. _chunked_insert hands the payload
-    // to chunk 0 only, so this is what grows chunk 0 to cover every image row;
-    // without it a second chunk would carry image tokens and no images, and
-    // the engine would throw.
+    // Last image token's index, relative to the tokens that survive
+    // _shared_insert's prefix erase. Grows chunk 0 (the only chunk that gets
+    // the image payload) to cover every image row.
     int last_image_token_index = -1;
     for (int i = static_cast<int>(prefix_skip_count); i < (int)tokens.size(); i++) {
         if (tokens[i] == image_soft_token_id)
@@ -361,32 +334,21 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     }
 
     // The chat template's generation prompt ends with the think preamble:
-    //   thinking on : "<think>" "\n"                      -> 2 tokens
-    //   thinking off: "<think>" "\n\n" "</think>" "\n\n"   -> 4 tokens
+    //   thinking on : "<think>\n"                -> 2 tokens
+    //   thinking off: "<think>\n\n</think>\n\n"   -> 4 tokens
     //
-    // These used to be trimmed off here so generate() could re-feed them one
-    // at a time, which cost one full 64-layer weight stream per token --
-    // forward() is _prefill_with_mm() on a one-row batch, and that batch's
-    // cost is the ~14 GB of packed weights, not the row. Measured at ~3.3 s
-    // each on this model, so the four-token thinking-off preamble was ~13 s
-    // of a 24 s short run, none of it visible in any printed timer.
+    // These are prefilled here as extra rows of the pass that's happening
+    // anyway, rather than re-fed one at a time in generate() -- each token
+    // there would cost a full ~14 GB weight stream (~3.3 s), so the
+    // thinking-off preamble alone used to cost ~13 s with nothing to show for
+    // it in any timer. Two side effects: insert()'s sample() now seeds
+    // `last_token` from the row that predicts the first ANSWER token (not the
+    // preamble), and the MTP head's step-0 catch-up starts primed instead of
+    // cold.
     //
-    // They are constants the tokenizer knew before the run started, so they
-    // ride in the prefill batch as 2-4 extra rows of a pass that was
-    // happening anyway. Two consequences beyond the time:
-    //   - insert()'s own sample() now seeds `last_token` from the row after
-    //     the last preamble token, which is the first answer token. It used
-    //     to sample the row before the preamble and have generate() throw the
-    //     result away.
-    //   - `last_window_len` is left at the prompt length instead of 1, so the
-    //     MTP head's step-0 catch-up is no longer clamped to a single row and
-    //     the head starts the first cycle primed rather than cold.
-    //
-    // Thinking on still has to put "<think>\n" on the screen -- it opens the
-    // reasoning block the user reads -- so record those ids for generate() to
-    // echo without forwarding. Thinking off streams nothing: its four tokens
-    // exist only to close a block that was never opened, and the old code
-    // decoded each one into a `token_str` it then dropped.
+    // Thinking on still needs "<think>\n" on screen -- record it for
+    // generate() to echo. Thinking off streams nothing: its tokens only close
+    // a block that was never opened.
     this->preamble_to_stream.clear();
     if (this->enable_think && tokens.size() >= 2)
         this->preamble_to_stream.assign(tokens.end() - 2, tokens.end());
@@ -410,7 +372,7 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
     // time. All that is left here is the text, and only when thinking is on.
     //
     // No profiler is touched: there is no model work left to charge, and
-    // _shared_generate() resets DECODING_TIME and TKOEN_DECODE_TIME on entry
+    // _speculative_generate() resets DECODING_TIME and TKOEN_DECODE_TIME on entry
     // anyway -- which is what used to silently discard the four forward()
     // calls this block has replaced, so they never appeared in "Decoding
     // time" and the 13 s they cost showed up only as a hole in "Total time".
@@ -425,32 +387,16 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
         return result;
     }
 
-    // Hand the decode loop to the base class rather than running a private
-    // copy of it. This function used to carry its own while() calling
-    // forward() + sample() directly, which meant the whole speculative path --
-    // and with it the MTP hit rate -- was dead on the main chat path: only
-    // generate_with_prompt() and the milestone driver ever reached
-    // speculate(). The preamble above is the only part that is genuinely
-    // specific to this model, so it stays; the loop is not.
-    //
-    // _shared_generate() seeds from this->last_token, emits it, then feeds it
-    // to the model. That seed is insert()'s own sample of the prefill's last
-    // row -- which, now that the preamble is prefilled too, is the row that
-    // predicts the first answer token. Nothing to re-assign here.
-    result += this->_shared_generate(meta_info, length_limit, os, is_cancelled);
+    // Own loop, not AutoModel::_shared_generate: the draft head commits
+    // several tokens per step, which the shared loop can't express.
+    result += this->_speculative_generate(meta_info, length_limit, os, is_cancelled);
 
-    // The engine counts every draft/verify cycle, so this prints whenever
-    // speculation actually ran, and prints nothing otherwise -- a checkpoint
-    // without an MTP head, or a non-greedy sampler, stays silent.
-    //
-    // Worth printing at all because a broken draft path is invisible in the
-    // text: verify overrides every rejected draft with the base model's own
-    // argmax, so bad drafting costs only speed.
-    //
-    // The newline is this function's own: header_print writes to std::cout
-    // while tokens stream to `os`, so without it the line would run on from
-    // the last token whenever log_raw_output is off (which is what supplies
-    // the break today -- not something to depend on from here).
+    // Prints only if a cycle actually ran -- silent for a checkpoint with no
+    // MTP head. Worth printing at all because a broken draft path is
+    // otherwise invisible: verify overrides every rejected draft with the
+    // base model's own argmax, so bad drafting costs only speed, not
+    // correctness. The newline guards against running on from the last
+    // streamed token when log_raw_output is off.
     if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
         if (mtp->speculation_cycles() > 0) {
             if (!this->log_raw_output) std::cout << std::endl;
@@ -461,31 +407,159 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
     return result;
 }
 
+std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {
+    std::string result;
+    assert(this->last_token != -1);
+
+    stop_reason_t reason = EOT_DETECTED;
+
+    // Always on. Acceptance is an exact compare against the base model's
+    // argmax, so this is only truly correct under greedy sampling -- if the
+    // sampler is later changed (via /set or REST params) speculation still
+    // runs and silently produces greedy output instead. A checkpoint with no
+    // MTP head is unaffected: speculate() just returns {} every step and
+    // everything falls through to the ordinary path below.
+    const bool spec_enabled = true;
+    // Draft depth; also the hit-rate denominator (see report_speculation_stats).
+    const int SPEC_MAX_DRAFT = 7;
+    if (spec_enabled) {
+        header_print("FLM", "Speculative decoding enabled (MTP draft head).");
+    }
+
+    int last_sampled_token = this->last_token;
+    this->token_history.push_back(this->last_token);
+    if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
+        std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+        result += token_str;
+        os << token_str << std::flush;
+    }
+    if (this->is_eos(last_sampled_token)){
+        return result;
+    }
+    this->profiler_list[DECODING_TIME].reset();
+    this->profiler_list[TKOEN_DECODE_TIME].reset();
+    if (this->total_tokens >= this->MAX_L){
+        header_print("WARNING", "Max length reached, stopping generation...");
+        reason = MAX_LENGTH_REACHED;
+        return result;
+    }
+
+    // Commit one token: stream it, record it, test the stop rules. Shared by
+    // both branches so a batch can't drift from the single-token path and
+    // stream past a stop token.
+    auto consume = [&](int token) -> bool {
+        this->total_tokens++;
+        last_sampled_token = token;
+
+        this->profiler_list[TKOEN_DECODE_TIME].start();
+        if (this->is_normal_token(token)){ // filter out special tokens
+            std::string token_str = this->tokenizer->run_time_decoder(token);
+            os << token_str << std::flush;
+            result += token_str;
+        }
+        this->profiler_list[TKOEN_DECODE_TIME].stop(1);
+        this->token_history.push_back(token);
+        if (this->is_eos(token)){
+            meta_info.generated_tokens++;
+            if (this->forward_on_eos) {
+                this->lm_engine->forward(token);
+            }
+            return false;
+        }
+        meta_info.generated_tokens++;
+        if ((length_limit > 0) && (meta_info.generated_tokens >= length_limit)){
+            reason = MAX_LENGTH_REACHED;
+            return false;
+        }
+        return this->total_tokens < this->MAX_L;
+    };
+
+    while (this->total_tokens < this->MAX_L){
+        if (is_cancelled()) {
+            reason = CANCEL_DETECTED;
+            // reset stream content
+            buffer_.clear();
+            current_mode_ = StreamEventType::CONTENT;
+            tool_name_.clear();
+            is_in_tool_block_ = false;
+            break;
+        }
+
+        if (spec_enabled) {
+            this->profiler_list[DECODING_TIME].start();
+            std::vector<int> accepted =
+                this->lm_engine->speculate(last_sampled_token, SPEC_MAX_DRAFT);
+            // Charge the cycle to however many tokens came out of it, so
+            // tok/s stays comparable with the non-speculative path.
+            this->profiler_list[DECODING_TIME].stop(
+                accepted.empty() ? 1 : (int)accepted.size());
+
+            // Cycle 1 primes the draft head's KV cache over the prompt --
+            // prefill-shaped work that ran inside speculate(), so move its
+            // time from decode to prefill. 0 on every later cycle; the engine
+            // tracks this since only it knows when a context clear starts a
+            // new cycle 1.
+            if (const uint64_t prime_us =
+                    this->lm_engine->last_speculation_prime_us()) {
+                this->profiler_list[DECODING_TIME].add_time(-(int64_t)prime_us);
+                this->profiler_list[PREFILL_TIME].add_time((int64_t)prime_us);
+            }
+
+            if (!accepted.empty()) {
+                // Already committed to the engine's caches -- must not be
+                // re-fed through forward(). eos mid-batch stops here.
+                bool go_on = true;
+                for (int tok : accepted) {
+                    if (!(go_on = consume(tok))) break;
+                }
+                if (!go_on) break;
+                continue;
+            }
+            // Empty means the engine declined this step (head not primed, no
+            // headroom under MAX_L). Fall through to the ordinary path.
+        }
+
+        this->profiler_list[DECODING_TIME].start();
+        buffer<bf16> y = this->lm_engine->forward(last_sampled_token);
+        this->profiler_list[DECODING_TIME].stop(1);
+
+        this->profiler_list[SAMPLING_TIME].start();
+        this->_apply_tool_choice_mask(y, meta_info);
+        int sampled_token = this->sampler->sample(y);
+        this->profiler_list[SAMPLING_TIME].stop(1);
+
+        if (!consume(sampled_token)) break;
+    }
+    meta_info.decoding_duration = (uint64_t)(time_utils::cast_to_us(this->profiler_list[DECODING_TIME].get_total_time()).first) * 1e3;
+    meta_info.stop_reason = reason;
+    if (this->total_tokens >= this->MAX_L){
+        header_print("WARNING", "Max length reached, stopping generation...");
+    }
+    if (this->log_raw_output) {
+        std::cout << std::endl;
+        header_print("FLM", "Model RAW Output: \n" + result);
+    }
+    return result;
+}
+
 /// \brief the shared profile, plus the MTP phase breakdown when it applies
-/// \note "Decoding time" is a single number, but this model decodes in three
-///       phases with unrelated cost structures: k serial one-layer draft steps,
-///       one batched 64-layer verify over k+1 rows, and -- only on a rejection
-///       -- a rollback and re-fold. Lumping them together hides the one thing
-///       worth acting on, which is whether drafting is paying for itself.
-/// \note The split cannot be made in AutoModel's profiler: from _shared_generate
-///       a whole cycle is one speculate() call, so the phase boundary does not
-///       exist there. The engine measures it and this appends the result.
-/// \note One part of it does cross over. Step 0 of the first cycle after each
-///       prefill is the draft head absorbing the prompt, which is prefill by
-///       any honest reading, so the engine reports it through
-///       last_speculation_prime_us() and _shared_generate moves those
-///       microseconds from DECODING_TIME to PREFILL_TIME. The "Prime" row
-///       below is therefore already OUT of the "Decoding time" above it --
-///       the only row in the breakdown of which that is true.
+/// \note Decoding here has three phases with unrelated costs -- k serial
+///       draft steps, one batched verify, and an occasional rollback -- so
+///       the engine measures them separately and this appends the result;
+///       the runtime profiler only sees one speculate() call per cycle.
+/// \note Exception: the "Prime" row (step 0 of the first cycle, the draft
+///       head absorbing the prompt) is prefill work, and
+///       _speculative_generate() already moved it from Decoding time to
+///       Prefill time -- so unlike the other rows, it isn't double-counted
+///       against the row above.
 std::string Qwen3_8MTP::show_profile() {
     // Base first, so the rows every model shares stay in one place and cannot
     // drift from AutoModel's.
     std::string ss = this->AutoModel::show_profile();
 
     if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
-        // Empty when speculation never ran -- a non-greedy sampler, or a
-        // checkpoint with no MTP head. Appending nothing then keeps those
-        // sessions byte-identical to what they printed before.
+        // Empty for a checkpoint with no MTP head -- keeps that session's
+        // profile byte-identical to before.
         ss += mtp->speculation_timing();
     }
     return ss;
@@ -499,7 +573,7 @@ std::string Qwen3_8MTP::generate_with_prompt(chat_meta_info_t& meta_info, lm_uni
     if (this->enable_think) {
         os << "<think>\n" << std::flush;
     }
-    return this->_shared_generate(meta_info, length_limit, os);
+    return this->_speculative_generate(meta_info, length_limit, os);
 }
 
 // Non-stream

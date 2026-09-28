@@ -168,6 +168,19 @@ public:
 private:
     StreamResult parse_stream_content_impl(const std::string content, bool is_final);
 
+    /// \brief this model's decode loop: MTP speculation, ordinary sampling as
+    ///        the fallback
+    /// \note Deliberately NOT in AutoModel::_shared_generate. This is the only
+    ///       engine with a draft head -- causal_lm::supports_speculation()
+    ///       answers false for the other sixteen -- so the shared loop stays a
+    ///       plain one-token-per-forward loop and the speculative machinery
+    ///       lives with the one model that can use it.
+    /// \note Mirrors _shared_generate's seed / stop-rule / teardown structure
+    ///       on purpose. If a stop rule changes there -- eos, length_limit,
+    ///       MAX_L, the tool-choice mask -- it must change here too; nothing
+    ///       in the build will say so.
+    std::string _speculative_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; });
+
 public:
 
     /// \brief Configure a parameter with type-erased value

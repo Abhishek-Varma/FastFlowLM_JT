@@ -63,7 +63,7 @@ void Qwen3_8MTP::_apply_pre_resize(image_data_t& decoded) {
                           std::to_string(decoded.width) + ", " +
                           std::to_string(decoded.height) + ") to (" +
                           std::to_string(target_width) + ", " +
-                          std::to_string(target_height) + ")\n");
+                          std::to_string(target_height) + ")");
     if (image_reader_.resize_image(decoded, target_width, target_height, resized_image)) {
         image_reader_.recycle(decoded);
         decoded = std::move(resized_image);
