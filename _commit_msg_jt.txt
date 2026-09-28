@@ -1,0 +1,21 @@
+feat(hrx): regenerate engine libs against HRX v2026.09.15 and enable flash engines unconditionally
+
+Ship the FLM_IRON-regenerated Windows engine .dll/.lib (built with
+FLM_USE_HRX=ON against flm-hrx-amdxdna-v2026.09.15 / c023c3e) into
+src/lib/hrx, including the previously-gated flash engines
+(qwen3vl_flash, gemma4e_flash) built from the optimize_qwen3 sources.
+
+Drop the optional-engine probe gate in src/CMakeLists.txt: the flash
+libs are now always shipped, so link qwen3vl_flash and gemma4e_flash
+unconditionally and define FLM_HAS_{QWEN3VL,GEMMA4E}_FLASH=1.
+
+Rebased onto origin/main; resolved modeling_hunyuan.cpp to keep the
+single_turn label (main) alongside the env-gated log_raw_output
+(FLM_LOG_RAW_OUTPUT).
+
+Validated with the ZaneNi FLM_test LLM+vision sweep against a v1.0.5
+HRX build: 35/35 models exercised (incl. gemma4e-flash and
+qwen3vl-flash), no 0xc01e0009 context-cache wedges and no crashes.
+
+Note: Linux .so for gemma4e_flash still needs a separate Linux build
+(only the Windows .dll/.lib were regenerated on this host).

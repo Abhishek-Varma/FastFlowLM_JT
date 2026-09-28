@@ -440,6 +440,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     gemma_embedding
     lfm2_npu
     phi4_npu
+    phi4_npu_pure_hrx
     nanbeige_npu
     hunyuan_npu
 )

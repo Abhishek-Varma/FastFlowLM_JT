@@ -1,0 +1,11 @@
+chore(hrx): regenerate all Windows HRX engines vs main + HRX v2026.09.15
+
+Rebuilt all 26 engine dll/lib (base kernels + every model incl. the flash
+engines gemma4e_flash and qwen3vl_flash) with FLM_USE_HRX=ON against the
+pinned HRX v2026.09.15 (c023c3e), from update_hrx_105 rebased onto the latest
+FastFlowLM main. dumpbin-verified boost-free and xrt_coreutil/aiebu-free;
+model engines link hrx.dll (shared kernels dequant/gemm/mha/q4_npu_eXpress
+are exempt).
+
+Dropped stale dequant_new dll/lib: no engine source exists for it on this
+branch and it is unreferenced by the app, CMake, or model_list.json.

@@ -1,0 +1,109 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  Using user-specified port: 11544
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Qwen2.5-3B-Instruct-NPU2
+[FLM]  Starting server on port 11544...
+[FLM]  WebServer started on port 11544 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:54334
+[TCP]  Read 594 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:16:06 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "qwen2.5-it:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 42 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The capital of France is Paris.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:54334
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:54337
+[TCP]  Read 541 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:16:08 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "List the f...e numbers.",
+            "role": "user"
+        }
+    ],
+    "model": "qwen2.5-it:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 37 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+Sure, I can help with that. The first 5 prime numbers are:
+
+1. 2
+2. 3
+3. 5
+4. 7
+5. 11
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:54337
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:54338
+[TCP]  Read 543 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:16:11 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "Write one ...t the sun.",
+            "role": "user"
+        }
+    ],
+    "model": "qwen2.5-it:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 36 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The sun is a massive star at the center of our solar system, providing light and heat that sustains life on Earth.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:54338

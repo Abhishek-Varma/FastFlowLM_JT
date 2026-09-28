@@ -1,0 +1,105 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  New version detected! (current v1.0.5, latest v1.0.6)
+[FLM]  Download link: https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi
+[FLM]  Using user-specified port: 11562
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Phi4-mini-Instruct-NPU2
+[FLM]  Starting server on port 11562...
+[FLM]  WebServer started on port 11562 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:56237
+[TCP]  Read 596 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:34:19 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "phi4-purehrx:4b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 16 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+Paris.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:56237
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:56238
+[TCP]  Read 543 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:34:21 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "List the f...e numbers.",
+            "role": "user"
+        }
+    ],
+    "model": "phi4-purehrx:4b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 11 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The first five prime numbers are 2, 3, 5, 7, and 11. Prime numbers are those greater than 1 that have no divisors other than 1 and themselves, so these are the first few that fit that description.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:56238
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:56239
+[TCP]  Read 545 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:34:25 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "Write one ...t the sun.",
+            "role": "user"
+        }
+    ],
+    "model": "phi4-purehrx:4b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 10 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The sun, a massive, glowing sphere of hot plasma, radiates energy that sustains life on Earth and governs our day-night cycle, shining brightly in the sky, casting its warmth across our planet, its powerful rays reaching us, illuminating our world, its powerful light reaching us, casting its warmth across our Earth, sustaining life, its powerful rays reaching us, illuminating our world, its powerful light reaching
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:56239

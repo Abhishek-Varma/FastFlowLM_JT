@@ -1,0 +1,9 @@
+docs(gemma3-1b): finalize async device-host audit (same-thermal)
+
+Same-thermal 50-iter A/B shows the prefill dequant-output H2D removal is
+performance-neutral (baseline 793.29 vs 800.36 tok/s, overlapping 1sigma):
+those uploads were already coherence-gated to no-ops. Reverted per the
+non-overlapping-sigma rule. Re-profiled decode confirms all host work is
+already overlapped (set_ctx hidden under lm_head NPU, ~0.35ms overhang) and
+decode is ~99% NPU-bound. The async device-host lever is exhausted; the one
+real win (per-token lm_head weight re-upload, +4.0%) is already committed.

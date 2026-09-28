@@ -1,0 +1,8 @@
+feat(hrx): add llama3-purehrx tag backed by native HRX engine
+
+Wire the llama_npu_pure_hrx engine (native/pure HRX dispatch) into flm:
+Llama3PureHrx wrapper (overrides load_model only; base insert does not cast to
+the engine type), all_models registration, model_list "llama3-purehrx:1b"
+(reuses Llama-3.2-1B-NPU2 weights), CMake link, and the shipped engine
+dll/lib. Output byte-identical to stock llama3.2:1b; performance neutral
+(1k/20: decode 60.72 vs 60.65 tok/s).

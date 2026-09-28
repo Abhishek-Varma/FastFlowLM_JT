@@ -1,0 +1,109 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  Using user-specified port: 11542
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Llama-3.2-1B-NPU2
+[FLM]  Starting server on port 11542...
+[FLM]  WebServer started on port 11542 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:55326
+[TCP]  Read 592 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:02:34 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "llama3.2:1b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 48 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The capital of France is Paris.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:55326
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:55327
+[TCP]  Read 539 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:02:35 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "List the f...e numbers.",
+            "role": "user"
+        }
+    ],
+    "model": "llama3.2:1b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 43 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The first 5 prime numbers are:
+
+1. 2
+2. 3
+3. 5
+4. 7
+5. 11
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:55327
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:55328
+[TCP]  Read 541 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 18:02:36 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "Write one ...t the sun.",
+            "role": "user"
+        }
+    ],
+    "model": "llama3.2:1b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 42 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The sun is a massive ball of hot, glowing gas at the center of our solar system, providing light and warmth to the Earth and other planets.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:55328

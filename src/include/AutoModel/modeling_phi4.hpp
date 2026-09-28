@@ -9,7 +9,7 @@
 
 /************              phi4 family            **************/
 class Phi4 : public AutoModel {
-private:
+protected:
     void setup_tokenizer(std::string model_path);
 
 public:

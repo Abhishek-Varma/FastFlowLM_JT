@@ -1,0 +1,7 @@
+feat(hrx): add qwen2-purehrx tag backed by native HRX engine
+
+Wire qwen2_npu_pure_hrx into flm: Qwen2PureHrx wrapper (overrides load_model
+only), all_models registration, model_list "qwen2-purehrx:3b" (reuses
+Qwen2.5-3B-Instruct-NPU2 weights), CMake link, shipped engine dll/lib.
+Byte-identical to stock qwen2.5-it:3b; performance neutral (1k/20: decode
+22.76 vs 22.78 tok/s).

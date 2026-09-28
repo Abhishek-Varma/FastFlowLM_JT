@@ -1,0 +1,79 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  New version detected! (current v1.0.5, latest v1.0.6)
+[FLM]  Download link: https://github.com/ROCm/FastFlowLM/releases/latest/download/flm-setup.msi
+[FLM]  Using user-specified port: 11501
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Qwen3-0.6B-NPU2
+[FLM]  Starting server on port 11501...
+[FLM]  WebServer started on port 11501 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:59668
+[TCP]  Read 551 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 14:07:08 09:25:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "qwen3-purehrx:0.6b",
+    "stream": false
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 26 tokens
+[31m[FLM]  Creating checkpoint at context length 26[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+The capital of France is Paris.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:59668
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:50149
+[TCP]  Read 862 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 14:07:38 09:25:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "messages": [
+        {
+            "content": "My name is...member it.",
+            "role": "user"
+        },
+        {
+            "content": "Got it, Abhishek.",
+            "role": "assistant"
+        },
+        {
+            "content": "What is 12...s my name?",
+            "role": "user"
+        }
+    ],
+    "model": "qwen3-purehrx:0.6b",
+    "stream": false
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 57 tokens
+[31m[FLM]  Creating checkpoint at context length 57[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+12 multiplied by 8 is **96**.  
+My name is **Abhishek**.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:50149

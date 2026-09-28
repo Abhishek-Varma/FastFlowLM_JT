@@ -1,0 +1,18 @@
+fix(hrx): ship optimize_qwen3 base engine libs so qwen3vl_flash MHA attention works
+
+The flash engines (qwen3vl_flash, gemma4e_flash) were built from the
+optimize_qwen3 tree, whose mha engine supports the flash attention
+type, but src/lib/hrx shipped the older main-branch base libs. At
+runtime qwen3vl_flash fell back with "MHA type not supported!" /
+"MHA reported chunk size 0 for this attention type; libmha.so is
+probably older than libqwen3vl_flash.so", producing empty output for
+qwen3vl-flash on both text and image prompts.
+
+Replace the 5 base engine libs (dequant, gemm, mha, q4_npu_eXpress,
+lm_head) in src/lib/hrx with the optimize_qwen3-built versions that
+match the flash engines.
+
+Validated on a v1.0.5 HRX build: qwen3vl-flash:4b now generates on a
+2-image vision prompt (285 chars) and on text; full LLM+vision sweep
+re-run clean (no MHA-not-supported, no 0xc01e0009, no crashes) with no
+regression across the 24 regular engines.

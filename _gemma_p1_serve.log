@@ -1,0 +1,78 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  Using user-specified port: 11540
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Gemma3-1B-NPU2
+[FLM]  Starting server on port 11540...
+[FLM]  WebServer started on port 11540 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:58639
+[TCP]  Read 574 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 16:45:54 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "gemma3-purehrx:1b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 22 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+Paris is the capital of France.
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:58639
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:58640
+[TCP]  Read 871 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 16:45:55 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "messages": [
+        {
+            "content": "My name is... number 7.",
+            "role": "user"
+        },
+        {
+            "content": "Nice to me... Abhishek!",
+            "role": "assistant"
+        },
+        {
+            "content": "What is my...te number?",
+            "role": "user"
+        }
+    ],
+    "model": "gemma3-purehrx:1b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 47 tokens
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+Okay, Abhishek! 😊
+
+Your name is Abhishek. And your favorite number is 7! 🎉
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:58640

@@ -1,0 +1,12 @@
+refactor(hrx): remove FLM_HAS_*_FLASH gates; flash engines always compiled in
+
+The qwen3vl_flash / gemma4e_flash engine libs are now unconditionally shipped in
+src/lib/${FLM_RUNTIME_NAME} for every backend, so the conditional-compilation
+scaffolding is dead. Strip all "#if FLM_HAS_QWEN3VL_FLASH" / "#if FLM_HAS_GEMMA4E_FLASH"
+guards (and their dead "#else" llama-fallback branches), the CMake set()/probe and
+target_compile_definitions, and the header "#ifndef" defaults. Flash model classes,
+includes, and registration are now hard-wired.
+
+Rebuilt flm.exe against HRX v2026.09.15 (clean compile) and re-validated:
+qwen3vl-flash (306 chars, 2-image prompt) and gemma4e-flash (71 chars) pass, along
+with the regular vision/text engines; no MHA errors, no 0xc01e0009.

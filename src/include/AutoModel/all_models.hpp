@@ -17,6 +17,7 @@
 #include "modeling_gpt_oss.hpp"
 #include "modeling_lfm2.hpp"
 #include "modeling_phi4.hpp"
+#include "modeling_phi4_pure_hrx.hpp"
 #include "modeling_qwen2.hpp"
 #include "modeling_qwen3.hpp"
 #include "modeling_qwen2vl.hpp"
@@ -58,6 +59,7 @@ typedef enum {
     lfm2,
     lfm2_5_tk,
     phi4,
+    phi4_pure_hrx,
     nanbeige,
     hunyuan,
     error_whiper,
@@ -94,6 +96,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"lfm2.5-tk", SupportedModelFamily::lfm2_5_tk},
         {"qwen2vl", SupportedModelFamily::qwen2vl},
         {"phi4", SupportedModelFamily::phi4},
+        {"phi4-purehrx", SupportedModelFamily::phi4_pure_hrx},
         {"nanbeige", SupportedModelFamily::nanbeige},
         {"hunyuan", SupportedModelFamily::hunyuan},
         {"whisper-v3", SupportedModelFamily::error_whiper},
@@ -193,6 +196,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             break;
         case SupportedModelFamily::phi4:
             auto_chat_engine = std::make_unique<Phi4>(npu_device_inst);
+            break;
+        case SupportedModelFamily::phi4_pure_hrx:
+            auto_chat_engine = std::make_unique<Phi4PureHrx>(npu_device_inst);
             break;
         case SupportedModelFamily::error_whiper:
         case SupportedModelFamily::error_embedding:
