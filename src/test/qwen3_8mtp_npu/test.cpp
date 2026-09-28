@@ -54,14 +54,17 @@ int main(int argc, char* argv[]) {
     // so a deterministic stream is what makes a short run worth comparing
     // against the milestone driver at all.
     //
-    // set_topk(1) alone is NOT enough to get greedy decoding here, and it is
-    // not enough to enable speculation. load_model() installs the Qwen3.5
-    // recommended defaults, which include freq_penalty 1.0 and pre_penalty
-    // 1.5, and sample_greedy() still applies penalties when repeat_last_n != 0
-    // -- they reorder the logits before the argmax. So the sampler's argmax is
-    // not the model's argmax, MTP acceptance is an exact compare against the
-    // model's argmax, and _shared_generate's gate correctly refuses to
-    // speculate. Zeroing them is what actually makes this run greedy.
+    // load_model() now installs exactly this, so the block below is a guard
+    // rather than an override: it keeps the test greedy -- and therefore
+    // keeps it exercising the speculative path -- if those defaults are ever
+    // tuned back toward sampling.
+    //
+    // Set all four, not just top_k. sample_greedy() still applies penalties
+    // when repeat_last_n != 0 and they reorder the logits before the argmax,
+    // so a nonzero freq_penalty or pre_penalty makes the sampler's argmax
+    // differ from the model's. MTP acceptance is an exact compare against the
+    // model's argmax, so _shared_generate's gate would then correctly refuse
+    // to speculate and the test would silently measure the slow path.
     sampler_config greedy;
     greedy.top_k        = 1;
     greedy.rep_penalty  = 1.0f;   // 1.0 == disabled

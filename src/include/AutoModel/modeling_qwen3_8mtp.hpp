@@ -29,7 +29,7 @@
 ///       state the engine must never see, and keeping it out of the shared
 ///       header is what lets the engine struct stay a POD across the .so
 ///       boundary.
-typedef struct {
+struct qwen3_8mtp_host_image_t {
     int width = 0;
     int height = 0;
     int width_resized = 0;   ///< assigned by preprocess_image
@@ -39,7 +39,7 @@ typedef struct {
     int grid_w = 0;
 
     bytes _data;             ///< uint8 (3, H, W); freed by preprocess_image
-} qwen3_8mtp_host_image_t;
+};
 
 
 /************              Qwen3_8MTP            **************/
@@ -167,6 +167,19 @@ public:
 
 private:
     StreamResult parse_stream_content_impl(const std::string content, bool is_final);
+
+    /// \brief this model's decode loop: MTP speculation, ordinary sampling as
+    ///        the fallback
+    /// \note Deliberately NOT in AutoModel::_shared_generate. This is the only
+    ///       engine with a draft head -- causal_lm::supports_speculation()
+    ///       answers false for the other sixteen -- so the shared loop stays a
+    ///       plain one-token-per-forward loop and the speculative machinery
+    ///       lives with the one model that can use it.
+    /// \note Mirrors _shared_generate's seed / stop-rule / teardown structure
+    ///       on purpose. If a stop rule changes there -- eos, length_limit,
+    ///       MAX_L, the tool-choice mask -- it must change here too; nothing
+    ///       in the build will say so.
+    std::string _speculative_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; });
 
 public:
 
