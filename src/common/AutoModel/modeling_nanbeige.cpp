@@ -88,10 +88,12 @@ bool Nanbeige::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, st
 
     // hardware
     int restore_idx = -1;
-    nanbeige_npu *nanbeige_engine = dynamic_cast<nanbeige_npu*>(this->lm_engine.get());
+    // checkpoint()/restore() are virtual on the causal_lm engine base, so call
+    // them through lm_engine directly -- this works for both the stock
+    // nanbeige_npu engine and the nanbeige_npu_pure_hrx variant.
 
     if (meta_info.restore_allowed) {
-        restore_idx = nanbeige_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
@@ -99,7 +101,7 @@ bool Nanbeige::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, st
     bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = nanbeige_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
 
     return success;
 }

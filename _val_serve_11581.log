@@ -1,0 +1,109 @@
+[FLM]  Configuring NPU Power Mode to performance (flm default)
+[FLM]  Using user-specified port: 11581
+[FLM]  Loading model: C:\Users\abhvarma\.flm\models\Nanbeige4.1-3B-NPU2
+[FLM]  Starting server on port 11581...
+[FLM]  WebServer started on port 11581 with 10 I/O threads
+[FLM]  Press Ctrl+C to stop.
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:51577
+[TCP]  Read 595 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 21:14:33 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "What is th... sentence.",
+            "role": "user"
+        }
+    ],
+    "model": "nanbeige4.1:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 44 tokens
+[31m[FLM]  Creating checkpoint at context length 44[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<think>
+Weimplify is asked: "What is the capital of France? Answer in one short sentence." This is a straightforward question. The user is asking for the capital of France. The answer should be in one short sentence. The capital of France is Paris. So the answer should be: "The capital of France is Paris." Or simply "Paris." But the instruction says "Answer in one
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:51577
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:51582
+[TCP]  Read 542 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 21:14:37 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "List the f...e numbers.",
+            "role": "user"
+        }
+    ],
+    "model": "nanbeige4.1:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 39 tokens
+[31m[FLM]  Creating checkpoint at context length 39[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<think>
+We are asked: "List the first 5 prime numbers." This is straightforward. However, we need to be careful: what is considered the first prime number? Prime numbers are natural numbers greater than 1 that have no positive divisors other than 1 and itself. The first prime number is 2. Then 3, 5, 7, 11. So the first
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:51582
+[🔗 ]  TCP connection established - Remote: 127.0.0.1:51584
+[TCP]  Read 544 bytes from socket
+================================================
+[⬇️ ]  Incoming Request: POST
+[LOG]  Time stamp: 21:14:42 09:28:2026
+[LOG]  Target: /v1/chat/completions
+[LOG]  Version: 11
+[LOG]  Keep-Alive: 1
+[LOG]  Body: 
+{
+    "max_tokens": 80,
+    "messages": [
+        {
+            "content": "Write one ...t the sun.",
+            "role": "user"
+        }
+    ],
+    "model": "nanbeige4.1:3b",
+    "stream": false,
+    "temperature": 0
+}
+[🟢 ]  NPU Locked!
+[FLM]  Prompt cache miss.
+[FLM]  Clearing context...
+[FLM]  Start prefill...
+[FLM]  Prefill chunk 1/1 with 38 tokens
+[31m[FLM]  Creating checkpoint at context length 38[0m
+[FLM]  Start generating...
+
+[FLM]  Model RAW Output: 
+<think>
+Weimplify is asked: "Write one sentence about the sun." This is a straightforward request. However, as an AI, I need to consider what the user is looking for. The query is very open-ended. They want "one sentence" about the sun. There is no additional context. I need to generate a single sentence that describes the sun. But what aspects? Could be
+[🔵 ]  NPU Lock Released!
+================================================
+[🔒 ]  TCP connection closed - Remote: 127.0.0.1:51584

@@ -443,6 +443,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     phi4_npu
     phi4_npu_pure_hrx
     nanbeige_npu
+    nanbeige_npu_pure_hrx
     hunyuan_npu
 )
 

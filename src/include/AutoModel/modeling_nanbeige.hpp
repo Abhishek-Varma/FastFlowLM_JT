@@ -10,7 +10,7 @@
 
 /************              llama family            **************/
 class Nanbeige : public AutoModel {
-private:
+protected:
     void setup_tokenizer(std::string model_path);
 
     std::string nanbeige_filter(int token);
