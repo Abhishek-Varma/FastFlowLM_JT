@@ -24,7 +24,7 @@ extern "C" {
 
 /************              Gemma3_Text_Only            **************/
 class Gemma3_Text_Only : public AutoModel {
-private:
+protected:
 
     void setup_tokenizer(std::string model_path);
 

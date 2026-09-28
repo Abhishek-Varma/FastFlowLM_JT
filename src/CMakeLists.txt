@@ -425,6 +425,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     qwen3_6_moe_npu
     gemma_npu
     gemma_text_npu
+    gemma_text_npu_pure_hrx
     gemma4e_npu
 )
 

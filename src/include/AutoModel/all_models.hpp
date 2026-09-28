@@ -9,6 +9,7 @@
 #include "modeling_llama3.hpp"
 #include "modeling_gemma3.hpp"
 #include "modeling_gemma3_text.hpp"
+#include "modeling_gemma3_text_pure_hrx.hpp"
 #include "modeling_qwen3.hpp"
 #include "modeling_qwen3_pure_hrx.hpp"
 #include "modeling_gpt_oss.hpp"
@@ -45,6 +46,7 @@ typedef enum {
     qwen3_6_moe,
     gemma3,
     gemma3_text,
+    gemma3_text_pure_hrx,
     gemma4e,
     gemma4e_flash,
     gemma4_12b,
@@ -77,6 +79,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"qwen3.6-moe", SupportedModelFamily::qwen3_6_moe},
         {"gemma3", SupportedModelFamily::gemma3},
         {"gemma3-text", SupportedModelFamily::gemma3_text},
+        {"gemma3-text-purehrx", SupportedModelFamily::gemma3_text_pure_hrx},
         {"gemma4e", SupportedModelFamily::gemma4e},
         {"gemma4e-flash", SupportedModelFamily::gemma4e_flash},
         {"gemma4-12b", SupportedModelFamily::gemma4_12b},
@@ -133,6 +136,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             break;
         case SupportedModelFamily::gemma3_text:
             auto_chat_engine = std::make_unique<Gemma3_Text_Only>(npu_device_inst);
+            break;
+        case SupportedModelFamily::gemma3_text_pure_hrx:
+            auto_chat_engine = std::make_unique<Gemma3_Text_OnlyPureHrx>(npu_device_inst);
             break;
         case SupportedModelFamily::gemma4e:
             auto_chat_engine = std::make_unique<Gemma4e>(npu_device_inst);
