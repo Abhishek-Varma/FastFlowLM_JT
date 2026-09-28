@@ -290,7 +290,7 @@ jobs:
       - name: Verify FLM binary runs
         run: |
           set -euo pipefail
-          "${FLM_BIN}" --version
+          "${FLM_BIN}" version
 
       - name: Set up Python virtualenv
         run: |
@@ -389,7 +389,7 @@ jobs:
             throw "flm.exe not found at $flm"
           }
           "FLM_BIN=$flm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          & $flm --version
+          & $flm version
 
       - name: Set up Python virtualenv
         shell: powershell
