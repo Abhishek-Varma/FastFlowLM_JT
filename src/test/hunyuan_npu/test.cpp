@@ -285,7 +285,7 @@ int main(int argc, char* argv[]) {
 
     arg_utils::po::options_description desc("Allowed options");
     arg_utils::po::variables_map vm;
-    desc.add_options()("model,m", arg_utils::po::value<std::string>()->default_value("hy-mt2:1.8b"), "Model tag");
+    desc.add_options()("model,m", arg_utils::po::value<std::string>()->default_value("hy-mt2-flash:1.8b"), "Model tag");
     desc.add_options()("Preemption,p", arg_utils::po::value<bool>()->default_value(false), "Preemption");
     desc.add_options()("Length,l", arg_utils::po::value<int>()->default_value(512), "Max generated tokens");
     desc.add_options()("warmup,w", arg_utils::po::value<int>()->default_value(kDefaultWarmup), "Discarded warm-up turns run before the measured pass");
