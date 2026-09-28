@@ -125,6 +125,19 @@ class VisionSweep(SweepTask):
                 if output is None:
                     continue
 
+                if self.is_single_turn(model):
+                    # Expected behaviour for these models, not a defect; see
+                    # SweepTask.is_single_turn.
+                    self.record(
+                        writer,
+                        [model, 2, FOLLOWUP, "", "", "", "skipped",
+                         "single-turn model: follow-up not supported"],
+                        model=model,
+                    )
+                    print("    round 2 skipped: model is labelled single-turn")
+                    time.sleep(1)
+                    continue
+
                 messages.append({"role": "assistant", "content": output})
                 messages.append({"role": "user", "content": FOLLOWUP})
                 self._round(writer, model, 2, messages, FOLLOWUP)

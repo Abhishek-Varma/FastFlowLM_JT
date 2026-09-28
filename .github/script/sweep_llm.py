@@ -5,6 +5,9 @@ Each model gets a first prompt and a follow-up that depends on the first
 answer, so multi-turn context handling is covered as well as single-shot
 generation. Runs in streaming mode by default; pass --modes to add or swap in
 the non-streaming path.
+
+Models the catalog labels "single-turn" only get the first round: refusing a
+follow-up is correct behaviour for them, not a failure.
 """
 
 from __future__ import annotations
@@ -95,6 +98,20 @@ class LLMSweep(SweepTask):
                     if output is None:
                         # The follow-up needs the first answer for context, so
                         # skip it rather than send a conversation with a hole.
+                        continue
+
+                    if self.is_single_turn(model):
+                        # Rejecting a second turn is what these models are
+                        # supposed to do, so the round is recorded as skipped
+                        # rather than sent and counted as a failure.
+                        self.record(
+                            writer,
+                            [model, mode, 2, followup, "", "", "", "skipped",
+                             "single-turn model: follow-up not supported"],
+                            model=model,
+                        )
+                        print("    round 2 skipped: model is labelled single-turn")
+                        time.sleep(1)
                         continue
 
                     messages.append({"role": "assistant", "content": output})

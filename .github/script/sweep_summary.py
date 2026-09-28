@@ -92,6 +92,24 @@ def main(argv: list[str] | None = None) -> int:
                 out.append(f"- {model}")
             out.append("")
 
+    # Not a problem, but worth stating: these models were tested with one
+    # round instead of two, by design rather than by accident.
+    single_turn = [item for item in summaries if item.get("single_turn")]
+    if single_turn:
+        out += [
+            "## Single-turn models",
+            "",
+            "Follow-up round skipped by design; refusing a second turn is "
+            "correct behaviour for these.",
+            "",
+        ]
+        for item in single_turn:
+            listed = ", ".join(f"`{m}`" for m in item["single_turn"])
+            out.append(
+                f"- **{item.get('task', '?')} / {item.get('platform', '?')}**: {listed}"
+            )
+        out.append("")
+
     # Anything the sweep decided on its own, with the reason it decided it.
     # Routine start/stop is omitted; a restart is never routine.
     NOISE = {"server_start", "server_stop"}

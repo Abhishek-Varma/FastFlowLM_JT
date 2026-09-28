@@ -234,6 +234,8 @@ class SweepTask:
         self._consecutive_failures = 0
         # Usage block from the most recent chat(), consumed by format_usage().
         self.last_usage: dict = {}
+        self._catalog_cache: list[dict] | None = None
+        self._labels_by_model: dict[str, list[str]] | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -513,6 +515,12 @@ class SweepTask:
         return "unknown"
 
     def catalog(self) -> list[dict]:
+        """Model catalog, loaded once per run."""
+        if self._catalog_cache is None:
+            self._catalog_cache = self._load_catalog()
+        return self._catalog_cache
+
+    def _load_catalog(self) -> list[dict]:
         """Full model catalog with the vlm/asr flags the sweep filters on.
 
         `flm list --json` is the only source that carries those flags;
@@ -536,6 +544,9 @@ class SweepTask:
                     "vlm": bool(entry.get("vlm", False)),
                     "asr": bool(entry.get("asr", False)),
                     "family": (entry.get("details") or {}).get("family", ""),
+                    # model_list.json's label array, passed through verbatim by
+                    # `flm list --json`. Carries "single-turn" among others.
+                    "labels": list(entry.get("label") or []),
                     "installed": bool(entry.get("installed", True)),
                 }
                 for entry in entries
@@ -548,7 +559,8 @@ class SweepTask:
             with urllib.request.urlopen(f"{self.base_url}/models", timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8")).get("data", [])
             return [
-                {"id": m["id"], "vlm": False, "asr": False, "family": "", "installed": True}
+                {"id": m["id"], "vlm": False, "asr": False, "family": "",
+                 "labels": [], "installed": True}
                 for m in data
                 if m.get("id")
             ]
@@ -559,6 +571,30 @@ class SweepTask:
     def select_models(self, catalog: list[dict]) -> list[str]:
         """Subclasses narrow the catalog to the models they exercise."""
         raise NotImplementedError
+
+    def model_labels(self, model: str) -> list[str]:
+        """Catalog labels for one model, empty when the catalog had none."""
+        if self._labels_by_model is None:
+            self._labels_by_model = {
+                entry["id"]: entry.get("labels") or []
+                for entry in self.catalog()
+                if entry.get("id")
+            }
+        return self._labels_by_model.get(model, [])
+
+    def is_single_turn(self, model: str) -> bool:
+        """True for models model_list.json labels "single-turn".
+
+        These are built for one exchange -- dedicated translation models, the
+        flash variants -- and cap context at 1k. Sending a follow-up turn gets
+        rejected by design, so a sweep that counted that as a failure would be
+        reporting the model working correctly as a defect.
+
+        Unknown models are treated as multi-turn: /v1/models carries no labels,
+        so guessing here would silently drop the follow-up for every model
+        whenever the flm binary was unavailable.
+        """
+        return "single-turn" in self.model_labels(model)
 
     def resolve_models(self) -> list[str]:
         if self.args.models:
@@ -573,9 +609,19 @@ class SweepTask:
         if self.args.limit > 0:
             models = models[: self.args.limit]
 
+        # Warmed here so a catalog that cannot be read complains during setup
+        # rather than in the middle of the first model's output.
+        single_turn = [m for m in models if self.is_single_turn(m)]
+
         print(f"[{self.name}] {len(models)} model(s) selected:")
         for index, model in enumerate(models, 1):
-            print(f"  {index:>3}. {model}")
+            suffix = " [single-turn]" if model in single_turn else ""
+            print(f"  {index:>3}. {model}{suffix}")
+        if single_turn:
+            print(
+                f"[{self.name}] {len(single_turn)} model(s) are single-turn; "
+                "their follow-up round is skipped, not failed."
+            )
         self.models = models
         return models
 
@@ -615,6 +661,10 @@ class SweepTask:
             "rows_written": self.rows_written,
             "failures": self.failures,
             "not_attempted": self.not_attempted,
+            # Models whose follow-up round was deliberately not sent. Recorded
+            # so a reader can tell a deliberately shortened test from one that
+            # silently lost a round.
+            "single_turn": [m for m in models if self.is_single_turn(m)],
             "server_restarts": self.server_restarts,
             "events": self.events,
             "csv": self.csv_path.name,
