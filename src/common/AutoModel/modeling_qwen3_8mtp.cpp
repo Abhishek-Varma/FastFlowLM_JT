@@ -407,7 +407,7 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
     if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
         if (mtp->speculation_cycles() > 0) {
             if (!this->log_raw_output) std::cout << std::endl;
-            header_print("FLM", mtp->speculation_stats() + " [this session]");
+            header_print("FLM", mtp->speculation_stats() + ".");
         }
     }
 
