@@ -1,0 +1,335 @@
+name: Model Sweep
+
+# Runs the cross-model sweep against real NPU hardware using the portable
+# builds produced by "Build Linux Portable" and "Build Windows Packages" for
+# this same commit. Nothing is rebuilt here: the sweep consumes the exact
+# artifacts that CI already published for the PR.
+#
+# The sweep is split by modality (llm, vision, embedding, audio) into one
+# matrix job each, so a failure in one modality does not hide the others and
+# "Re-run failed jobs" restarts only what actually broke.
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      gen_lim:
+        description: "max_completion_tokens per request (0 or less leaves it unset)"
+        type: string
+        default: "512"
+      request_timeout:
+        description: "Per-request timeout in seconds"
+        type: string
+        default: "300"
+      limit:
+        description: "Test only the first N models per task (0 = all). Use a small N to smoke-test the pipeline without downloading every model."
+        type: string
+        default: "0"
+
+permissions:
+  contents: read
+  # Needed to list and download artifacts from the sibling build workflow runs.
+  actions: read
+
+# The sweep occupies a physical NPU machine, so only keep the newest run per PR.
+concurrency:
+  group: model-sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GEN_LIM: ${{ inputs.gen_lim || '512' }}
+  REQUEST_TIMEOUT: ${{ inputs.request_timeout || '300' }}
+  # 0 on a pull_request, so the cap only exists when someone dispatches one.
+  MODEL_LIMIT: ${{ inputs.limit || '0' }}
+
+jobs:
+  # Both build workflows trigger on the same pull_request event as this one, so
+  # they are still compiling when the sweep is queued, and GitHub has no
+  # cross-workflow "needs:". This job does the waiting from a hosted runner,
+  # which keeps the NPU machines free until there is actually something to
+  # sweep. It resolves each build to a concrete run id; pinning the download to
+  # that id is what stops a sweep from silently picking up a stale artifact
+  # built from an earlier push on the same PR.
+  #
+  # A build that fails or never appears leaves its run id empty, which skips
+  # only that platform's sweep. The build workflow already reports its own
+  # failure on the PR, so there is no reason to fail twice or to block the
+  # other platform.
+  wait-for-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      linux_run_id: ${{ steps.wait.outputs.linux_run_id }}
+      windows_run_id: ${{ steps.wait.outputs.windows_run_id }}
+
+    steps:
+      - name: Wait for the portable builds
+        id: wait
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A pull_request run records the PR head commit in head_sha, while
+          # github.sha is the synthetic merge commit. Try both, so the lookup
+          # does not depend on which one the API reports.
+          CANDIDATE_SHAS: ${{ github.event.pull_request.head.sha }} ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          POLL_SECONDS=20
+          # Separate windows: a build that never starts is a lost cause well
+          # before one that is merely slow.
+          APPEAR_DEADLINE=$(( SECONDS + 10 * 60 ))
+          FINISH_DEADLINE=$(( SECONDS + 80 * 60 ))
+
+          # Newest run for whichever candidate SHA matches, or empty.
+          find_run() {
+            local workflow="$1" sha run_id
+            for sha in ${CANDIDATE_SHAS}; do
+              run_id=$(gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100" \
+                --jq 'if (.workflow_runs | length) == 0 then "" else (.workflow_runs | sort_by(.run_number) | last | .id) end')
+              if [ -n "${run_id}" ]; then
+                printf '%s' "${run_id}"
+                return 0
+              fi
+            done
+          }
+
+          wait_for_build() {
+            local workflow="$1" output_name="$2"
+            local run_id="" info status conclusion
+
+            while :; do
+              run_id=$(find_run "${workflow}")
+              [ -n "${run_id}" ] && break
+              if [ "${SECONDS}" -ge "${APPEAR_DEADLINE}" ]; then
+                echo "::warning::No ${workflow} run appeared for this commit; skipping that sweep."
+                return 1
+              fi
+              echo "Waiting for a ${workflow} run to appear..."
+              sleep "${POLL_SECONDS}"
+            done
+
+            while :; do
+              info=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+                --jq '"\(.status) \(.conclusion // "none")"')
+              status=${info%% *}
+              conclusion=${info##* }
+              [ "${status}" = "completed" ] && break
+              if [ "${SECONDS}" -ge "${FINISH_DEADLINE}" ]; then
+                echo "::warning::${workflow} run ${run_id} is still ${status}; skipping that sweep."
+                return 1
+              fi
+              echo "${workflow} run ${run_id} is ${status}; checking again in ${POLL_SECONDS}s."
+              sleep "${POLL_SECONDS}"
+            done
+
+            if [ "${conclusion}" != "success" ]; then
+              echo "::warning::${workflow} run ${run_id} concluded '${conclusion}'; skipping that sweep."
+              return 1
+            fi
+
+            echo "${workflow} run ${run_id} succeeded."
+            echo "${output_name}=${run_id}" >> "$GITHUB_OUTPUT"
+          }
+
+          # Neither platform gates the other, so a failure here is recorded as
+          # an empty output rather than allowed to abort the step.
+          wait_for_build debian-portable.yml linux_run_id || echo "Linux build unavailable."
+          wait_for_build windows-build.yml windows_run_id || echo "Windows build unavailable."
+
+  sweep-linux:
+    needs: wait-for-build
+    # Empty when the Linux build failed or never ran.
+    if: needs.wait-for-build.outputs.linux_run_id != ''
+    runs-on: [self-hosted, linux, x64, npu, sweep]
+    timeout-minutes: 120
+
+    strategy:
+      # One job per modality, so they can spread across however many runners
+      # carry the labels above, and "Re-run failed jobs" restarts only what
+      # broke. fail-fast stays off so one modality failing does not cancel the
+      # others mid-sweep.
+      fail-fast: false
+      matrix:
+        # sweep_embedding.py and sweep_audio.py are ready and tested, but stay
+        # out of the matrix until llm and vision have proven themselves against
+        # real hardware. Add them back here to enable them; nothing else needs
+        # to change.
+        task: [llm, vision]
+
+    env:
+      # Weights are expected at $FLM_MODEL_PATH/models/<ModelName>
+      FLM_MODEL_PATH: /scratch
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Pinned to the exact run that wait-for-build confirmed, so this cannot
+      # resolve to an older green build of the same PR. The artifact is named
+      # "portable" and holds a single fastflowlm_<version>_linux.tar.gz.
+      - name: Download Linux portable build
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.wait-for-build.outputs.linux_run_id }}
+          name: portable
+          path: build-artifact
+          if_no_artifact_found: fail
+
+      - name: Unpack Linux portable build
+        run: |
+          set -euo pipefail
+          mkdir -p flm-linux
+          tarball=$(ls build-artifact/fastflowlm_*_linux.tar.gz)
+          echo "Using tarball: ${tarball}"
+          tar xzf "${tarball}" -C flm-linux
+          chmod +x flm-linux/flm flm-linux/flm-real
+          echo "FLM_BIN=${GITHUB_WORKSPACE}/flm-linux/flm" >> "$GITHUB_ENV"
+
+      - name: Verify FLM binary runs
+        run: |
+          set -euo pipefail
+          "${FLM_BIN}" --version
+
+      - name: Set up Python virtualenv
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install openai
+
+      # Each script starts and stops its own flm server, picks its own models,
+      # and exits non-zero if any model failed.
+      - name: Run ${{ matrix.task }} sweep
+        run: |
+          set -euo pipefail
+          .venv/bin/python .github/script/sweep_${{ matrix.task }}.py \
+            --flm-bin "${FLM_BIN}" \
+            --platform linux \
+            --gen-lim "${GEN_LIM}" \
+            --request-timeout "${REQUEST_TIMEOUT}" \
+            --limit "${MODEL_LIMIT}" \
+            --output-dir sweep-results
+
+      # Includes the CSV, the summary JSON and the captured server log, so a
+      # failed sweep can be diagnosed without access to the runner.
+      - name: Upload ${{ matrix.task }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-sweep-linux-${{ matrix.task }}-${{ github.run_number }}
+          path: sweep-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  sweep-windows:
+    needs: wait-for-build
+    # Empty when the Windows build failed or never ran.
+    if: needs.wait-for-build.outputs.windows_run_id != ''
+    # self-hosted Windows NPU machine.
+    runs-on: [self-hosted, windows, x64, npu, sweep]
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # sweep_embedding.py and sweep_audio.py are ready and tested, but stay
+        # out of the matrix until llm and vision have proven themselves against
+        # real hardware. Add them back here to enable them; nothing else needs
+        # to change.
+        task: [llm, vision]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve model path
+        shell: powershell
+        run: |
+          $modelPath = Join-Path $env:USERPROFILE ".flm"
+          New-Item -ItemType Directory -Force $modelPath | Out-Null
+          "FLM_MODEL_PATH=$modelPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # "Build Windows Packages" publishes the portable payload under
+      # fastflowlm-windows-<sha>, with flm.exe and its DLLs at the top level.
+      # Both workflows run off the same pull_request event, so github.sha
+      # matches; the run id from wait-for-build pins which run it comes from.
+      - name: Download Windows portable build
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.wait-for-build.outputs.windows_run_id }}
+          name: fastflowlm-windows-${{ github.sha }}
+          path: flm-windows
+          if_no_artifact_found: fail
+
+      - name: Verify FLM binary runs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $flm = Join-Path $env:GITHUB_WORKSPACE "flm-windows\flm.exe"
+          if (-not (Test-Path $flm)) {
+            throw "flm.exe not found at $flm"
+          }
+          "FLM_BIN=$flm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $flm --version
+
+      - name: Set up Python virtualenv
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install openai
+
+      - name: Run ${{ matrix.task }} sweep
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cmdArgs = @(
+            ".github\script\sweep_${{ matrix.task }}.py",
+            "--flm-bin", $env:FLM_BIN,
+            "--platform", "windows",
+            "--gen-lim", $env:GEN_LIM,
+            "--request-timeout", $env:REQUEST_TIMEOUT,
+            "--limit", $env:MODEL_LIMIT,
+            "--output-dir", "sweep-results"
+          )
+          & ".\.venv\Scripts\python.exe" $cmdArgs
+          # A native command's exit code does not trip ErrorActionPreference.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload ${{ matrix.task }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-sweep-windows-${{ matrix.task }}-${{ github.run_number }}
+          path: sweep-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Reporting only, no NPU needed, so this one stays on a GitHub-hosted runner.
+  summary:
+    runs-on: ubuntu-latest
+    needs: [sweep-linux, sweep-windows]
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download sweep artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: model-sweep-*
+          path: sweep-results
+
+      - name: Write job summary
+        run: |
+          set -euo pipefail
+          python3 .github/script/sweep_summary.py sweep-results \
+            --linux-result "${{ needs.sweep-linux.result }}" \
+            --windows-result "${{ needs.sweep-windows.result }}" \
+            >> "$GITHUB_STEP_SUMMARY"
