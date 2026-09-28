@@ -7,6 +7,7 @@
 #pragma once
 
 #include "modeling_llama3.hpp"
+#include "modeling_llama3_pure_hrx.hpp"
 #include "modeling_gemma3.hpp"
 #include "modeling_gemma3_text.hpp"
 #include "modeling_gemma3_text_pure_hrx.hpp"
@@ -31,6 +32,7 @@
 
 typedef enum {
     llama3,
+    llama3_pure_hrx,
     deepseek_r1,
     deepseek_r1_0528,
     qwen2,
@@ -65,6 +67,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
     
     static const std::map<std::string, SupportedModelFamily> modelFamilyMap = {
         {"llama3", SupportedModelFamily::llama3},
+        {"llama3-purehrx", SupportedModelFamily::llama3_pure_hrx},
         {"deepseek-r1", SupportedModelFamily::deepseek_r1},
         {"deepseek-r1-0528", SupportedModelFamily::deepseek_r1_0528},
         {"qwen2", SupportedModelFamily::qwen2},
@@ -106,6 +109,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
     switch(modelFamilyMap.at(model_info["details"]["family"])) {
         case SupportedModelFamily::llama3:
             auto_chat_engine = std::make_unique<Llama3>(npu_device_inst);
+            break;
+        case SupportedModelFamily::llama3_pure_hrx:
+            auto_chat_engine = std::make_unique<Llama3PureHrx>(npu_device_inst);
             break;
         case SupportedModelFamily::deepseek_r1:
             auto_chat_engine = std::make_unique<DeepSeek_r1_8b>(npu_device_inst);

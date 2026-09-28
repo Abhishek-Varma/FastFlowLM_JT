@@ -410,6 +410,7 @@ endif()
 set(FLM_ENGINE_LINK_LIBS
     q4_npu_eXpress
     llama_npu
+    llama_npu_pure_hrx
     qwen2_npu
     qwen2vl_npu
     qwen3_npu

@@ -10,7 +10,7 @@
 
 /************              llama family            **************/
 class Llama3 : public AutoModel {
-private:
+protected:
     void setup_tokenizer(std::string model_path);
 
 public:
