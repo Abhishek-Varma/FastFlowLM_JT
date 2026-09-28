@@ -439,6 +439,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     whisper_npu
     gemma_embedding
     lfm2_npu
+    lfm2_npu_pure_hrx
     phi4_npu
     phi4_npu_pure_hrx
     nanbeige_npu

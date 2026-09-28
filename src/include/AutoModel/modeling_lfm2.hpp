@@ -10,7 +10,7 @@
 
 /************              LFM family            **************/
 class LFM2 : public AutoModel {
-private:
+protected:
     void setup_tokenizer(std::string model_path);
     inline std::string _replace_space(std::string& text){
         static std::string to_replace = "Ġ";
