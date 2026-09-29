@@ -74,18 +74,18 @@ int main(int argc, char* argv[]) {
     chat->configure_parameter("enable_think", enable_think);
 
     if (short_prompt) {
-        uniformed_input.prompt = "Describe what is in the image.";
-        uniformed_input.images.push_back("../../../tb_files/panda.png");
-        chat->start_total_timer();
-        bool success = chat->insert(meta_info, uniformed_input);
-        if (!success) {
-            header_print("ERROR", "Prompt insertion failed");
-            return 1;
-        }
-        std::string response = chat->generate(meta_info, length_limit, std::cout);
-        chat->stop_total_timer();
-        std::cout << std::endl << std::endl;
-        std::cout << chat->show_profile() << std::endl;
+        // uniformed_input.prompt = "Describe what is in the image.";
+        // uniformed_input.images.push_back("../../../tb_files/panda.png");
+        // chat->start_total_timer();
+        // bool success = chat->insert(meta_info, uniformed_input);
+        // if (!success) {
+        //     header_print("ERROR", "Prompt insertion failed");
+        //     return 1;
+        // }
+        // std::string response = chat->generate(meta_info, length_limit, std::cout);
+        // chat->stop_total_timer();
+        // std::cout << std::endl << std::endl;
+        // std::cout << chat->show_profile() << std::endl;
 
         // Keep this SHORT. Decode is the slow path here, not prefill: every
         // token streams ~15.4 GB of packed weights, so a chat-sized prompt
@@ -95,12 +95,12 @@ int main(int argc, char* argv[]) {
         std::cout << "Prompt: " << uniformed_input.prompt << std::endl;
         std::cout << "Response: " << std::endl;
         chat->start_total_timer();
-        success = chat->insert(meta_info, uniformed_input);
+        bool success = chat->insert(meta_info, uniformed_input);
         if (!success) {
             header_print("ERROR", "Prompt insertion failed");
             return 1;
         }
-        response = chat->generate(meta_info, length_limit, std::cout);
+        std::string response = chat->generate(meta_info, length_limit, std::cout);
         chat->stop_total_timer();
         std::cout << std::endl;
         std::cout << std::endl;

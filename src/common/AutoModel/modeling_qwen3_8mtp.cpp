@@ -31,6 +31,17 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
     this->q4nx.reset();
     this->lm_engine->clear_context();
     this->setup_tokenizer(model_path);
+
+    // After setup_tokenizer, which is what fills eos_token_ids -- the engine
+    // has no tokenizer and would otherwise run a speculative batch straight
+    // past the stop token. Both sides must test the same list or they
+    // disagree about where a batch ends: _speculative_generate() stops at the
+    // first id that is_eos() accepts, and every token the engine committed
+    // after that one is a cache row with nothing in token_history to describe
+    // it. Giving the engine the list moves the cut upstream of the caches.
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get()))
+        mtp->set_stop_tokens(this->eos_token_ids);
+
     this->sampler.reset();
 
     this->enable_tool = true;
@@ -468,6 +479,13 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
         this->token_history.push_back(token);
         if (this->is_eos(token)){
             meta_info.generated_tokens++;
+            // Correct on BOTH paths only because the engine was given the same
+            // eos list: a speculative batch is truncated one past its stop
+            // token, so an eos out of a batch is always its last element, and
+            // the last element is the one token a batch leaves without a KV
+            // row. Without that truncation an eos could land mid-batch, where
+            // it is already committed, and this forward() would append a
+            // second copy of it -- a wasted 64-layer pass and a duplicate row.
             if (this->forward_on_eos) {
                 this->lm_engine->forward(token);
             }

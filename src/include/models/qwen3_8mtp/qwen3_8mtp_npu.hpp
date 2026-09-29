@@ -138,10 +138,26 @@ public:
     /// \param last_token the token the caller would otherwise pass to forward()
     /// \param max_draft draft depth, clamped to MTP_STEPS (7)
     /// \return the committed tokens (1..max_draft+1), or {} to decline
-    /// \note The returned tokens are already in the caches. Feeding them back
-    ///       through forward() would double-append them.
+    /// \note All but the LAST returned token are already in the caches. The
+    ///       last one is the batch's free token and has no KV row yet, exactly
+    ///       like a token out of forward() -- so a caller that appends it on a
+    ///       stop (forward_on_eos) stays correct, and one that re-feeds any of
+    ///       the others double-appends them.
     /// \note Greedy only -- see the precondition on causal_lm::speculate.
     std::vector<int> speculate(int last_token, int max_draft) override;
+
+    /// \brief the token ids that end a generation, so a batch can stop on one
+    /// \note Optional. Without it the engine has no notion of a stop token and
+    ///       a batch runs to `accepted + 1` regardless, which is correct but
+    ///       leaves rows in the caches for tokens the caller discards -- the
+    ///       context then holds more than the caller's token log describes,
+    ///       and the last-token-has-no-KV-row invariant above no longer holds
+    ///       for a stop that landed mid-batch.
+    /// \note Set it once after construction; the engine copies the list.
+    /// \note Ids only, no strings: the engine has no tokenizer. Pass whatever
+    ///       the caller's own is_eos() tests against, or the two disagree
+    ///       about where a batch ends.
+    void set_stop_tokens(const std::vector<int>& ids);
 
     // ---- speculation statistics -------------------------------------------
     // All non-virtual: they add no vtable slot, so unlike the two speculation
@@ -164,6 +180,12 @@ public:
     ///       a hit -- it is the base model's argmax, not a correct draft.
     ///       Counting it would floor this at 1/k for a head that never once
     ///       guessed right.
+    /// \note Once set_stop_tokens() is in effect, draft slots past a stop
+    ///       token leave BOTH sides of the ratio. Their verdict came from the
+    ///       base model continuing a turn that had already ended, so it says
+    ///       nothing about the head either way -- and scoring them would make
+    ///       the rate a function of how short the turns are. The draft steps
+    ///       they cost are reported separately by speculation_stats().
     double draft_hit_rate() const;
 
     /// \brief speculative cycles run since load; 0 means speculation never ran
@@ -255,7 +277,9 @@ public:
     /// \param verify_ids the k+1 tokens: the committed token then the k drafts
     /// \param drafts the k drafted tokens, to compare against
     /// \param out_argmax receives the base model's argmax at all k+1 positions
-    /// \return how many drafts were accepted; `accepted + 1` tokens commit
+    /// \return how many drafts were accepted; `accepted + 1` tokens commit,
+    ///         or fewer when set_stop_tokens() is in effect and one of them
+    ///         lands inside that prefix -- the count is then one past the stop
     /// \note Snapshots the stack first and rolls back on a partial accept --
     ///       the delta-net fold has no inverse, so there is no other way back.
     int prefill_verify(const std::vector<int>& verify_ids,
