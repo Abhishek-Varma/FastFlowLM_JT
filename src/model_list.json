@@ -493,7 +493,8 @@
                 ],
                 "vlm": false,
                 "default_context_length": 4096,
-                "max_prefill_len": 256,
+                "max_prefill_len": 4096,
+                "max_bench_length": 8192,
                 "details": {
                     "format": "NPU2",
                     "family": "qwen3.8-mtp",

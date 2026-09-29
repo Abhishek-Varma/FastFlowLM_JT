@@ -281,6 +281,11 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
         std::find(model_info["label"].begin(), model_info["label"].end(), "single-turn") != model_info["label"].end();
     if (single_turn)
         bench_config["max_length"] = 1024;
+    // Some models cannot be benchmarked all the way out to the default 32k --
+    // a 27B model has no room for a kv cache that long. Honor the per-model cap.
+    else if (model_info.contains("max_bench_length") &&
+             (int)bench_config["max_length"] > (int)model_info["max_bench_length"])
+        bench_config["max_length"] = model_info["max_bench_length"];
 
     int max_len = bench_config["max_length"];
     if (!single_turn && max_len < 8192)
