@@ -129,6 +129,12 @@ public:
     virtual std::optional<std::vector<int>> forced_eos_ids() const {
         return std::nullopt;
     }
+
+    /// \brief the BOS id proven by the backend's own package, when it has one
+    /// \note Overrides tokenizer_config.json's bos_token_id, which some
+    ///       packages (Gemma 4) omit. Whether the package has a BOS at all is
+    ///       still the file's statement.
+    virtual std::optional<int> forced_bos_id() const { return std::nullopt; }
 };
 
 using BackendFactory =

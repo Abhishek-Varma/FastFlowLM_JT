@@ -310,44 +310,42 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                 }
             }
             return status;
-        } else if constexpr (std::is_same_v<Tag, matmul_pad_shape_tag>) {
-            // Every padding helper gained a leading stream in 0.5.0 -- the PDI
-            // pair it was opened with is what selects the kernel set, so the
-            // answer is per-stream. Arguments shift by one accordingly.
-            auto* m = std::get<1>(arguments);
-            auto* k = std::get<2>(arguments);
-            auto* n = std::get<3>(arguments);
-            const auto group = std::get<4>(arguments);
-            state.matmul_pad_calls.push_back({m ? *m : -1, k ? *k : -1,
-                                               n ? *n : -1, group});
+        } else if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag> ||
+                             std::is_same_v<Tag, ssmlp_enum_kernels_tag> ||
+                             std::is_same_v<Tag, flat_mha_enum_kernels_tag>) {
+            // corelib 0.9 reports shipped kernels instead of padding a shape.
+            // A negative M is the test double for "every requested M ships
+            // exactly" (see kernel_grid.hpp). Argument 1 is the callback,
+            // argument 2 is its context, for all three of these entry points.
             const auto status = Status(Tag::name);
             if (status == ryzenai_corelib_status_success) {
-                if (m) *m = PaddedRows(n && *n == 1024 ? "matmul-1024" : "matmul-3072", *m);
-                if (k) *k += state.matmul_k_delta;
-                if (n) *n += state.matmul_n_delta;
+                auto* callback = std::get<1>(arguments);
+                auto* ctx = std::get<2>(arguments);
+                if (callback) {
+                    if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag>) {
+                        callback(ctx, 0, static_cast<std::int64_t>(-1),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0), false,
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0));
+                    } else if constexpr (std::is_same_v<Tag, ssmlp_enum_kernels_tag>) {
+                        callback(ctx, 0, "", static_cast<std::int64_t>(-1),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0));
+                    } else {
+                        callback(ctx, 0, static_cast<std::int64_t>(-1),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(-1),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0),
+                                 static_cast<std::int64_t>(0), false, false);
+                    }
+                }
             }
-            return status;
-        } else if constexpr (std::is_same_v<Tag, ssmlp_pad_rows_tag>) {
-            // (stream, m, desc) in 0.5.0: k / n / group_size are no longer
-            // passed loose, they come from the weights descriptor, which also
-            // carries the activation and post-feedforward-norm flags that
-            // select a different ELF family and therefore a different padding.
-            auto* m = std::get<1>(arguments);
-            const auto* desc = std::get<2>(arguments);
-            state.rows_pad_calls.push_back({"ssmlp", m ? *m : -1,
-                desc ? desc->k : -1, desc ? desc->n : -1,
-                desc ? desc->group_size : 0u});
-            const auto status = Status(Tag::name);
-            if (status == ryzenai_corelib_status_success && m)
-                *m = PaddedRows("ssmlp", *m);
-            return status;
-        } else if constexpr (std::is_same_v<Tag, flat_mha_pad_rows_tag>) {
-            auto* m = std::get<1>(arguments);
-            auto* desc = std::get<2>(arguments);
-            state.mha_pad_calls.push_back({m ? *m : -1, desc ? *desc : ryzenai_corelib_flat_mha_bf16_desc{}});
-            const auto status = Status(Tag::name);
-            if (status == ryzenai_corelib_status_success && m)
-                *m = PaddedRows("mha", *m);
             return status;
         } else if constexpr (std::is_same_v<Tag, matmul_weights_create_gguf_requantized_tag>) {
             const auto status = Status(Tag::name);

@@ -127,6 +127,7 @@ void test_backend_defaults() {
     TEST_REQUIRE(backend.forwards_past_eos());
     TEST_REQUIRE(!backend.poisoned());
     TEST_REQUIRE(!backend.forced_eos_ids().has_value());
+    TEST_REQUIRE(!backend.forced_bos_id().has_value());
 }
 
 void test_duplicate_registration_is_rejected() {

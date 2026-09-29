@@ -2,9 +2,9 @@
 
 #include <ryzenai/corelib.h>
 
-#if RYZENAI_CORELIB_VERSION_MAJOR != 0 || RYZENAI_CORELIB_VERSION_MINOR != 5 || \
+#if RYZENAI_CORELIB_VERSION_MAJOR != 0 || RYZENAI_CORELIB_VERSION_MINOR != 9 || \
     RYZENAI_CORELIB_VERSION_PATCH != 0
-#error "FastFlowLM requires ryzenai-corelib headers exactly 0.5.0"
+#error "FastFlowLM requires ryzenai-corelib headers exactly 0.9.0"
 #endif
 
 #include <atomic>
@@ -22,7 +22,7 @@
     X(status_to_string, ryzenai_corelib_status_to_string)                          \
     X(get_last_error_message, ryzenai_corelib_get_last_error_message)              \
     X(selftest_dependencies, ryzenai_corelib_selftest_dependencies)                \
-    X(get_device, ryzenai_corelib_get_device)                                      \
+    X(get_device, ryzenai_corelib_get_hardware_context)                            \
     X(object_release, ryzenai_corelib_object_release)                              \
     X(create_stream, ryzenai_corelib_create_stream)                                \
     X(stream_synchronize, ryzenai_corelib_stream_synchronize)                      \
@@ -33,21 +33,42 @@
     X(tensor_read, ryzenai_corelib_tensor_read)                                    \
     X(tensor_get_byte_size, ryzenai_corelib_tensor_get_byte_size)                  \
     X(tensor_get_data_type, ryzenai_corelib_tensor_get_data_type)                  \
-    X(matmul_pad_shape, ryzenai_corelib_matmul_bf16_pad_shape)                     \
+    X(stream_get_kernels_root, ryzenai_corelib_stream_get_kernels_root)            \
+    X(stream_set_kernels_root, ryzenai_corelib_stream_set_kernels_root)            \
+    X(weights_slice, ryzenai_corelib_weights_slice)                                \
+    X(matmul_enum_kernels, ryzenai_corelib_matmul_bf16_enum_kernels)               \
     X(matmul_weights_create_gguf_requantized,                                      \
       ryzenai_corelib_matmul_bf16_weights_create_gguf_requantized)                 \
+    X(matmul_weights_create_onnx,                                                  \
+      ryzenai_corelib_matmul_bf16_weights_create_onnx)                             \
     X(matmul_weights_create_from_file,                                             \
       ryzenai_corelib_matmul_bf16_weights_create_from_file)                        \
     X(matmul, ryzenai_corelib_matmul_bf16)                                         \
-    X(ssmlp_pad_rows, ryzenai_corelib_ssmlp_bf16_pad_rows)                         \
+    X(matmul_act, ryzenai_corelib_matmul_act_bf16)                                 \
+    X(matmul_act_enum_kernels, ryzenai_corelib_matmul_act_bf16_enum_kernels)       \
+    X(ssmlp_enum_kernels, ryzenai_corelib_ssmlp_bf16_enum_kernels)                 \
     X(ssmlp_weights_create_gguf_requantized,                                       \
       ryzenai_corelib_ssmlp_bf16_weights_create_gguf_requantized)                  \
     X(ssmlp_weights_create_from_file,                                              \
       ryzenai_corelib_ssmlp_bf16_weights_create_from_file)                         \
     X(weights_copy_data, ryzenai_corelib_weights_copy_data)                        \
     X(ssmlp, ryzenai_corelib_ssmlp_bf16)                                           \
-    X(flat_mha_pad_rows, ryzenai_corelib_flat_mha_bf16_pad_rows)                   \
+    X(rmsnorm_weights_create_reference,                                            \
+      ryzenai_corelib_rmsnorm_bf16_weights_create_reference)                       \
+    X(rmsnorm_weights_create_onnx,                                                 \
+      ryzenai_corelib_rmsnorm_bf16_weights_create_onnx)                            \
+    X(rmsnorm_weights_create_from_file,                                            \
+      ryzenai_corelib_rmsnorm_bf16_weights_create_from_file)                       \
+    X(rmsnorm, ryzenai_corelib_rmsnorm_bf16)                                       \
+    X(ple_weights_create_onnx, ryzenai_corelib_ple_bf16_weights_create_onnx)       \
+    X(ple_weights_create, ryzenai_corelib_ple_bf16_weights_create)                 \
+    X(ple, ryzenai_corelib_ple_bf16)                                               \
+    X(flat_mha_enum_kernels, ryzenai_corelib_flat_mha_bf16_enum_kernels)           \
     X(flat_mha, ryzenai_corelib_flat_mha_bf16)                                     \
+    X(linear_attention, ryzenai_corelib_linear_attention_bf16)                     \
+    X(dwconv_weights_create_onnx,                                                  \
+      ryzenai_corelib_dwconv_bf16_weights_create_onnx)                             \
+    X(dwconv, ryzenai_corelib_dwconv_bf16)                                         \
     X(cleanup, ryzenai_corelib_cleanup)
 
 namespace flm::corelib {

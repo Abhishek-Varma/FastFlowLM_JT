@@ -22,6 +22,10 @@ private:
     // bool skip_push_history = false;
 
     void setup_tokenizer(std::string model_path);
+    std::string decode(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled);
+    /// \brief clear the conversation after a failed inference and report it
+    /// \throws ModelRequestError 500, asking for a reload when the backend is poisoned
+    [[noreturn]] void fail_inference();
 
 public:
     Qwen3(flm_rt::device* npu_device_inst);

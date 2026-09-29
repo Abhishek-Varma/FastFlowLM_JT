@@ -41,7 +41,7 @@ void TestVersionIsResolvedBeforeEveryOtherSymbol() {
     fake_corelib::Reset();
     ValidApi();
     const auto& order = fake_corelib::GetState().resolution_order;
-    TEST_REQUIRE(order.size() == 27);
+    TEST_REQUIRE(order.size() == 43);
     TEST_REQUIRE(order.front() == "ryzenai_corelib_get_version");
 }
 
@@ -61,7 +61,9 @@ void TestMajorMinorAndPatchMismatchesAreRejectedWithBothVersions() {
         fake_corelib::Reset();
         fake_corelib::GetState().version = version;
         const std::string error = RequireThrows([&] { ValidApi(); });
-        RequireContains(error, "0.5.0");
+        RequireContains(error, std::to_string(RYZENAI_CORELIB_VERSION_MAJOR) + "." +
+                                   std::to_string(RYZENAI_CORELIB_VERSION_MINOR) + "." +
+                                   std::to_string(RYZENAI_CORELIB_VERSION_PATCH));
         RequireContains(error, std::to_string(version.major) + "." +
                                    std::to_string(version.minor) + "." +
                                    std::to_string(version.patch));
@@ -72,7 +74,7 @@ void TestMajorMinorAndPatchMismatchesAreRejectedWithBothVersions() {
 void TestEveryRequiredSymbolIsResolvedExactlyOnce() {
     fake_corelib::Reset();
     ValidApi();
-    TEST_REQUIRE(fake_corelib::GetState().resolution_counts.size() == 27);
+    TEST_REQUIRE(fake_corelib::GetState().resolution_counts.size() == 43);
     for (const auto& [name, count] : fake_corelib::GetState().resolution_counts) {
         (void)name;
         TEST_REQUIRE(count == 1);
@@ -86,11 +88,11 @@ void TestEveryResolvedFakeFunctionUsesItsExactAbi() {
     fake_corelib::GetState().default_status = ryzenai_corelib_status_bad_argument;
     fake_corelib::GetState().selftest_status = ryzenai_corelib_status_bad_argument;
     const auto statuses = fake_corelib::CallEveryResolvedFunction(api->functions());
-    TEST_REQUIRE(statuses.size() == 21);
+    TEST_REQUIRE(statuses.size() == 36);
     TEST_REQUIRE(std::all_of(statuses.begin(), statuses.end(), [](auto status) {
         return status == ryzenai_corelib_status_bad_argument;
     }));
-    TEST_REQUIRE(fake_corelib::GetState().call_counts.size() == 27);
+    TEST_REQUIRE(fake_corelib::GetState().call_counts.size() == 43);
     for (const auto& [name, count] : fake_corelib::GetState().call_counts) {
         (void)name;
         TEST_REQUIRE(count == 1);
@@ -105,11 +107,10 @@ void TestEveryResolvedFakeFunctionUsesItsExactAbi() {
                      .call_counts["ryzenai_corelib_tensor_write"] == 2);
 }
 
-void TestStandaloneRmsNormSymbolsAreNotRequired() {
+void TestUnusedRmsNormSymbolsAreNotRequired() {
     for (const auto* symbol : {
              "ryzenai_corelib_rmsnorm_bf16_weights_create_scale",
-             "ryzenai_corelib_rmsnorm_bf16_pad_rows",
-             "ryzenai_corelib_rmsnorm_bf16"}) {
+             "ryzenai_corelib_rmsnorm_bf16_pad_rows"}) {
         fake_corelib::Reset();
         fake_corelib::GetState().missing_symbol = symbol;
         (void)ValidApi();
@@ -293,7 +294,7 @@ int main() {
     RUN_TEST(TestMajorMinorAndPatchMismatchesAreRejectedWithBothVersions);
     RUN_TEST(TestEveryRequiredSymbolIsResolvedExactlyOnce);
     RUN_TEST(TestEveryResolvedFakeFunctionUsesItsExactAbi);
-    RUN_TEST(TestStandaloneRmsNormSymbolsAreNotRequired);
+    RUN_TEST(TestUnusedRmsNormSymbolsAreNotRequired);
     RUN_TEST(TestMissingSymbolNamesTheSymbolAndUnloadsTheDll);
     RUN_TEST(TestCorelibErrorCopiesStatusCallAndThreadLocalDetail);
     RUN_TEST(TestEnvironmentPathMustBeAnAbsoluteDllPath);

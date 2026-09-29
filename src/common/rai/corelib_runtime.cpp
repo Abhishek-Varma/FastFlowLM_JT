@@ -27,9 +27,8 @@ std::shared_ptr<CorelibRuntime> CorelibRuntime::CreateReady(
     if (!api) throw std::invalid_argument("corelib API is null");
     api->Check(api->functions().selftest_dependencies(),
                "ryzenai_corelib_selftest_dependencies");
-    // 0.5.0 replaced has_device_context() with get_device(): the same question,
-    // answered by a pointer. NULL means no NPU to dispatch to -- packing and
-    // padding still work, everything that binds device memory does not.
+    // NULL means this process has no NPU hardware context to dispatch on.
+    // The bound symbol is ryzenai_corelib_get_hardware_context.
     if (api->functions().get_device() == nullptr) {
         throw std::runtime_error("corelib has no device context");
     }

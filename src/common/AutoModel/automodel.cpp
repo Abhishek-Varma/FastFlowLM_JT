@@ -131,11 +131,19 @@ nlohmann::json AutoModel::_shared_setup_tokenizer(std::string model_path) {
     );
 
     if (this->has_bos_token) {
-        if (!tokenizer_config["bos_token_id"].is_number_integer()) {
+        // Some packages (Gemma 4) name bos_token but state no bos_token_id; a
+        // backend that validated its package supplies the id.
+        if (const auto forced = this->backend_ ? this->backend_->forced_bos_id()
+                                               : std::nullopt) {
+            this->bos_token_id = *forced;
+        }
+        else if (!tokenizer_config["bos_token_id"].is_number_integer()) {
             header_print("ERROR", "bos_token is set in tokenizer_config.json but bos_token_id is missing or not an integer");
             exit(1);
         }
-        this->bos_token_id = tokenizer_config["bos_token_id"].get<int>();
+        else {
+            this->bos_token_id = tokenizer_config["bos_token_id"].get<int>();
+        }
     }
     else {
         this->bos_token_id = -1;

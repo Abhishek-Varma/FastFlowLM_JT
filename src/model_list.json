@@ -1369,6 +1369,327 @@
                 ],
                 "footprint": 3.8
             }
+        },
+        "gemma4-it-rai":     {
+        "e2b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "gemma4-it-rai-e2b",
+            "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2",
+            "file_url": "https://huggingface.co/api/models/unsloth/gemma-4-E2B-it-GGUF/tree/0314792d7f1f7e229411f620751375812bb9faf2",
+            "size": 5080530526,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "gemma4e",
+                "think": true,
+                "parameter_size": "5B",
+                "quantization_level": "Q8_0 -> group-32"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "gemma-4-E2B-it-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json",
+                "chat_template.jinja"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E2B-it",
+                    "revision": "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E2B-it",
+                    "revision": "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E2B-it",
+                    "revision": "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+                },
+                "chat_template.jinja": {
+                    "url": "https://huggingface.co/google/gemma-4-E2B-it",
+                    "revision": "3e22461f65e89153144f8adb70e3b8c2cc9845a7"
+                }
+            },
+            "footprint": 5.1,
+            "model_info_key": "gemma4-it-rai:e2b",
+            "label": [
+                "reasoning",
+                "tool-calling"
+            ],
+            "asr": false
+        },
+        "e4b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "gemma4-it-rai-e4b",
+            "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3",
+            "file_url": "https://huggingface.co/api/models/unsloth/gemma-4-E4B-it-GGUF/tree/bfc15c382204943c3a8fff0c750b94ae2364d7a3",
+            "size": 8225131325,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "gemma4e",
+                "think": true,
+                "parameter_size": "8B",
+                "quantization_level": "Q8_0 -> group-32"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "gemma-4-E4B-it-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json",
+                "chat_template.jinja"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E4B-it",
+                    "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E4B-it",
+                    "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/google/gemma-4-E4B-it",
+                    "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2"
+                },
+                "chat_template.jinja": {
+                    "url": "https://huggingface.co/google/gemma-4-E4B-it",
+                    "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2"
+                }
+            },
+            "footprint": 8.2,
+            "model_info_key": "gemma4-it-rai:e4b",
+            "label": [
+                "reasoning",
+                "tool-calling"
+            ],
+            "asr": false
         }
+    },
+        "qwen3.5-rai":     {
+        "9b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "Qwen3.5-9B",
+            "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5",
+            "file_url": "https://huggingface.co/api/models/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5",
+            "size": 9540331866,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "qwen3.5",
+                "think": true,
+                "parameter_size": "9B",
+                "quantization_level": "Q8_0 -> group-64"
+            },
+            "flm_min_version": "1.0.3",
+            "vlm": false,
+            "files": [
+                "Qwen3.5-9B-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+                    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+                    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+                    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+                }
+            },
+            "footprint": 11.0,
+            "model_info_key": "qwen3.5-rai:9b",
+            "label": [
+                "reasoning",
+                "tool-calling"
+            ]
+        }
+    },
+        "qwen3-rai":     {
+        "0.6b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "qwen3-0.6b-rai",
+            "url": "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/50968a4468ef4233ed78cd7c3de230dd1d61a56b",
+            "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-0.6B-GGUF/tree/50968a4468ef4233ed78cd7c3de230dd1d61a56b",
+            "size": 650881322,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "qwen3",
+                "think": false,
+                "think_toggleable": true,
+                "parameter_size": "0.6B",
+                "quantization_level": "Q8_0 -> group-64, lm_head group-32"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "Qwen3-0.6B-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-0.6B-NPU2",
+                    "revision": "b584799232c962f693e0e5be99606fc4eca6811e"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-0.6B-NPU2",
+                    "revision": "b584799232c962f693e0e5be99606fc4eca6811e"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-0.6B-NPU2",
+                    "revision": "b584799232c962f693e0e5be99606fc4eca6811e"
+                }
+            },
+            "footprint": 0.64,
+            "model_info_key": "qwen3-rai:0.6b"
+        },
+        "1.7b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "qwen3-1.7b-rai",
+            "url": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222",
+            "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-1.7B-GGUF/tree/d7f544eead698dbd1f15126ef60b45a1e1933222",
+            "size": 1845860522,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "qwen3",
+                "think": true,
+                "think_toggleable": true,
+                "parameter_size": "1.7B",
+                "quantization_level": "Q8_0 -> group-64"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "Qwen3-1.7B-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-1.7B-NPU2",
+                    "revision": "1b452c9ab53dcc580fab244d3dc4d808185ceaca"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-1.7B-NPU2",
+                    "revision": "1b452c9ab53dcc580fab244d3dc4d808185ceaca"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-1.7B-NPU2",
+                    "revision": "1b452c9ab53dcc580fab244d3dc4d808185ceaca"
+                }
+            },
+            "footprint": 1.83,
+            "model_info_key": "qwen3-rai:1.7b"
+        },
+        "4b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "qwen3-4b-rai",
+            "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+            "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-4B-GGUF/tree/22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+            "size": 4291839353,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "qwen3",
+                "think": true,
+                "think_toggleable": true,
+                "parameter_size": "4B",
+                "quantization_level": "Q8_0 -> group-64"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "Qwen3-4B-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-4B-NPU2",
+                    "revision": "07651f11cac70ff5b7a81731643dee6f6e7baee1"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-4B-NPU2",
+                    "revision": "07651f11cac70ff5b7a81731643dee6f6e7baee1"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-4B-NPU2",
+                    "revision": "07651f11cac70ff5b7a81731643dee6f6e7baee1"
+                }
+            },
+            "footprint": 4.28,
+            "model_info_key": "qwen3-rai:4b"
+        },
+        "8b": {
+            "supported_platforms": [
+                "aie_next"
+            ],
+            "name": "qwen3-8b-rai",
+            "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/a6adef130ffb23ddaf1a62fec9dced968c9bc482",
+            "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-8B-GGUF/tree/a6adef130ffb23ddaf1a62fec9dced968c9bc482",
+            "size": 8720952748,
+            "default_context_length": 4096,
+            "max_prefill_len": 4096,
+            "details": {
+                "family": "qwen3",
+                "think": true,
+                "think_toggleable": true,
+                "parameter_size": "8B",
+                "quantization_level": "Q8_0 -> group-64"
+            },
+            "flm_min_version": "1.0.6",
+            "vlm": false,
+            "files": [
+                "Qwen3-8B-Q8_0.gguf",
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "config.json"
+            ],
+            "file_sources": {
+                "tokenizer.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-8B-NPU2",
+                    "revision": "941c148c228496682e95c413cb90025f73200af2"
+                },
+                "tokenizer_config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-8B-NPU2",
+                    "revision": "941c148c228496682e95c413cb90025f73200af2"
+                },
+                "config.json": {
+                    "url": "https://huggingface.co/FastFlowLM/Qwen3-8B-NPU2",
+                    "revision": "941c148c228496682e95c413cb90025f73200af2"
+                }
+            },
+            "footprint": 8.71,
+            "model_info_key": "qwen3-rai:8b"
+        }
+    }
     }
 }

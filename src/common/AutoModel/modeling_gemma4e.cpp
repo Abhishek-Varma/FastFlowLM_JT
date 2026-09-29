@@ -418,7 +418,14 @@ Gemma4e::Gemma4e(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "
 template <typename EngineT>
 static gemma4e_engine_config_t read_gemma4e_engine_config(causal_lm* engine) {
     EngineT* e = dynamic_cast<EngineT*>(engine);
-    assert(e != nullptr && "engine_config() called on a wrapper whose engine type does not match");
+    if (e == nullptr) {
+        // Reachable in Release with the rai engine, which has no vision or
+        // audio path.
+        throw std::runtime_error(
+            "engine_config() was called on a Gemma4e wrapper whose engine is "
+            "not the expected type -- the vision and audio paths are not "
+            "available on this backend (rai runs text only)");
+    }
     return gemma4e_engine_config_t{
         e->GEMMA4E_VISION_PATCH_SIZE,
         e->GEMMA4E_POOLING_KERNEL_SIZE,

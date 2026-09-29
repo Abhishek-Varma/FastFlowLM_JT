@@ -101,6 +101,23 @@ flm run qwen3:8b
 
 ---
 
+## 🧪 Qwen3 0.6B / 1.7B / 4B / 8B on the rai backend (developer preview)
+
+- **Tags:** `qwen3-rai:0.6b`, `qwen3-rai:1.7b`, `qwen3-rai:4b`, `qwen3-rai:8b` — their own tags, beside the NPU2 `qwen3:*` entries. `supported_platforms` is `aie_next`, and the `-rai` suffix is what asks for corelib's kernels.
+- **Backend:** `rai` — one engine for all four sizes. The GGUF's own metadata selects the size and is cross-checked against it.
+- **Source format:** GGUF `Q8_0`, read directly. Every weight is requantized to **group 64** while it is packed, except the 0.6B lm_head, which packs at **group 32**.
+- **Usable generation window:** 4095 tokens, prompt plus output. Over-capacity requests are rejected with HTTP 400 before any work reaches the device.
+- **Availability:** developer build against corelib 0.9.0 — see [Phi-4 on the rai backend](phi.md).
+
+The same corelib path also runs `gemma4-it-rai:e2b`, `gemma4-it-rai:e4b` (text only) and `qwen3.5-rai:9b`.
+
+```powershell
+flm pull qwen3-rai:4b
+flm run  qwen3-rai:4b
+```
+
+---
+
 ## 🧩 Model Card: [Qwen3-4B-Thinking-2507](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507)
 
 - **Type:** Text-to-Text

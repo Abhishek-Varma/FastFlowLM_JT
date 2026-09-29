@@ -53,7 +53,7 @@ cmake --build build-corelib -j"$(nproc)"
 ```
 
 **Version must match exactly.** `src/include/rai/corelib_api.hpp` has a
-`#error` for anything other than corelib **0.5.0**:
+`#error` for anything other than corelib **0.9.0**:
 
 ```bash
 grep -E 'CORELIB_VERSION_(MAJOR|MINOR|PATCH)' \
@@ -61,7 +61,7 @@ grep -E 'CORELIB_VERSION_(MAJOR|MINOR|PATCH)' \
 ```
 
 Must print `0`, `5`, `0`. (`BUILD-NOTES.md` still says 0.4.0 in its opening
-line — that text is stale; the installed headers are 0.5.0.)
+line — that text is stale; the installed headers are 0.9.0.)
 
 ### Verify corelib before going further
 

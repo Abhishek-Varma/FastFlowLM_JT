@@ -9,7 +9,10 @@
 #include "AutoModel/model_backend.hpp"
 
 #if defined(FLM_ENABLE_RAI)
+#include "models/gemma4/rai/aie_next/gemma4_rai_backend.hpp"
 #include "models/phi4/rai/aie_next/phi4_rai_backend.hpp"
+#include "models/qwen3/rai/aie_next/qwen3_rai_backend.hpp"
+#include "models/qwen35/rai/aie_next/qwen35_rai_backend.hpp"
 #endif
 
 namespace flm::backend {
@@ -53,9 +56,18 @@ void register_builtin_backends(BackendRegistry& registry) {
     RegisterFlm<phi4_npu>(registry, "phi4");
 
 #if defined(FLM_ENABLE_RAI)
+    registry.register_backend("gemma4e", flm::backend::kRaiBackendId,
+                              flm::gemma4::rai_factory(),
+                              flm::gemma4::rai_traits());
     registry.register_backend("phi4", flm::backend::kRaiBackendId,
                               flm::phi4::rai_factory(),
                               flm::phi4::rai_traits());
+    registry.register_backend("qwen3", flm::backend::kRaiBackendId,
+                              flm::qwen3::rai_factory(),
+                              flm::qwen3::rai_traits());
+    registry.register_backend("qwen3.5", flm::backend::kRaiBackendId,
+                              flm::qwen35::rai_factory(),
+                              flm::qwen35::rai_traits());
 #endif
 }
 

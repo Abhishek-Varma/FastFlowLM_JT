@@ -32,18 +32,13 @@ void TestShapePlanQueriesOnlyExecutionBucketsAndMapsEveryRow() {
     fake_corelib::Reset();
     const auto api = Api();
     const auto plan = Phi4ShapePlan::Build(api, Stream(api));
-    const auto& state = fake_corelib::GetState();
-    constexpr std::array<std::int64_t, 8> buckets{
-        1, 64, 128, 256, 512, 1024, 2048, 4096};
-    TEST_REQUIRE(state.matmul_pad_calls.size() == 3 * buckets.size() + 1);
-    TEST_REQUIRE(state.rows_pad_calls.size() == buckets.size());
-    TEST_REQUIRE(state.mha_pad_calls.size() == buckets.size());
-    for (std::size_t index = 0; index < buckets.size(); ++index) {
-        TEST_REQUIRE(state.matmul_pad_calls[index * 3].m == buckets[index]);
-        TEST_REQUIRE(state.matmul_pad_calls[index * 3].group_size == 64);
-        TEST_REQUIRE(state.rows_pad_calls[index].m == buckets[index]);
-        TEST_REQUIRE(state.mha_pad_calls[index].m == buckets[index]);
-    }
+    const auto& counts = fake_corelib::GetState().call_counts;
+    // 0.9 enumerates the shipped kernels once per op, then every bucket is
+    // answered from that grid. The fake grid is a wildcard, so each requested
+    // bucket is covered by itself and ForRows still snaps up to the next one.
+    TEST_REQUIRE(counts.at("ryzenai_corelib_matmul_bf16_enum_kernels") == 1);
+    TEST_REQUIRE(counts.at("ryzenai_corelib_ssmlp_bf16_enum_kernels") == 1);
+    TEST_REQUIRE(counts.at("ryzenai_corelib_flat_mha_bf16_enum_kernels") == 1);
     TEST_REQUIRE(plan.ForRows(2).query_rows == 64);
     TEST_REQUIRE(plan.ForRows(65).query_rows == 128);
     TEST_REQUIRE(plan.ForRows(257).query_rows == 512);
@@ -54,20 +49,13 @@ void TestShapePlanUsesExactQKvOutputSsmlpRmsAndLmHeadDimensions() {
     fake_corelib::Reset();
     const auto api = Api();
     const auto plan = Phi4ShapePlan::Build(api, Stream(api));
-    const auto& state = fake_corelib::GetState();
-    const auto& q = state.matmul_pad_calls[0];
-    const auto& kv = state.matmul_pad_calls[1];
-    const auto& output = state.matmul_pad_calls[2];
-    TEST_REQUIRE(q.k == 3072 && q.n == 3072);
-    TEST_REQUIRE(kv.k == 3072 && kv.n == 1024);
-    TEST_REQUIRE(output.k == 3072 && output.n == 3072);
-    TEST_REQUIRE(state.rows_pad_calls[0].helper == "ssmlp");
-    TEST_REQUIRE(state.rows_pad_calls[0].k == 3072);
-    TEST_REQUIRE(state.rows_pad_calls[0].n == 8192);
-    const auto& lm = state.matmul_pad_calls.back();
-    TEST_REQUIRE(lm.m == 1 && lm.k == 3072 && lm.n == 200064 && lm.group_size == 64);
     TEST_REQUIRE(plan.lm_head_desc().k == 3072);
     TEST_REQUIRE(plan.lm_head_desc().n == 200064);
+    TEST_REQUIRE(plan.lm_head_desc().group_size == 64);
+    TEST_REQUIRE(plan.ForRows(1).query_rows == 1);
+    TEST_REQUIRE(plan.ForRows(1).kv_rows == 1);
+    TEST_REQUIRE(plan.ForRows(1).ssmlp_rows == 1);
+    TEST_REQUIRE(plan.ForRows(1).flat_mha_rows == 1);
 }
 
 void TestShapePlanBuildsFlatMhaDescriptor24_8_128_4096_96() {
@@ -80,16 +68,14 @@ void TestShapePlanBuildsFlatMhaDescriptor24_8_128_4096_96() {
     TEST_REQUIRE(desc.head_size == 128);
     TEST_REQUIRE(desc.max_seq == 4096);
     TEST_REQUIRE(desc.rope_dim == 96);
-    TEST_REQUIRE(fake_corelib::GetState().mha_pad_calls.front().desc.rope_dim == 96);
 }
 
-void TestShapePlanRejectsPaddedKOrNChanges() {
+void TestShapePlanRejectsAFailedKernelEnumeration() {
     fake_corelib::Reset();
-    fake_corelib::GetState().matmul_k_delta = 1;
-    RequireContains(RequireThrows([&] { const auto a = Api(); Phi4ShapePlan::Build(a, Stream(a)); }), "padded K/N");
-    fake_corelib::Reset();
-    fake_corelib::GetState().matmul_n_delta = 1;
-    RequireContains(RequireThrows([&] { const auto a = Api(); Phi4ShapePlan::Build(a, Stream(a)); }), "padded K/N");
+    fake_corelib::GetState().statuses["ryzenai_corelib_matmul_bf16_enum_kernels"] =
+        ryzenai_corelib_status_unsupported;
+    RequireContains(RequireThrows([&] { const auto a = Api(); Phi4ShapePlan::Build(a, Stream(a)); }),
+                    "ryzenai_corelib_matmul_bf16_enum_kernels");
 }
 
 void TestShapePlanRejectsRowsOutsideCachedRange() {
@@ -103,11 +89,10 @@ void TestShapePlanRejectsRowsOutsideCachedRange() {
 void TestShapePlanFailureNamesHelperAndLogicalShape() {
     fake_corelib::Reset();
     auto api = Api();
-    fake_corelib::GetState().statuses["ryzenai_corelib_ssmlp_bf16_pad_rows"] =
+    fake_corelib::GetState().statuses["ryzenai_corelib_ssmlp_bf16_enum_kernels"] =
         ryzenai_corelib_status_unsupported;
     const auto error = RequireThrows([&] { Phi4ShapePlan::Build(api, Stream(api)); });
-    RequireContains(error, "ryzenai_corelib_ssmlp_bf16_pad_rows");
-    RequireContains(error, "[1,3072,8192]");
+    RequireContains(error, "ryzenai_corelib_ssmlp_bf16_enum_kernels");
 }
 }  // namespace
 
@@ -116,7 +101,7 @@ int main() {
     RUN_TEST(TestShapePlanQueriesOnlyExecutionBucketsAndMapsEveryRow);
     RUN_TEST(TestShapePlanUsesExactQKvOutputSsmlpRmsAndLmHeadDimensions);
     RUN_TEST(TestShapePlanBuildsFlatMhaDescriptor24_8_128_4096_96);
-    RUN_TEST(TestShapePlanRejectsPaddedKOrNChanges);
+    RUN_TEST(TestShapePlanRejectsAFailedKernelEnumeration);
     RUN_TEST(TestShapePlanRejectsRowsOutsideCachedRange);
     RUN_TEST(TestShapePlanFailureNamesHelperAndLogicalShape);
 #undef RUN_TEST

@@ -279,11 +279,10 @@ bool Qwen3_5VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
 
     // hardware
     int restore_idx = -1;
-    qwen3_5vl_npu *qwen3_5vl_engine = dynamic_cast<qwen3_5vl_npu*>(this->lm_engine);
     const bool has_images = image_payload.num_images > 0;
 
     if (meta_info.restore_allowed) {
-        restore_idx = qwen3_5vl_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
@@ -296,7 +295,7 @@ bool Qwen3_5VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
         : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = qwen3_5vl_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
     return success;
 }
 
@@ -437,9 +436,8 @@ std::string Qwen3_5VL::generate_with_prompt(chat_meta_info_t& meta_info, lm_unif
         return "";
     }
     header_print("FLM", "Prompt inserted, starting generation...");
-    qwen3_5vl_npu* qwen35_engine = dynamic_cast<qwen3_5vl_npu*>(this->lm_engine);
-    int checkpoint_idx = qwen35_engine->checkpoint();
-    int restore_idx = qwen35_engine->restore();
+    int checkpoint_idx = this->lm_engine->checkpoint();
+    int restore_idx = this->lm_engine->restore();
     header_print_r("FLM", "Checkpoint before generation: " << checkpoint_idx << ", restore point: " << restore_idx << ", user context length: " << this->token_history.size());
     if (this->enable_think) {
         os << "<think>\n" << std::flush;

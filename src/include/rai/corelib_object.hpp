@@ -10,9 +10,12 @@ namespace flm::corelib {
 struct StreamTag {};
 struct TensorTag {};
 struct TensorWindowTag {};
+struct HostViewTag {};
 struct MatMulWeightsTag {};
 struct SsMlpWeightsTag {};
-struct HostViewTag {};
+struct RmsNormWeightsTag {};
+struct PleWeightsTag {};
+struct DwConvWeightsTag {};
 
 template <typename Tag>
 class UniqueObject final {
@@ -57,10 +60,13 @@ private:
 using UniqueStream = UniqueObject<StreamTag>;
 using UniqueTensor = UniqueObject<TensorTag>;
 using UniqueTensorWindow = UniqueObject<TensorWindowTag>;
-using UniqueMatMulWeights = UniqueObject<MatMulWeightsTag>;
-using UniqueSsMlpWeights = UniqueObject<SsMlpWeightsTag>;
 /// \note A host view borrows the caller's bytes and never copies them, so
 ///       whatever owns those bytes must outlive the view.
 using UniqueHostView = UniqueObject<HostViewTag>;
+using UniqueMatMulWeights = UniqueObject<MatMulWeightsTag>;
+using UniqueSsMlpWeights = UniqueObject<SsMlpWeightsTag>;
+using UniqueRmsNormWeights = UniqueObject<RmsNormWeightsTag>;
+using UniquePleWeights = UniqueObject<PleWeightsTag>;
+using UniqueDwConvWeights = UniqueObject<DwConvWeightsTag>;
 
 }  // namespace flm::corelib
