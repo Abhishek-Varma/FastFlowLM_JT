@@ -43,6 +43,7 @@ void register_builtin_backends(BackendRegistry& registry) {
     RegisterFlm<qwen3vl_flash>(registry, "qwen3vl-flash");
     RegisterFlm<qwen3_5vl_npu>(registry, "qwen3.5");
     RegisterFlm<qwen3_6_moe_npu>(registry, "qwen3.6-moe");
+    RegisterFlm<qwen3_8mtp_npu>(registry, "qwen3.8-mtp");
     RegisterFlm<gemma_npu>(registry, "gemma3");
     RegisterFlm<gemma_text_npu>(registry, "gemma3-text");
     RegisterFlm<gemma4e_npu>(registry, "gemma4e");

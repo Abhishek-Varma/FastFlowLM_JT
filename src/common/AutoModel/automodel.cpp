@@ -396,7 +396,11 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
 
     auto prefill_end_time = this->profiler_list[PREFILL_TIME].stop(tokens.size());
     meta_info.prefill_duration = (uint64_t)time_utils::duration_ns(prefill_start_time, prefill_end_time).first;
-    meta_info.prompt_tokens = tokens.size();
+    // `tokens` was trimmed to the uncached suffix above, so add the prefix served
+    // from the KV cache back on: usage.prompt_tokens is the whole prompt, and the
+    // cached part is reported separately rather than subtracted.
+    meta_info.cached_prompt_tokens = static_cast<int>(skip_count);
+    meta_info.prompt_tokens = static_cast<int>(skip_count + tokens.size());
 
     if (meta_info.stop_reason == CANCEL_DETECTED) {
         return false;
@@ -774,6 +778,18 @@ std::string AutoModel::show_model_info() {
 /// \brief Show the profile
 /// \note The function will show the profile
 /// \note The function will return the profile
+/// \note "Total time" is wall clock around insert() + generate(), while every
+///       other row is a narrow window inside it, so the rows do not partition
+///       the run. The "Untimed" row at the bottom is the remainder, and it is
+///       printed precisely because that gap used to be invisible: Qwen3.8's
+///       think preamble spent ~13 s of a 24 s run in four forward() calls
+///       that _shared_generate()'s DECODING_TIME.reset() then discarded, and
+///       nothing in this block said so.
+/// \note The four narrow rows are only comparable with Total on a single-turn
+///       run. DECODING_TIME is reset at the top of every _shared_generate()
+///       while PREFILL_TIME and TOTAL_TIME accumulate across turns, so a
+///       multi-turn session over-reports "Untimed" by the decode time of
+///       every turn but the last.
 std::string AutoModel::show_profile() {
     std::stringstream ss;
     int total_tokens = this->lm_engine->get_current_context_length();
@@ -785,12 +801,29 @@ std::string AutoModel::show_profile() {
     ss << "    Decoding time:       " << time.first << " " << time.second << std::endl;
     time = this->profiler_list[PREFILL_TIME].get_total_time();
     ss << "    Prefill time:        " << time.first << " " << time.second << std::endl;
-    // time = this->profiler_list[SAMPLING_TIME].get_total_time();
-    // ss << "    Sampling time:       " << time.first << " " << time.second << std::endl;
-    // time = this->profiler_list[TKOEN_ENCODE_TIME].get_total_time();
-    // ss << "    Token encoding time: " << time.first << " " << time.second << std::endl;
-    // time = this->profiler_list[TKOEN_DECODE_TIME].get_total_time();
-    // ss << "    Token decoding time: " << time.first << " " << time.second << std::endl;
+    time = this->profiler_list[SAMPLING_TIME].get_total_time();
+    ss << "    Sampling time:       " << time.first << " " << time.second << std::endl;
+    time = this->profiler_list[TKOEN_ENCODE_TIME].get_total_time();
+    ss << "    Token encoding time: " << time.first << " " << time.second << std::endl;
+    time = this->profiler_list[TKOEN_DECODE_TIME].get_total_time();
+    ss << "    Token decoding time: " << time.first << " " << time.second << std::endl;
+    // Same unit for all five before subtracting: get_total_time() re_unit()s
+    // each one independently, so their .first fields are not commensurable.
+    const float total_us = time_utils::cast_to_us(this->profiler_list[TOTAL_TIME].get_total_time()).first;
+    if (total_us > 0.0f) {
+        float timed_us = 0.0f;
+        for (profiler_type p : {DECODING_TIME, PREFILL_TIME, SAMPLING_TIME,
+                                TKOEN_ENCODE_TIME, TKOEN_DECODE_TIME})
+            timed_us += time_utils::cast_to_us(this->profiler_list[p].get_total_time()).first;
+        // re_unit() only scales upward, so a negative remainder would print as
+        // a seven-digit microsecond count. Scale the magnitude and put the
+        // sign back: negative is not an error to hide, it is the multi-turn
+        // case above announcing itself.
+        const float gap_us = total_us - timed_us;
+        time = time_utils::re_unit(std::make_pair(std::abs(gap_us), "us"));
+        ss << "    Untimed:             " << (gap_us < 0.0f ? -time.first : time.first)
+           << " " << time.second << std::endl;
+    }
     ss << "    Average decoding speed:       " << this->profiler_list[DECODING_TIME].get_average_speed() << " tokens/s" << std::endl;
     ss << "    Average prefill  speed:       " << this->profiler_list[PREFILL_TIME].get_average_speed() << " tokens/s" << std::endl;
     // ss << "    Average sampling speed:       " << this->profiler_list[SAMPLING_TIME].get_average_speed() << " tokens/s" << std::endl;

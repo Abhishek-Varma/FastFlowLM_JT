@@ -17,6 +17,8 @@
 #include <string>
 #include <type_traits>
 #include <any>
+#include <cstdlib>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
 #include "typedef.hpp"
@@ -31,6 +33,7 @@
 #include "models/qwen3vl_flash/flm/aie2p/qwen3vl_flash.hpp"
 #include "models/qwen3_5vl/flm/aie2p/qwen3_5vl_npu.hpp"
 #include "models/qwen3_6_moe/flm/aie2p/qwen3_6_moe_npu.hpp"
+#include "models/qwen3_8mtp/flm/aie2p/qwen3_8mtp_npu.hpp"
 #include "models/gemma/flm/aie2p/gemma_npu.hpp"
 #include "models/gemma_text/flm/aie2p/gemma_text_npu.hpp"
 #include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
@@ -112,7 +115,8 @@ typedef enum {
 
 struct chat_meta_info_t {
 	int max_prefill_len;
-    int prompt_tokens;
+    int prompt_tokens;        // whole prompt, cached prefix included
+    int cached_prompt_tokens; // subset of prompt_tokens served from the KV cache
     int generated_tokens;
     uint64_t total_duration; // in nanoseconds
     uint64_t load_duration; // in nanoseconds
@@ -122,7 +126,7 @@ struct chat_meta_info_t {
 	bool restore_allowed;
 	tool_choice_t tool_choice;
 
-	chat_meta_info_t() : max_prefill_len(0), prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED), restore_allowed(false), tool_choice(TOOL_CHOICE_AUTO) {}
+	chat_meta_info_t() : max_prefill_len(0), prompt_tokens(0), cached_prompt_tokens(0), generated_tokens(0), total_duration(0), load_duration(0), prefill_duration(0), decoding_duration(0), stop_reason(EOT_DETECTED), restore_allowed(false), tool_choice(TOOL_CHOICE_AUTO) {}
 };
 
 typedef enum {
@@ -184,8 +188,18 @@ protected:
     std::vector<int> checkpoint_his;
 	/// \brief dump the undecorated model output to stdout once a turn ends
 	/// \note on by default; models whose turns are short and driven in bulk (the
-	///       hunyuan translator) turn it off so the log is not doubled.
+	///       hunyuan translator) turn it off so the log is not doubled. Those
+	///       models should seed this from env_forces_raw_output() so diagnostics
+	///       can opt back in without changing the interactive default.
 	bool log_raw_output = true;
+	/// \brief whether FLM_LOG_RAW_OUTPUT forces the "Model RAW Output:" dump on
+	/// \note the qualification harness and numerical-match anchor per-turn parsing
+	///       on that marker, so they set FLM_LOG_RAW_OUTPUT=1 to re-enable it for
+	///       models that quiet it by default; unset/empty/"0" leave the default.
+	static bool env_forces_raw_output() {
+		const char* value = std::getenv("FLM_LOG_RAW_OUTPUT");
+		return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+	}
 	/// \brief run one more forward on the eos token once a turn ends
 	/// \note this keeps the kv cache aligned with token_history so a following
 	///       turn can append to it. Models that rewind or clear between turns
