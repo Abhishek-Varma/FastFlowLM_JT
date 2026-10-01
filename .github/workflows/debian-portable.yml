@@ -120,8 +120,6 @@ jobs:
         retention-days: 14
 
   build-HRX-portable:
-    # Temporarily disabled.
-    if: false
     runs-on: ubuntu-latest
     strategy:
       matrix:
