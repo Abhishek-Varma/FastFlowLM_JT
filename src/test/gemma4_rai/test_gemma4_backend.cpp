@@ -1087,22 +1087,23 @@ void TestAnUnknownBackendIdForGemma4eNamesTheRealOne() {
 // ---------------------------------------------------------------------------
 // 9. The two tripwires D1 left for this task.
 
+/// \brief the shipped catalog as a build that links both kernel flows sees it
 model_list OpenCatalog(const std::string& platform) {
     std::string path = FLM_TEST_MODEL_LIST_PATH;
     std::string exe_dir = ".";
-    return model_list(path, exe_dir, platform);
+    return model_list(path, exe_dir, platform, {"flm", "rai"});
 }
 
 void TestTripwireOneTheAieNextFallbackIsGemma4AndItsFamilyCanLoad() {
     // D1 flagged this and said to re-check it once a rai backend existed for
     // gemma4e. fallback_model() returns the first entry in SORTED KEY order
     // (nlohmann::json's object type is std::map), llama3.2 is pruned on
-    // aie_next, and "gemma4-it" < "phi4-mini-it". So an unresolvable tag now
-    // lands on gemma4-it:e2b where it used to land on phi4-mini-it:4b.
+    // aie_next, and "gemma4-it-rai" < "phi4-mini-it-rai". So an unresolvable
+    // tag lands on gemma4-it-rai:e2b.
     auto catalog = OpenCatalog("aie_next");
     const auto [tag, info] = catalog.get_model_info("bogus:9b");
-    TEST_REQUIRE(tag == "gemma4-it:e2b");
-    TEST_REQUIRE(std::string("gemma4-it") < std::string("phi4-mini-it"));
+    TEST_REQUIRE(tag == "gemma4-it-rai:e2b");
+    TEST_REQUIRE(std::string("gemma4-it-rai") < std::string("phi4-mini-it-rai"));
 
     // THE PART THAT WAS FALSE BEFORE THIS TASK. D1's report: "BackendRegistry
     // ::create(\"gemma4e\", ...) has no rai factory yet, so that load would
@@ -1140,29 +1141,30 @@ void TestTripwireOneAnUnresolvableTagStillLoadsRatherThanThrowing() {
 }
 
 void TestTripwireOneStxIsUnaffected() {
-    // The same lookup on stx still reaches llama3.2:1b, so nothing about the
-    // shipped default moved for the platform that has one.
-    auto catalog = OpenCatalog("stx");
+    // The same lookup on aie2p (Strix and its siblings) still reaches
+    // llama3.2:1b, so nothing about the shipped default moved for the
+    // platform that has one.
+    auto catalog = OpenCatalog("aie2p");
     const auto [tag, info] = catalog.get_model_info("bogus:9b");
     TEST_REQUIRE(tag == "llama3.2:1b");
     // AND THE FAMILY IS THE ONE THE DELETED LITERAL ASSUMED. get_auto_model
     // used to answer an unsupported tag with the hardcoded pair
     // ("llama3.2:1b", Llama3); it now takes both from this resolution
-    // instead. On stx that yields llama3.2:1b and family llama3 -- the same
+    // instead. On aie2p that yields llama3.2:1b and family llama3 -- the same
     // pair -- which is the whole claim that C-2's fix moved nothing for the
     // platform every other family runs on.
     TEST_REQUIRE(info.at("details").at("family") == "llama3");
 }
 
 void TestAPrefixedTagResolvesToItsOwnFamilyRatherThanTheDefault() {
-    // The behaviour change C-2 DOES make on stx, stated rather than
+    // The behaviour change C-2 DOES make on aie2p, stated rather than
     // discovered later. "Ollama/qwen3:4b" is not itself a catalog tag, so it
     // missed get_auto_model's is_model_supported check and was answered with
     // the hardcoded ("llama3.2:1b", Llama3) pair -- the wrong model, served
     // successfully, with only a log line to say so. cut_tag exists precisely
     // to accept this spelling, and get_model_info has always resolved it
     // correctly; it was only the frontend choice that ignored the result.
-    auto catalog = OpenCatalog("stx");
+    auto catalog = OpenCatalog("aie2p");
     TEST_REQUIRE(!catalog.is_model_supported("Ollama/qwen3:4b"));
     const auto [tag, info] = catalog.get_model_info("Ollama/qwen3:4b");
     TEST_REQUIRE(tag == "qwen3:4b");
@@ -1176,11 +1178,11 @@ void TestTripwireTwoTheServerFallbackTagIsItselfUnsupportedOnAieNext() {
     // what it does on a miss is return the LITERAL "llama3.2:1b" -- the same
     // literal RestHandler's constructor substitutes. On aie_next that tag is
     // itself unsupported, so model_list::get_model_info falls through to
-    // fallback_model() and hands back gemma4-it:e2b's entry.
+    // fallback_model() and hands back gemma4-it-rai:e2b's entry.
     auto catalog = OpenCatalog("aie_next");
     TEST_REQUIRE(!catalog.is_model_supported("llama3.2:1b"));
     const auto [tag, info] = catalog.get_model_info("llama3.2:1b");
-    TEST_REQUIRE(tag == "gemma4-it:e2b");
+    TEST_REQUIRE(tag == "gemma4-it-rai:e2b");
     // Which family that entry names is now a family with a rai backend, so
     // the registry lookup on this path resolves instead of throwing.
     TEST_REQUIRE(info.at("details").at("family") == kFamily);
@@ -1196,7 +1198,7 @@ void TestTripwireTwoTheServerFallbackTagIsItselfUnsupportedOnAieNext() {
 // request["model"] straight to ensure_model_loaded with no check, and
 // get_auto_model answered an unknown tag with the LITERAL "llama3.2:1b" plus
 // a Llama3 frontend -- a tag that is itself pruned on aie_next, so the
-// catalog then resolved it to gemma4-it:e2b and paired a Llama-3 chat
+// catalog then resolved it to gemma4-it-rai:e2b and paired a Llama-3 chat
 // template with the Gemma 4 engine. Two things had to change and both are
 // asserted here: the server refuses the name, and get_auto_model no longer
 // picks a frontend from a literal it has not resolved.
@@ -1223,7 +1225,7 @@ void TestTheServerGateAdmitsEveryShippedTagOnBothPlatforms() {
     // THE REGRESSION TEST FOR EVERY FAMILY, NOT JUST GEMMA 4. A gate that
     // rejected a tag the server used to serve would be a worse outcome than
     // the bug it closes, so this walks the whole catalog on both platforms.
-    for (const char* platform : {"stx", "aie_next"}) {
+    for (const char* platform : {"aie2p", "aie_next"}) {
         auto catalog = OpenCatalog(platform);
         TEST_REQUIRE(!catalog.all_tags.empty());
         for (const auto& tag : catalog.all_tags) {
@@ -1237,11 +1239,11 @@ void TestTheServerGateAdmitsEveryShippedTagOnBothPlatforms() {
 }
 
 void TestTheServerGateRejectsNamesThatUsedToBeSubstituted() {
-    for (const char* platform : {"stx", "aie_next"}) {
+    for (const char* platform : {"aie2p", "aie_next"}) {
         auto catalog = OpenCatalog(platform);
         // A typo, a real family with a size that does not exist, and the
         // empty string. Each one used to be answered with a substituted
-        // model on stx and, after C10 registered a backend for gemma4e, with
+        // model on aie2p and, after C10 registered a backend for gemma4e, with
         // a dead server process on aie_next.
         TEST_REQUIRE(!ServerWouldAccept(catalog, "typo"));
         TEST_REQUIRE(!ServerWouldAccept(catalog, "gemma4-it:e9z"));
@@ -1251,8 +1253,8 @@ void TestTheServerGateRejectsNamesThatUsedToBeSubstituted() {
     // itself pruned, which is what turned a typo into a Gemma 4 load.
     auto aie_next = OpenCatalog("aie_next");
     TEST_REQUIRE(!ServerWouldAccept(aie_next, "llama3.2:1b"));
-    auto stx = OpenCatalog("stx");
-    TEST_REQUIRE(ServerWouldAccept(stx, "llama3.2:1b"));
+    auto aie2p = OpenCatalog("aie2p");
+    TEST_REQUIRE(ServerWouldAccept(aie2p, "llama3.2:1b"));
 }
 
 void TestTheServerGatesAnUnknownModelNameBeforeItResolvesIt() {

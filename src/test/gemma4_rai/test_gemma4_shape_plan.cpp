@@ -3,12 +3,16 @@
 #include "models/gemma4/rai/aie_next/gemma4_rai_constants.hpp"
 #include "gemma4_gguf_fixture.hpp"
 #include "rai/gguf_file.hpp"
+#include "rai/weight_source.hpp"
 #include "fake_corelib.hpp"
 #include "test_support.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -30,6 +34,68 @@ std::shared_ptr<CorelibApi> Api() {
 Gemma4Config E2bConfigForTest() {
     auto file = GgufFile::Open(gemma4_fixture::Write(gemma4_fixture::E2bOptions()));
     return ConfigFromMetadata(*file);
+}
+
+/// \brief ship exactly the kernels a correct plan for `config` asks about
+/// \note Every prefill bucket for Q, K/V and the output projection at
+///       `group`, both geometries; the gemma_fusion ssmlp at every FFN width;
+///       the owning, `_scale1` attention kernel of each geometry, keyed on
+///       its window only where corelib would key it; and lm_head at one row
+///       and `head_group`. A test then breaks ONE property and checks the
+///       plan refuses to build -- which is what makes the query observable,
+///       since the plan filters the reported set itself.
+void ShipFullGrid(const Gemma4Config& config) {
+    auto& state = fake_corelib::GetState();
+    state.explicit_grid = true;
+    constexpr std::int64_t kRows[] = {1, 64, 128, 256, 512, 1024, 2048, 3072, 4096};
+    std::vector<std::int64_t> widths;
+    for (const auto width : config.layer_intermediate)
+        if (std::find(widths.begin(), widths.end(), width) == widths.end())
+            widths.push_back(width);
+    for (const auto rows : kRows) {
+        for (const auto head : {config.head_dim, config.global_head_dim}) {
+            state.shipped_matmul.push_back({rows, config.hidden, config.q_heads * head, config.group});
+            state.shipped_matmul.push_back({rows, config.hidden, config.kv_heads * head, config.group});
+            state.shipped_matmul.push_back({rows, config.q_heads * head, config.hidden, config.group});
+        }
+        for (const auto width : widths)
+            state.shipped_ssmlp.push_back({"gemma_fusion", rows, config.hidden, width, config.group});
+        for (const bool swa : {true, false}) {
+            const auto window = swa ? config.sliding_window : 0;
+            const auto keyed = window > 0 && window < rows ? window : 0;
+            state.shipped_mha.push_back({config.q_heads, config.kv_heads, rows,
+                                         swa ? config.head_dim : config.global_head_dim,
+                                         flm::gemma4::kMaxSequenceLength, keyed, false, true});
+        }
+    }
+    state.shipped_matmul.push_back({1, config.hidden, config.vocab, config.head_group});
+}
+
+/// \brief build a plan against the fake's current grid
+/// \return empty on success, else the error the plan raised
+std::string BuildError(const std::shared_ptr<CorelibApi>& api, ryzenai_corelib_stream_ptr stream,
+                       const Gemma4Config& config) {
+    try {
+        (void)Gemma4ShapePlan::Build(api, stream, config);
+        return {};
+    } catch (const std::runtime_error& error) {
+        return error.what();
+    }
+}
+
+/// \brief the plan builds against the full grid, and refuses one with
+///        `mutate` applied, naming `what`
+template <typename Mutate>
+void RequireGridBreaks(const Gemma4Config& config, Mutate mutate, const std::string& what) {
+    fake_corelib::Reset();
+    auto api = CorelibApi::ResolveForTest(fake_corelib::Resolver());
+    auto* stream = fake_corelib::MakeStreamForTest();
+    ShipFullGrid(config);
+    TEST_REQUIRE(BuildError(api, stream, config).empty());
+    mutate(fake_corelib::GetState());
+    const auto error = BuildError(api, stream, config);
+    TEST_REQUIRE(!error.empty());
+    RequireContains(error, what + " has no kernel");
 }
 
 void TestPlanBuildsBothGeometriesWithDifferentHeadSizes() {
@@ -57,77 +123,76 @@ void TestPlanBuildsBothGeometriesWithDifferentHeadSizes() {
     TEST_REQUIRE(plan.attention_desc(false, /*shared=*/false).max_seq == 4096);
 }
 
-// corelib 0.5.0 takes the stream on every padding helper it actually has
-// (matmul_bf16_pad_shape, ssmlp_bf16_pad_rows, flat_mha_bf16_pad_rows). Note
-// what this does NOT check: there is no `ryzenai_corelib_ple_bf16_pad_rows`
-// in the pinned header at all (ple_bf16's own doc says M comes from the
-// input tensor's own extent, with nothing to ask), so there is no
-// `ple_pad_calls` list to check a stream against -- see fake_corelib.hpp
-// and gemma4_rai_shape_plan.cpp's Build() for the full reasoning.
-void TestPlanPassesTheStreamToEveryPadHelper() {
+// Every kernel query names the stream, because which kernels ship is a
+// property of the stream's PDI pair. There is no ple query at all: ple_bf16's
+// own doc says M comes from the input tensor's extent, with nothing to ask --
+// see gemma4_rai_shape_plan.cpp's Build() for the full reasoning.
+void TestPlanPassesTheStreamToEveryKernelQuery() {
     fake_corelib::Reset();
     auto api = Api();
     auto* stream = fake_corelib::MakeStreamForTest();
     (void)Gemma4ShapePlan::Build(api, stream, E2bConfigForTest());
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.matmul_pad_calls.empty());
-    TEST_REQUIRE(!state.rows_pad_calls.empty());
-    TEST_REQUIRE(!state.mha_pad_calls.empty());
-    for (const auto& call : state.matmul_pad_calls) TEST_REQUIRE(call.stream == stream);
-    for (const auto& call : state.rows_pad_calls) TEST_REQUIRE(call.stream == stream);
-    for (const auto& call : state.mha_pad_calls) TEST_REQUIRE(call.stream == stream);
+    const auto& calls = fake_corelib::GetState().enum_calls;
+    const auto count = [&](std::string_view entry) {
+        return std::count_if(calls.begin(), calls.end(),
+                             [&](const auto& call) { return call.entry == entry; });
+    };
+    TEST_REQUIRE(count("ryzenai_corelib_matmul_bf16_enum_kernels") == 1);
+    TEST_REQUIRE(count("ryzenai_corelib_ssmlp_bf16_enum_kernels") == 1);
+    // One per geometry: the two descriptors resolve different kernels.
+    TEST_REQUIRE(count("ryzenai_corelib_flat_mha_bf16_enum_kernels") == 2);
+    for (const auto& call : calls) TEST_REQUIRE(call.stream == stream);
 }
 
-void TestSsmlpDescriptorDeclaresGeluAndThePostFeedforwardNorm() {
-    fake_corelib::Reset();
-    auto api = Api();
-    auto* stream = fake_corelib::MakeStreamForTest();
-    (void)Gemma4ShapePlan::Build(api, stream, E2bConfigForTest());
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.rows_pad_calls.empty());
-    for (const auto& call : state.rows_pad_calls) {
-        TEST_REQUIRE(call.desc.activation == 1);                 // 1 = gelu
-        TEST_REQUIRE(call.desc.post_feedforward_layernorm == 1);
-        TEST_REQUIRE(call.desc.group_size == 32);
-    }
+/// \brief the plan asks for the gemma_fusion ssmlp family at `group`
+/// \note `activation` and `post_feedforward_layernorm` are not part of what a
+///       kernel query sees: the post-norm IS the family (gemma_fusion rather
+///       than fusion_mladf_ssmlp), so the family is what is asserted here.
+///       The descriptor fields themselves travel with the weights, see
+///       test_gemma4_engine's ssmlp tests.
+void TestSsmlpIsQueriedInTheGemmaFamilyAtItsGroup() {
+    const auto config = E2bConfigForTest();
+    TEST_REQUIRE(config.group == 32);
+    RequireGridBreaks(config, [](auto& state) {
+        for (auto& shipped : state.shipped_ssmlp) shipped.family = "fusion_mladf_ssmlp";
+    }, "ssmlp");
+    RequireGridBreaks(config, [](auto& state) {
+        for (auto& shipped : state.shipped_ssmlp) shipped.group = 64;
+    }, "ssmlp");
 }
 
 void TestSsmlpIsPlannedAtBothOfE2bsFfnWidths() {
-    fake_corelib::Reset();
-    auto api = Api();
-    auto* stream = fake_corelib::MakeStreamForTest();
-    (void)Gemma4ShapePlan::Build(api, stream, E2bConfigForTest());
-    const auto& state = fake_corelib::GetState();
-    bool saw_6144 = false, saw_12288 = false;
-    for (const auto& call : state.rows_pad_calls) {
-        if (call.desc.n == 6144) saw_6144 = true;
-        if (call.desc.n == 12288) saw_12288 = true;
+    const auto config = E2bConfigForTest();
+    for (const std::int64_t width : {6144, 12288}) {
+        RequireGridBreaks(config, [width](auto& state) {
+            auto& shipped = state.shipped_ssmlp;
+            shipped.erase(std::remove_if(shipped.begin(), shipped.end(),
+                                         [width](const auto& s) { return s.n == width; }),
+                          shipped.end());
+        }, "ssmlp");
     }
-    TEST_REQUIRE(saw_6144 && saw_12288);
 }
 
-/// \brief scale is 1.0f on every descriptor the plan holds AND on every
-///        descriptor it hands a pad helper
+/// \brief scale is 1.0f on every descriptor the plan holds AND on the
+///        descriptors it queries the shipped kernel set with
 ///
 /// The review that produced this test observed that a build with `scale`
 /// fixed, or broken back to any other constant, passed all five of the
 /// original tests unchanged, because nothing read the field off anything.
 /// Both halves matter: the stored descriptors are what Task C8 dispatches
-/// with, and the pad-call descriptors are what `Build()` itself queries the
-/// shipped kernel set with -- on hardware the second is where a wrong `scale`
-/// fails, long before the first is ever used.
+/// with, and the query is where a wrong `scale` fails on hardware, long
+/// before the first dispatch.
 void TestAttentionScaleIsExactlyOneEverywhere() {
     fake_corelib::Reset();
     auto api = Api();
     auto* stream = fake_corelib::MakeStreamForTest();
-    const auto plan = Gemma4ShapePlan::Build(api, stream, E2bConfigForTest());
+    const auto config = E2bConfigForTest();
+    const auto plan = Gemma4ShapePlan::Build(api, stream, config);
     TEST_REQUIRE(plan.attention_desc(true, /*shared=*/false).scale == 1.0f);
     TEST_REQUIRE(plan.attention_desc(false, /*shared=*/false).scale == 1.0f);
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.mha_pad_calls.empty());
-    for (const auto& call : state.mha_pad_calls) {
-        TEST_REQUIRE(call.desc.scale == 1.0f);
-    }
+    RequireGridBreaks(config, [](auto& state) {
+        for (auto& shipped : state.shipped_mha) shipped.scale_one = false;
+    }, "flat_mha");
 }
 
 /// \brief all four (geometry, cache-role) descriptors exist, and each one is
@@ -177,18 +242,16 @@ void TestPlanHoldsFourDescriptorsKeyedByGeometryAndCacheRole() {
         }
     }
 
-    // The plan's own pad queries run through the OWNING descriptor of each
+    // The plan's own kernel queries run through the OWNING descriptor of each
     // geometry, which the header states is safe because kv_shared changes
-    // which kernel runs, not any shape (corelib.h:1810-1812). Every recorded
-    // pad call must therefore carry kv_shared == 0 -- a pad query made with a
-    // kvshare descriptor would be asking the wrong artifact family a question
-    // it happens to answer identically, which is right by luck rather than by
-    // the rule.
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.mha_pad_calls.empty());
-    for (const auto& call : state.mha_pad_calls) {
-        TEST_REQUIRE(call.desc.kv_shared == 0);
-    }
+    // which kernel runs, not any shape (corelib.h:1810-1812). A grid that
+    // ships only the kvshare family must therefore leave the plan uncovered
+    // -- a query made with a kvshare descriptor would be asking the wrong
+    // artifact family a question it happens to answer identically, which is
+    // right by luck rather than by the rule.
+    RequireGridBreaks(E2bConfigForTest(), [](auto& state) {
+        for (auto& shipped : state.shipped_mha) shipped.kv_shared = true;
+    }, "flat_mha");
 }
 
 /// \brief rope_dim is the full head width on BOTH geometries
@@ -212,13 +275,6 @@ void TestRopeDimIsFullRotaryOnBothGeometries() {
                      plan.attention_desc(true, shared).head_size);
         TEST_REQUIRE(plan.attention_desc(false, shared).rope_dim ==
                      plan.attention_desc(false, shared).head_size);
-    }
-    // Every descriptor the plan hands a pad helper must agree -- rope_dim is
-    // part of what the helper resolves a kernel by.
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.mha_pad_calls.empty());
-    for (const auto& call : state.mha_pad_calls) {
-        TEST_REQUIRE(call.desc.rope_dim == call.desc.head_size);
     }
 }
 
@@ -247,51 +303,43 @@ void TestRopeDimIsFullRotaryOnBothGeometries() {
 /// shipped row has is what makes the assertion observable at all; it is NOT a
 /// claim that such a model exists, and nothing downstream of `Build()` is
 /// exercised by it.
+/// \brief every projection fails to plan when only its kernels move to the
+///        other group
+/// \note Q and K/V project OUT of the residual stream INTO head space, so
+///       their K is the hidden size and their N is a head-shaped width
+///       (q_heads or kv_heads times the geometry's head size). The output
+///       projection runs the other way: N is the hidden size. lm_head is
+///       hidden -> vocab, which is neither.
+void RequireProjectionGroups(const Gemma4Config& config) {
+    const auto regroup = [&config](auto pick) {
+        return [&config, pick](auto& state) {
+            for (auto& shipped : state.shipped_matmul) {
+                if (!pick(shipped)) continue;
+                shipped.group = shipped.group == config.group ? config.head_group : config.group;
+            }
+        };
+    };
+    const auto is_query = [&config](const auto& s) {
+        return s.k == config.hidden && (s.n == config.q_heads * config.head_dim ||
+                                        s.n == config.q_heads * config.global_head_dim);
+    };
+    const auto is_key_value = [&config](const auto& s) {
+        return s.k == config.hidden && (s.n == config.kv_heads * config.head_dim ||
+                                        s.n == config.kv_heads * config.global_head_dim);
+    };
+    const auto is_output = [&config](const auto& s) { return s.n == config.hidden; };
+    const auto is_lm_head = [&config](const auto& s) { return s.n == config.vocab; };
+    RequireGridBreaks(config, regroup(is_query), "query");
+    RequireGridBreaks(config, regroup(is_key_value), "key/value");
+    RequireGridBreaks(config, regroup(is_output), "output");
+    RequireGridBreaks(config, regroup(is_lm_head), "lm_head");
+}
+
 void TestEveryProjectionQueriesAtGroupAndOnlyLmHeadAtHeadGroup() {
-    fake_corelib::Reset();
-    auto api = Api();
-    auto* stream = fake_corelib::MakeStreamForTest();
     auto config = E2bConfigForTest();
     config.head_group = 64;
     TEST_REQUIRE(config.head_group != config.group);
-    (void)Gemma4ShapePlan::Build(api, stream, config);
-
-    const auto& state = fake_corelib::GetState();
-    TEST_REQUIRE(!state.matmul_pad_calls.empty());
-    std::size_t queries = 0, key_values = 0, outputs = 0, lm_heads = 0;
-    for (const auto& call : state.matmul_pad_calls) {
-        // Q and K/V project OUT of the residual stream INTO head space, so
-        // their K is the hidden size and their N is a head-shaped width
-        // (q_heads or kv_heads times the geometry's head size). The output
-        // projection runs the other way: N is the hidden size. lm_head is
-        // hidden -> vocab, which is neither.
-        if (call.k == config.hidden && call.n == config.vocab) {
-            ++lm_heads;
-            TEST_REQUIRE(call.group_size == config.head_group);
-        } else if (call.k == config.hidden &&
-                   (call.n == config.q_heads * config.head_dim ||
-                    call.n == config.q_heads * config.global_head_dim)) {
-            ++queries;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else if (call.k == config.hidden &&
-                   (call.n == config.kv_heads * config.head_dim ||
-                    call.n == config.kv_heads * config.global_head_dim)) {
-            ++key_values;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else if (call.n == config.hidden) {
-            ++outputs;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else {
-            // An unrecognized matmul query means this test's classification
-            // has gone stale, not that the plan is right -- fail loudly
-            // rather than silently checking nothing.
-            TEST_REQUIRE(false);
-        }
-    }
-    TEST_REQUIRE(queries > 0);
-    TEST_REQUIRE(queries == key_values);
-    TEST_REQUIRE(queries == outputs);
-    TEST_REQUIRE(lm_heads == 1);
+    RequireProjectionGroups(config);
 }
 
 /// \brief lm_head is planned ONCE, at one row, and at `head_group`
@@ -315,19 +363,20 @@ void TestLmHeadIsPlannedOnceAtOneRowAndAtHeadGroup() {
     auto* stream = fake_corelib::MakeStreamForTest();
     auto config = E2bConfigForTest();
     config.head_group = 64;  // see the test above for why they are pulled apart
+    // The full grid ships lm_head at M == 1 and nowhere else, which is the
+    // real kernel set: a plan that walked lm_head through the row buckets
+    // would find no kernel for them.
+    ShipFullGrid(config);
     const auto plan = Gemma4ShapePlan::Build(api, stream, config);
-
-    std::size_t lm_head_queries = 0;
-    for (const auto& call : fake_corelib::GetState().matmul_pad_calls) {
-        if (call.n != config.vocab) continue;
-        ++lm_head_queries;
-        TEST_REQUIRE(call.k == config.hidden);
-        TEST_REQUIRE(call.m == 1);
-        TEST_REQUIRE(call.group_size == config.head_group);
-    }
-    TEST_REQUIRE(lm_head_queries == 1);
     // The logits tensor C7 allocates is [lm_head_rows(), vocab].
     TEST_REQUIRE(plan.lm_head_rows() == 1);
+    // And it is queried at all: without its kernel the plan is uncovered.
+    RequireGridBreaks(config, [&config](auto& state) {
+        auto& shipped = state.shipped_matmul;
+        shipped.erase(std::remove_if(shipped.begin(), shipped.end(),
+                                     [&config](const auto& s) { return s.n == config.vocab; }),
+                      shipped.end());
+    }, "lm_head");
 }
 
 /// \brief the first dispatch Task C7 will make is ACCEPTED after Build()
@@ -352,11 +401,12 @@ void TestLmHeadDispatchAfterAFullPlanBuildIsAccepted() {
 
     const ryzenai_corelib_matmul_bf16_weights_desc weights_desc{
         config.hidden, config.vocab, config.head_group, false};
-    const ryzenai_corelib_matmul_bf16_gguf_components components{
-        nullptr, ryzenai_corelib_gguf_quant_type_q4_0};
+    const std::vector<std::byte> blocks(64, std::byte{0});
+    const ryzenai_corelib_weights_source sources[]{flm::corelib::GgufQ8(
+        ryzenai_corelib_weights_role_qweight, blocks.data(), blocks.size(), config.vocab,
+        config.hidden)};
     ryzenai_corelib_weights_ptr weights = nullptr;
-    TEST_REQUIRE(fns.matmul_weights_create_gguf_requantized(
-                     &weights_desc, &components, 1, &weights) ==
+    TEST_REQUIRE(fns.matmul_weights_create(&weights_desc, sources, 1, nullptr, &weights) ==
                  ryzenai_corelib_status_success);
 
     auto make = [&](std::int64_t rows, std::int64_t columns) {
@@ -424,10 +474,12 @@ void TestDispatchRecordsCarryTheDescriptorTheyRanWith() {
     const ryzenai_corelib_ssmlp_bf16_weights_desc ssmlp_desc{
         config.hidden, config.layer_intermediate[0], config.group, 1, 1};
     ryzenai_corelib_weights_ptr ssmlp_weights = nullptr;
-    const ryzenai_corelib_ssmlp_bf16_gguf_components ssmlp_components{};
-    TEST_REQUIRE(fns.ssmlp_weights_create_gguf_requantized(
-                     &ssmlp_desc, &ssmlp_components, 1, &ssmlp_weights) ==
-                 ryzenai_corelib_status_success);
+    const std::vector<std::byte> ssmlp_blocks(64, std::byte{0});
+    const ryzenai_corelib_weights_source ssmlp_sources[]{flm::corelib::GgufQ8(
+        ryzenai_corelib_weights_role_gate_qweight, ssmlp_blocks.data(), ssmlp_blocks.size(),
+        ssmlp_desc.n, ssmlp_desc.k)};
+    TEST_REQUIRE(fns.ssmlp_weights_create(&ssmlp_desc, ssmlp_sources, 1, nullptr,
+                                          &ssmlp_weights) == ryzenai_corelib_status_success);
     const auto ssmlp_rows = plan.ForRows(64, /*swa=*/true).ssmlp_rows;
     auto* input = make(ssmlp_rows, config.hidden);
     auto* residual = make(ssmlp_rows, config.hidden);
@@ -478,36 +530,10 @@ void TestE4bGroupDirectionAndLmHeadPlan() {
     TEST_REQUIRE(config.hidden == 2560);
     TEST_REQUIRE(config.kv_heads == 2);
     config.head_group = 64;
+    ShipFullGrid(config);
     const auto plan = Gemma4ShapePlan::Build(api, stream, config);
-
-    std::size_t queries = 0, key_values = 0, outputs = 0, lm_heads = 0;
-    for (const auto& call : fake_corelib::GetState().matmul_pad_calls) {
-        if (call.k == config.hidden && call.n == config.vocab) {
-            ++lm_heads;
-            TEST_REQUIRE(call.group_size == config.head_group);
-            TEST_REQUIRE(call.m == 1);
-        } else if (call.k == config.hidden &&
-                   (call.n == config.q_heads * config.head_dim ||
-                    call.n == config.q_heads * config.global_head_dim)) {
-            ++queries;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else if (call.k == config.hidden &&
-                   (call.n == config.kv_heads * config.head_dim ||
-                    call.n == config.kv_heads * config.global_head_dim)) {
-            ++key_values;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else if (call.n == config.hidden) {
-            ++outputs;
-            TEST_REQUIRE(call.group_size == config.group);
-        } else {
-            TEST_REQUIRE(false);
-        }
-    }
-    TEST_REQUIRE(queries > 0);
-    TEST_REQUIRE(queries == key_values);
-    TEST_REQUIRE(queries == outputs);
-    TEST_REQUIRE(lm_heads == 1);
     TEST_REQUIRE(plan.lm_head_rows() == 1);
+    RequireProjectionGroups(config);
 
     // E4B's K/V widths (512 and 1024) collide with nothing else E4B queries:
     // 2560 hidden, 2048/4096 Q, 262144 lm_head. On E2B they are 256 and 512.
@@ -554,31 +580,23 @@ void TestPleRowsRoundUpToAShippedBucket() {
 // green run here as proof of more than these four rejections.
 // ---------------------------------------------------------------------------
 
-/// \brief a matmul pad helper that changes K or N is rejected by the plan
+/// \brief a matmul kernel at a different K or N does not cover the plan
 ///
-/// `MatmulRows` in gemma4_rai_shape_plan.cpp throws if the helper came back
-/// with a different K or N than it was given. Real corelib does not do that
-/// for any shape this model presents, and the fake did not either -- so that
-/// throw was dead code under every test that existed, which is indistinguishable
-/// from a throw that does not work.
-void TestPlanRejectsAPadHelperThatChangesKOrN() {
-    fake_corelib::Reset();
-    auto api = Api();
-    auto* stream = fake_corelib::MakeStreamForTest();
+/// corelib rounds nothing: a kernel is shipped at an exact (K, N), and one a
+/// few columns wider is a different artifact. The plan must not take it as
+/// covering the logical shape. The N side and the K side are broken
+/// independently, so a fix that only compared one would not pass this.
+void TestPlanRejectsAGridWithoutItsExactKAndN() {
     const auto config = E2bConfigForTest();
-    fake_corelib::GetState().matmul_n_delta = 64;
-    const auto message = RequireThrows<std::runtime_error>(
-        [&] { (void)Gemma4ShapePlan::Build(api, stream, config); });
-    RequireContains(message, "helper changed padded K/N");
-
-    // And the K side independently, so a fix that only compared N would not
-    // pass this.
-    fake_corelib::Reset();
-    fake_corelib::GetState().matmul_k_delta = 32;
-    const auto k_message = RequireThrows<std::runtime_error>(
-        [&] { (void)Gemma4ShapePlan::Build(api, stream, config); });
-    RequireContains(k_message, "helper changed padded K/N");
-    fake_corelib::Reset();
+    RequireGridBreaks(config, [&config](auto& state) {
+        for (auto& shipped : state.shipped_matmul)
+            if (shipped.k == config.hidden && shipped.n == config.q_heads * config.head_dim)
+                shipped.n += 64;
+    }, "query");
+    RequireGridBreaks(config, [&config](auto& state) {
+        for (auto& shipped : state.shipped_matmul)
+            if (shipped.n == config.hidden) shipped.k += 32;
+    }, "output");
 }
 
 /// \brief a window that runs past the allocation it is carved from is refused
@@ -768,36 +786,30 @@ void TestEveryDeclaredCorelibEntryPointResolves() {
 #undef FLM_REQUIRE_RESOLVED
 }
 
-/// \brief the six symbols Gemma 4 needs and Phi-4 never did
+/// \brief the four symbols Gemma 4 needs and Phi-4 never did
 ///
 /// BY NAME, not through the struct. `FLM_CORELIB_FUNCTIONS` is what decides
 /// which symbols exist, so the test above cannot notice a missing ROW -- it
-/// would simply iterate a shorter list and pass. Naming the six here is what
+/// would simply iterate a shorter list and pass. Naming the four here is what
 /// makes "the adapter binds ple and rmsnorm" a claim that can fail.
 ///
-/// Why these six and not more: `ple_bf16_weights_pack`/`_create` are the
-/// two-call packer and the object it feeds; `rmsnorm_bf16_weights_create_
-/// reference` is the packer the reference driver uses (`_weights_create`
-/// takes already-packed bytes and has no caller here) and `_from_file` is
-/// how the weight cache rebinds one; `ple_bf16` and `rmsnorm_bf16` are the
-/// dispatches the layer loop runs. `add_rmsnorm_bf16` and `weights_slice`
-/// are deliberately absent -- see corelib_api.hpp for why.
+/// `ple_bf16_weights_create` and `rmsnorm_bf16_weights_create` both pack a
+/// fresh weight and rebind a cached one; `ple_bf16` and `rmsnorm_bf16` are
+/// the dispatches the layer loop runs. `add_rmsnorm_bf16` is deliberately
+/// absent -- see corelib_api.hpp for why.
 void TestTheEntryPointsGemma4AddedAreBoundByName() {
     auto resolver = fake_corelib::Resolver();
-    for (const auto* symbol : {"ryzenai_corelib_ple_bf16_weights_pack",
-                               "ryzenai_corelib_ple_bf16_weights_create",
+    for (const auto* symbol : {"ryzenai_corelib_ple_bf16_weights_create",
                                "ryzenai_corelib_ple_bf16",
-                               "ryzenai_corelib_rmsnorm_bf16_weights_create_reference",
-                               "ryzenai_corelib_rmsnorm_bf16_weights_create_from_file",
+                               "ryzenai_corelib_rmsnorm_bf16_weights_create",
                                "ryzenai_corelib_rmsnorm_bf16"}) {
         if (resolver(symbol) == nullptr)
             throw std::runtime_error(std::string("corelib entry point not bound: ") +
                                      symbol);
     }
-    // And the two that are NOT bound, in the same test, so "we bound what we
+    // And the one that is NOT bound, in the same test, so "we bound what we
     // needed" and "we did not bind what we do not use" cannot drift apart.
-    for (const auto* symbol : {"ryzenai_corelib_add_rmsnorm_bf16",
-                               "ryzenai_corelib_weights_slice"}) {
+    for (const auto* symbol : {"ryzenai_corelib_add_rmsnorm_bf16"}) {
         if (resolver(symbol) != nullptr)
             throw std::runtime_error(std::string("corelib entry point bound with no "
                                                  "caller: ") + symbol);
@@ -810,8 +822,8 @@ int main() {
     RUN_TEST(TestEveryDeclaredCorelibEntryPointResolves);
     RUN_TEST(TestTheEntryPointsGemma4AddedAreBoundByName);
     RUN_TEST(TestPlanBuildsBothGeometriesWithDifferentHeadSizes);
-    RUN_TEST(TestPlanPassesTheStreamToEveryPadHelper);
-    RUN_TEST(TestSsmlpDescriptorDeclaresGeluAndThePostFeedforwardNorm);
+    RUN_TEST(TestPlanPassesTheStreamToEveryKernelQuery);
+    RUN_TEST(TestSsmlpIsQueriedInTheGemmaFamilyAtItsGroup);
     RUN_TEST(TestSsmlpIsPlannedAtBothOfE2bsFfnWidths);
     RUN_TEST(TestAttentionScaleIsExactlyOneEverywhere);
     RUN_TEST(TestPlanHoldsFourDescriptorsKeyedByGeometryAndCacheRole);
@@ -822,7 +834,7 @@ int main() {
     RUN_TEST(TestDispatchRecordsCarryTheDescriptorTheyRanWith);
     RUN_TEST(TestE4bGroupDirectionAndLmHeadPlan);
     RUN_TEST(TestPleRowsRoundUpToAShippedBucket);
-    RUN_TEST(TestPlanRejectsAPadHelperThatChangesKOrN);
+    RUN_TEST(TestPlanRejectsAGridWithoutItsExactKAndN);
     RUN_TEST(TestFakeRejectsAWindowThatDoesNotFitItsParent);
     RUN_TEST(TestFakeBoundsChecksTensorWriteAndRead);
     RUN_TEST(TestFakeRejectsSsmlpOperandsThatAliasOneAllocation);

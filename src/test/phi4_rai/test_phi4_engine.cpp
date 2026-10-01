@@ -147,9 +147,9 @@ void TestEveryProjectionUsesQ8RequantizedGroup64WithThreadHint() {
     for (const auto& record : fake_corelib::GetState().weight_creates) {
         TEST_REQUIRE(record.group_size == 64);
         TEST_REQUIRE(record.threads == flm::phi4::kRequantizeThreads);
+        // The source type is what selects corelib's requantizing route.
+        TEST_REQUIRE(record.qweight_type == ryzenai_corelib_weights_data_type_gguf_q8_0);
     }
-    TEST_REQUIRE(fake_corelib::GetState().call_counts["ryzenai_corelib_matmul_bf16_weights_create_gguf"] == 0);
-    TEST_REQUIRE(fake_corelib::GetState().call_counts["ryzenai_corelib_ssmlp_bf16_weights_create_gguf"] == 0);
 }
 
 void TestWeightCreationRunsConcurrentlyWithinItsBudget() {

@@ -56,6 +56,8 @@ struct WeightCreateRecord {
     std::vector<std::uint16_t> norm0;
     std::vector<std::uint16_t> norm1;
     std::uint16_t epsilon{};
+    /// data_type of the matmul qweight or the ssmlp gate plane
+    std::int32_t qweight_type{};
 };
 
 struct DispatchRecord {
@@ -77,7 +79,7 @@ struct TensorWriteRecord {
     bool all_zero;
 };
 
-/// \brief one ..._weights_create_from_file call
+/// \brief one ..._weights_create call whose only source is a packed file slice
 struct WeightFromFileRecord {
     std::string kind;
     std::string path;

@@ -130,6 +130,11 @@ Package OpenPackage(std::string name, const std::filesystem::path& dir) {
     package.dir = dir;
     package.tokenizer_config =
         nlohmann::json::parse(ReadFile(dir / "tokenizer_config.json"));
+    // `_shared_setup_tokenizer`'s own precedence: chat_template.jinja wins
+    // over tokenizer_config.json's `chat_template`, and current Gemma 4
+    // packages ship only the file.
+    if (std::filesystem::exists(dir / "chat_template.jinja"))
+        package.tokenizer_config["chat_template"] = ReadFile(dir / "chat_template.jinja");
     package.tokenizer_json =
         nlohmann::json::parse(ReadFile(dir / "tokenizer.json"));
     package.tokenizer = std::make_unique<::Tokenizer>(dir.string());
@@ -149,8 +154,8 @@ Package OpenPackage(std::string name, const std::filesystem::path& dir) {
 /// not a test knob: "" is LITERALLY what the production code hands minja when
 /// `has_bos_token` is false, which is what the Phi-4 idiom would have made it.
 ///
-/// The real packages ship no chat-template file, so `_shared_setup_tokenizer`
-/// takes the template out of tokenizer_config.json, which is what this does.
+/// The template is whichever `_shared_setup_tokenizer` would pick, which
+/// OpenPackage has already folded into `tokenizer_config`.
 std::string Render(const Package& package, const std::string& bos_token,
                    bool enable_thinking) {
     minja::chat_template chat_tmpl(

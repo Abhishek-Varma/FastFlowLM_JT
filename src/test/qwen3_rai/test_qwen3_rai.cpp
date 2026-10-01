@@ -251,8 +251,7 @@ void TestLoadPacksEveryWeightAtItsGroup() {
             TEST_REQUIRE(create.group_size == 64u && create.k == 1024 && create.n == 3072);
         } else if (create.kind == "rmsnorm") {
             ++norms;
-            // The fake records the reference packer's PDI in `threads`.
-            TEST_REQUIRE(create.k == 128 && create.threads == 1);
+            TEST_REQUIRE(create.k == 128 && create.norm0.size() == 128);
         }
     }
     TEST_REQUIRE(matmuls == 28 * 4 + 1);

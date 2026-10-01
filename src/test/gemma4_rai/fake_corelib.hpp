@@ -281,6 +281,31 @@ struct MhaPadCall {
     ryzenai_corelib_flat_mha_bf16_desc desc;
 };
 
+/// \brief one `..._enum_kernels` call, and the stream it was asked about
+struct EnumKernelsCall {
+    std::string entry;
+    ryzenai_corelib_stream_ptr stream;
+};
+
+/// \brief a matmul kernel an explicit grid reports
+struct ShippedMatmul {
+    std::int64_t m, k, n, group;
+};
+
+/// \brief a fused-MLP kernel an explicit grid reports
+struct ShippedSsMlp {
+    std::string family;
+    std::int64_t m, k, n, group;
+};
+
+/// \brief an attention kernel an explicit grid reports
+/// \note `window` is the window the kernel is KEYED on, which corelib only
+///       writes when it is shorter than the rows the kernel runs.
+struct ShippedMha {
+    std::int64_t heads, kv_heads, m, head_size, max_seq, window;
+    bool kv_shared, scale_one;
+};
+
 /// \brief one `ryzenai_corelib_matmul_bf16_weights_create_*` call
 /// \note The WHOLE descriptor, because `group_size` is the field C7 must get
 ///       right and it is the one nothing else in this codebase can observe:
@@ -673,6 +698,16 @@ struct DispatchRecord {
 ///       exactly as the engine assigns its results by slot rather than by
 ///       completion.
 struct State {
+    /// \brief every `..._enum_kernels` call, in order
+    std::vector<EnumKernelsCall> enum_calls;
+    /// \brief report exactly the `shipped_*` kernels instead of "every M"
+    /// \note What makes a plan's kernel QUERY observable: the plan filters
+    ///       the reported set itself, so the only thing a test can see is
+    ///       whether the set it shipped covers what the plan asked for.
+    bool explicit_grid{false};
+    std::vector<ShippedMatmul> shipped_matmul;
+    std::vector<ShippedSsMlp> shipped_ssmlp;
+    std::vector<ShippedMha> shipped_mha;
     std::vector<MatmulPadCall> matmul_pad_calls;
     std::vector<RowsPadCall> rows_pad_calls;
     std::vector<MhaPadCall> mha_pad_calls;

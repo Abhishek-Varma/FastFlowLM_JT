@@ -11,9 +11,22 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 namespace {
+template <typename>
+struct ReturnsStatus : std::false_type {};
+template <typename... Args>
+struct ReturnsStatus<ryzenai_corelib_status (*)(Args...)> : std::true_type {};
+
+#define FLM_COUNT_SYMBOL(member, symbol) +1
+constexpr std::size_t kSymbolCount = 0 FLM_CORELIB_FUNCTIONS(FLM_COUNT_SYMBOL);
+#undef FLM_COUNT_SYMBOL
+#define FLM_COUNT_STATUS_SYMBOL(member, symbol) +(ReturnsStatus<decltype(&::symbol)>::value ? 1 : 0)
+constexpr std::size_t kStatusSymbolCount = 0 FLM_CORELIB_FUNCTIONS(FLM_COUNT_STATUS_SYMBOL);
+#undef FLM_COUNT_STATUS_SYMBOL
+
 using flm::corelib::CorelibApi;
 using flm::corelib::CorelibError;
 using flm::corelib::CorelibRuntime;
@@ -41,7 +54,7 @@ void TestVersionIsResolvedBeforeEveryOtherSymbol() {
     fake_corelib::Reset();
     ValidApi();
     const auto& order = fake_corelib::GetState().resolution_order;
-    TEST_REQUIRE(order.size() == 43);
+    TEST_REQUIRE(order.size() == kSymbolCount);
     TEST_REQUIRE(order.front() == "ryzenai_corelib_get_version");
 }
 
@@ -74,7 +87,7 @@ void TestMajorMinorAndPatchMismatchesAreRejectedWithBothVersions() {
 void TestEveryRequiredSymbolIsResolvedExactlyOnce() {
     fake_corelib::Reset();
     ValidApi();
-    TEST_REQUIRE(fake_corelib::GetState().resolution_counts.size() == 43);
+    TEST_REQUIRE(fake_corelib::GetState().resolution_counts.size() == kSymbolCount);
     for (const auto& [name, count] : fake_corelib::GetState().resolution_counts) {
         (void)name;
         TEST_REQUIRE(count == 1);
@@ -88,11 +101,11 @@ void TestEveryResolvedFakeFunctionUsesItsExactAbi() {
     fake_corelib::GetState().default_status = ryzenai_corelib_status_bad_argument;
     fake_corelib::GetState().selftest_status = ryzenai_corelib_status_bad_argument;
     const auto statuses = fake_corelib::CallEveryResolvedFunction(api->functions());
-    TEST_REQUIRE(statuses.size() == 36);
+    TEST_REQUIRE(statuses.size() == kStatusSymbolCount);
     TEST_REQUIRE(std::all_of(statuses.begin(), statuses.end(), [](auto status) {
         return status == ryzenai_corelib_status_bad_argument;
     }));
-    TEST_REQUIRE(fake_corelib::GetState().call_counts.size() == 43);
+    TEST_REQUIRE(fake_corelib::GetState().call_counts.size() == kSymbolCount);
     for (const auto& [name, count] : fake_corelib::GetState().call_counts) {
         (void)name;
         TEST_REQUIRE(count == 1);

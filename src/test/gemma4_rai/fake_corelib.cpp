@@ -356,13 +356,27 @@ bool WithinExtent(void* object, std::size_t count, std::size_t offset) {
 FLM_CORELIB_FUNCTIONS(FLM_DEFINE_FAKE_TAG)
 #undef FLM_DEFINE_FAKE_TAG
 
-// 0.9 replaced the pad helpers and the PLE pack entry point. The branches
-// below still name the old tags; they are never selected, and defining the
-// types keeps those branches from being ill-formed.
+// The pad helpers are gone from corelib. The branches below still name their
+// tags; they are never selected, and defining the types keeps those branches
+// from being ill-formed.
 struct matmul_pad_shape_tag {};
 struct ssmlp_pad_rows_tag {};
 struct flat_mha_pad_rows_tag {};
-struct ple_weights_pack_tag {};
+
+/// \brief the source with `role` in a create's flat source array, or NULL
+const ryzenai_corelib_weights_source* FindSource(const ryzenai_corelib_weights_source* sources,
+                                                 std::size_t count,
+                                                 ryzenai_corelib_weights_role role) {
+    for (std::size_t i = 0; sources && i < count; ++i)
+        if (sources[i].role == role) return &sources[i];
+    return nullptr;
+}
+
+const void* SourceData(const ryzenai_corelib_weights_source* sources, std::size_t count,
+                       ryzenai_corelib_weights_role role) {
+    const auto* source = FindSource(sources, count, role);
+    return source ? source->data : nullptr;
+}
 
 template <typename>
 inline constexpr bool kAlwaysFalse = false;
@@ -584,31 +598,33 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             if (k) *k += state.matmul_k_delta;
             if (n) *n += state.matmul_n_delta;
             return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, matmul_weights_create_gguf_requantized_tag> ||
-                             std::is_same_v<Tag, matmul_weights_create_from_file_tag>) {
-            constexpr bool kFromFile =
-                std::is_same_v<Tag, matmul_weights_create_from_file_tag>;
-            constexpr std::size_t kOutIndex = sizeof...(Args) - 1;
+        } else if constexpr (std::is_same_v<Tag, matmul_weights_create_tag>) {
+            // (desc, sources, count, options, out). A lone `packed` source is
+            // a cache bind; anything else packs model components.
             const auto* desc = std::get<0>(arguments);
-            auto* out = std::get<kOutIndex>(arguments);
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
+            auto* out = std::get<4>(arguments);
             if (out) *out = nullptr;
             if (!desc || !out) return ryzenai_corelib_status_bad_argument;
             const auto packed = PackedSizeFor(1, desc->k, desc->n, desc->group_size);
+            const auto* blob = FindSource(sources, count, ryzenai_corelib_weights_role_packed);
+            const bool kFromFile = blob != nullptr;
             std::uint32_t blocks_tag = 0;
-            if constexpr (kFromFile) {
+            if (kFromFile) {
                 // corelib.h: the length must be exactly what this descriptor
                 // packs to. A cache entry written for another weight is
                 // refused here rather than bound and believed. That check is
                 // blind to a swap between two weights of the SAME descriptor,
                 // which is why the identity comes out of the bytes.
-                const auto size = static_cast<std::size_t>(std::get<3>(arguments));
-                if (size != packed) return ryzenai_corelib_status_bad_argument;
-                blocks_tag = IdentityTagInFile(std::get<1>(arguments),
-                                               std::get<2>(arguments), size);
+                const auto size = static_cast<std::size_t>(blob->size);
+                if (count != 1 || size != packed) return ryzenai_corelib_status_bad_argument;
+                blocks_tag = IdentityTagInFile(blob->path, blob->offset, size);
             } else {
-                const auto* components = std::get<1>(arguments);
-                if (!components) return ryzenai_corelib_status_bad_argument;
-                blocks_tag = BlockTag(components->blocks);
+                const void* qweight =
+                    SourceData(sources, count, ryzenai_corelib_weights_role_qweight);
+                if (!qweight) return ryzenai_corelib_status_bad_argument;
+                blocks_tag = BlockTag(qweight);
             }
             *out = NewObject("matmul_weights");
             auto* object = static_cast<FakeObject*>(*out);
@@ -621,70 +637,55 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             object->identity_tag = blocks_tag;
             state.matmul_weights_creates.push_back({*desc, kFromFile, blocks_tag, *out});
             return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, rmsnorm_weights_create_reference_tag>) {
-            // (prefill_pdi, desc, components, out). The packer that RESOLVES
-            // THE BLOB THROUGH A KERNEL, which is why it alone takes a PDI --
-            // and it is the one the reference driver uses
-            // (gemma4_driver.py:1393-1404), not `..._weights_create`, which
-            // takes already-packed bytes nothing here has.
-            const auto pdi = std::get<0>(arguments);
-            const auto* desc = std::get<1>(arguments);
-            const auto* components = std::get<2>(arguments);
-            auto* out = std::get<3>(arguments);
-            if (out) *out = nullptr;
-            if (!desc || !components || !components->scale || !out)
-                return ryzenai_corelib_status_bad_argument;
-            fake_corelib::RmsNormWeightsCreateCall call{pdi, *desc, false, {}, 0,
-                                                        nullptr};
-            const auto* scale = static_cast<const std::uint16_t*>(components->scale);
-            call.scale.assign(scale, scale + static_cast<std::size_t>(desc->k));
-            call.scale_tag = call.scale.empty() ? 0 : call.scale.front();
-            *out = NewObject("rmsnorm_weights");
-            static_cast<FakeObject*>(*out)->packed_size =
-                PackedSizeFor(3, desc->k, 0, 0);
-            static_cast<FakeObject*>(*out)->identity_tag = call.scale_tag;
-            call.object = *out;
-            state.rmsnorm_weights_creates.push_back(std::move(call));
-            return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, rmsnorm_weights_create_from_file_tag>) {
+        } else if constexpr (std::is_same_v<Tag, rmsnorm_weights_create_tag>) {
+            // (desc, sources, count, options, out).
             const auto* desc = std::get<0>(arguments);
-            const auto size = static_cast<std::size_t>(std::get<3>(arguments));
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
             auto* out = std::get<4>(arguments);
             if (out) *out = nullptr;
             if (!desc || !out) return ryzenai_corelib_status_bad_argument;
             const auto packed = PackedSizeFor(3, desc->k, 0, 0);
-            if (size != packed) return ryzenai_corelib_status_bad_argument;
-            // WHICH GAMMA THESE BYTES WERE PACKED FROM. corelib hands no
-            // components back on this leg, so `scale` stays empty and this
-            // tag -- recovered from the slice itself -- is the only thing
-            // that can tell one layer's Q-norm from its K-norm, whose
-            // descriptors and packed lengths are identical.
-            const auto tag = IdentityTagInFile(std::get<1>(arguments),
-                                               std::get<2>(arguments), size);
+            if (const auto* blob =
+                    FindSource(sources, count, ryzenai_corelib_weights_role_packed)) {
+                const auto size = static_cast<std::size_t>(blob->size);
+                if (count != 1 || size != packed) return ryzenai_corelib_status_bad_argument;
+                // WHICH GAMMA THESE BYTES WERE PACKED FROM. corelib hands no
+                // components back on this leg, so `scale` stays empty and this
+                // tag -- recovered from the slice itself -- is the only thing
+                // that can tell one layer's Q-norm from its K-norm, whose
+                // descriptors and packed lengths are identical.
+                const auto tag = IdentityTagInFile(blob->path, blob->offset, size);
+                *out = NewObject("rmsnorm_weights");
+                static_cast<FakeObject*>(*out)->packed_size = packed;
+                static_cast<FakeObject*>(*out)->identity_tag = tag;
+                state.rmsnorm_weights_creates.push_back(
+                    {-1, *desc, true, {}, static_cast<std::uint16_t>(tag), *out});
+                return ryzenai_corelib_status_success;
+            }
+            const auto* scale = static_cast<const std::uint16_t*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_scale));
+            if (!scale) return ryzenai_corelib_status_bad_argument;
+            fake_corelib::RmsNormWeightsCreateCall call{0, *desc, false, {}, 0, nullptr};
+            call.scale.assign(scale, scale + static_cast<std::size_t>(desc->k));
+            call.scale_tag = call.scale.empty() ? 0 : call.scale.front();
             *out = NewObject("rmsnorm_weights");
             static_cast<FakeObject*>(*out)->packed_size = packed;
-            static_cast<FakeObject*>(*out)->identity_tag = tag;
-            state.rmsnorm_weights_creates.push_back(
-                {-1, *desc, true, {}, static_cast<std::uint16_t>(tag), *out});
+            static_cast<FakeObject*>(*out)->identity_tag = call.scale_tag;
+            call.object = *out;
+            state.rmsnorm_weights_creates.push_back(std::move(call));
             return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, ple_weights_pack_tag>) {
-            // (desc, gate, proj, post_norm, next_norm, out, out_size,
-            // packed_size). THE TWO-CALL PROTOCOL, honoured rather than
-            // merely tolerated: with `out == NULL` this reports the size and
-            // DEREFERENCES NONE OF THE FOUR ARRAYS, and records that it did
-            // not -- which is what lets a test prove the engine sized its
-            // buffer before it held the data, instead of calling the full
-            // packer twice and throwing one result away.
+        } else if constexpr (std::is_same_v<Tag, ple_weights_create_tag>) {
+            // (desc, sources, count, options, out). A lone `packed` source is
+            // a cache bind and is recorded as a create alone; model
+            // components are packed AND created in this one call, so they
+            // land in both records.
             const auto* desc = std::get<0>(arguments);
-            const auto* gate = std::get<1>(arguments);
-            const auto* proj = std::get<2>(arguments);
-            const auto* post_norm = std::get<3>(arguments);
-            const auto* next_norm = std::get<4>(arguments);
-            void* out = std::get<5>(arguments);
-            const auto out_size = std::get<6>(arguments);
-            auto* packed_size = std::get<7>(arguments);
-            // "Both legs validate the descriptor identically."
-            if (!desc || !packed_size) return ryzenai_corelib_status_bad_argument;
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
+            auto* out = std::get<4>(arguments);
+            if (out) *out = nullptr;
+            if (!desc || !out) return ryzenai_corelib_status_bad_argument;
             if (desc->k <= 0 || desc->n <= 0)
                 return ryzenai_corelib_status_bad_argument;
             // "32 IS THE ONLY VALUE mladfple ships, and anything else is
@@ -692,18 +693,33 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             // at `group` instead of `ple_group` could not pass by accident.
             if (desc->group_size != 32) return ryzenai_corelib_status_unsupported;
             const auto size = fake_corelib::PlePackedSize(*desc);
-            *packed_size = size;
-            fake_corelib::PlePackCall call{*desc, out == nullptr, false, size,
-                                           0.0f,  0.0f,          0.0f,  0.0f,
-                                           0.0f,  0.0f,          {},    {}};
-            if (out == nullptr) {
-                state.ple_pack_calls.push_back(std::move(call));
+            if (const auto* blob =
+                    FindSource(sources, count, ryzenai_corelib_weights_role_packed)) {
+                const auto blob_size = static_cast<std::size_t>(blob->size);
+                // corelib.h: "The length must be exactly what this descriptor
+                // packs to: a truncated blob is still a plausible one."
+                if (count != 1 || blob_size != size) {
+                    state.ple_create_calls.push_back({*desc, blob_size, false, nullptr});
+                    return ryzenai_corelib_status_bad_argument;
+                }
+                *out = NewObject("ple_weights");
+                static_cast<FakeObject*>(*out)->packed_size = size;
+                state.ple_create_calls.push_back({*desc, blob_size, true, *out});
                 return ryzenai_corelib_status_success;
             }
+            const auto* gate = static_cast<const float*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_gate));
+            const auto* proj = static_cast<const float*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_proj));
+            const auto* post_norm = static_cast<const float*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_post_norm));
+            const auto* next_norm = static_cast<const float*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_next_norm));
             if (!gate || !proj || !post_norm || !next_norm)
                 return ryzenai_corelib_status_bad_argument;
-            if (out_size < size) return ryzenai_corelib_status_bad_argument;
-            call.read_any_array = true;
+            fake_corelib::PlePackCall call{*desc, false, true, size,
+                                           0.0f,  0.0f,  0.0f, 0.0f,
+                                           0.0f,  0.0f,  {},   {}};
             const auto k = static_cast<std::size_t>(desc->k);
             call.post_norm.assign(post_norm, post_norm + k);
             call.next_norm.assign(next_norm, next_norm + k);
@@ -729,15 +745,33 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             sink += gate[elements - 1];
             sink += proj[elements - 1];
             (void)sink;
-            std::memset(out, static_cast<int>(size & 0xFF), size);
             state.ple_pack_calls.push_back(std::move(call));
+            *out = NewObject("ple_weights");
+            static_cast<FakeObject*>(*out)->packed_size = size;
+            state.ple_create_calls.push_back({*desc, size, true, *out});
             return ryzenai_corelib_status_success;
         } else if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag> ||
                              std::is_same_v<Tag, ssmlp_enum_kernels_tag> ||
                              std::is_same_v<Tag, flat_mha_enum_kernels_tag>) {
             auto* callback = std::get<1>(arguments);
             auto* ctx = std::get<2>(arguments);
-            if (callback) {
+            state.enum_calls.push_back({std::string(Tag::name), std::get<0>(arguments)});
+            if (callback && state.explicit_grid) {
+                if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag>) {
+                    for (const auto& s : state.shipped_matmul)
+                        callback(ctx, 0, s.m, s.k, s.n, s.group, false,
+                                 static_cast<std::int64_t>(0), static_cast<std::int64_t>(0));
+                } else if constexpr (std::is_same_v<Tag, ssmlp_enum_kernels_tag>) {
+                    for (const auto& s : state.shipped_ssmlp)
+                        callback(ctx, 0, s.family.c_str(), s.m, s.k, s.n, s.group);
+                } else {
+                    for (const auto& s : state.shipped_mha)
+                        callback(ctx, 0, s.heads, s.kv_heads, s.m,
+                                 static_cast<std::int64_t>(0), s.head_size, s.max_seq,
+                                 static_cast<std::int64_t>(0), s.window, s.kv_shared,
+                                 s.scale_one);
+                }
+            } else if (callback) {
                 if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag>) {
                     callback(ctx, 0, static_cast<std::int64_t>(-1),
                              static_cast<std::int64_t>(0), static_cast<std::int64_t>(0),
@@ -764,25 +798,6 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                 }
             }
             return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, ple_weights_create_tag>) {
-            const auto* desc = std::get<0>(arguments);
-            const void* packed = std::get<1>(arguments);
-            const auto packed_size = std::get<2>(arguments);
-            auto* out = std::get<4>(arguments);
-            if (out) *out = nullptr;
-            if (!desc || !packed || !out) return ryzenai_corelib_status_bad_argument;
-            const auto expected = fake_corelib::PlePackedSize(*desc);
-            const bool accepted = packed_size == expected;
-            // corelib.h: "The length must be exactly what this descriptor
-            // packs to: a truncated blob is still a plausible one."
-            if (!accepted) {
-                state.ple_create_calls.push_back({*desc, packed_size, false, nullptr});
-                return ryzenai_corelib_status_bad_argument;
-            }
-            *out = NewObject("ple_weights");
-            static_cast<FakeObject*>(*out)->packed_size = expected;
-            state.ple_create_calls.push_back({*desc, packed_size, true, *out});
-            return ryzenai_corelib_status_success;
         } else if constexpr (std::is_same_v<Tag, ssmlp_pad_rows_tag>) {
             // 0.5.0: (stream, m*, desc*). The WHOLE descriptor is recorded,
             // not a k/n/group_size projection of it -- see fake_corelib.hpp.
@@ -794,29 +809,29 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                  desc ? *desc : ryzenai_corelib_ssmlp_bf16_weights_desc{}});
             if (m) *m = PaddedRows("ssmlp", *m);
             return ryzenai_corelib_status_success;
-        } else if constexpr (std::is_same_v<Tag, ssmlp_weights_create_gguf_requantized_tag> ||
-                             std::is_same_v<Tag, ssmlp_weights_create_from_file_tag>) {
-            constexpr bool kFromFile =
-                std::is_same_v<Tag, ssmlp_weights_create_from_file_tag>;
-            constexpr std::size_t kOutIndex = sizeof...(Args) - 1;
+        } else if constexpr (std::is_same_v<Tag, ssmlp_weights_create_tag>) {
+            // (desc, sources, count, options, out).
             const auto* desc = std::get<0>(arguments);
-            auto* out = std::get<kOutIndex>(arguments);
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
+            auto* out = std::get<4>(arguments);
             if (out) *out = nullptr;
             if (!desc || !out) return ryzenai_corelib_status_bad_argument;
             const auto packed = PackedSizeFor(2, desc->k, desc->n, desc->group_size);
+            const auto* blob = FindSource(sources, count, ryzenai_corelib_weights_role_packed);
+            const bool kFromFile = blob != nullptr;
             fake_corelib::SsMlpWeightsCreateCall call{
                 *desc, kFromFile, false, 0, 0, 0, 0, 0, 0, nullptr};
-            if constexpr (kFromFile) {
-                const auto size = static_cast<std::size_t>(std::get<3>(arguments));
-                if (size != packed) return ryzenai_corelib_status_bad_argument;
+            if (kFromFile) {
+                const auto size = static_cast<std::size_t>(blob->size);
+                if (count != 1 || size != packed) return ryzenai_corelib_status_bad_argument;
                 // ONLY `gate_tag`, and only because a packed blob has no
                 // ports. On the cache leg there are no three block streams to
                 // exchange -- corelib is handed one opaque slice -- so the
                 // question is which LAYER'S ssmlp this is, not which stream
                 // reached which port. `up_tag`/`down_tag` stay 0 here and the
                 // port assignment stays the pack leg's business.
-                call.gate_tag = IdentityTagInFile(std::get<1>(arguments),
-                                                  std::get<2>(arguments), size);
+                call.gate_tag = IdentityTagInFile(blob->path, blob->offset, size);
             } else {
                 // The two norms are the fields Gemma 4 must get right and
                 // Phi-4's fake never recorded. norm0 is this layer's
@@ -826,23 +841,25 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                 // each is enough to say WHICH tensor was passed, because the
                 // fixture fills every F32 tensor with a constant signature
                 // derived from its name.
-                const auto* components = std::get<1>(arguments);
-                if (!components) return ryzenai_corelib_status_bad_argument;
+                const auto data = [&](ryzenai_corelib_weights_role role) {
+                    return SourceData(sources, count, role);
+                };
+                if (!data(ryzenai_corelib_weights_role_gate_qweight))
+                    return ryzenai_corelib_status_bad_argument;
                 call.has_components = true;
                 const auto first = [](const void* p) -> std::uint16_t {
                     return p ? *static_cast<const std::uint16_t*>(p) : 0;
                 };
-                call.epsilon_bf16 = first(components->epsilon);
-                call.norm0_bf16 = first(components->norm0);
-                call.norm1_bf16 = first(components->norm1);
+                call.epsilon_bf16 = first(data(ryzenai_corelib_weights_role_epsilon));
+                call.norm0_bf16 = first(data(ryzenai_corelib_weights_role_norm0));
+                call.norm1_bf16 = first(data(ryzenai_corelib_weights_role_norm1));
                 // AND WHICH BLOCK STREAM REACHED WHICH OF THE THREE PORTS.
-                // `gate` and `up` have the same shape on every Gemma 4 layer
-                // and travel as bare `const void*`, so the descriptor cannot
-                // tell them apart and neither can a length check. See
-                // SsMlpWeightsCreateCall::gate_tag.
-                call.gate_tag = BlockTag(components->gate_blocks);
-                call.up_tag = BlockTag(components->up_blocks);
-                call.down_tag = BlockTag(components->down_blocks);
+                // `gate` and `up` have the same shape on every Gemma 4 layer,
+                // so the descriptor cannot tell them apart and neither can a
+                // length check. See SsMlpWeightsCreateCall::gate_tag.
+                call.gate_tag = BlockTag(data(ryzenai_corelib_weights_role_gate_qweight));
+                call.up_tag = BlockTag(data(ryzenai_corelib_weights_role_up_qweight));
+                call.down_tag = BlockTag(data(ryzenai_corelib_weights_role_down_qweight));
             }
             *out = NewObject("ssmlp_weights");
             // The descriptor is kept HERE because the dispatch never sees
@@ -1140,6 +1157,11 @@ ryzenai_corelib_status NoteMhaRows(ryzenai_corelib_stream_ptr stream,
 
 void Reset() {
     std::lock_guard<std::recursive_mutex> lock(state_mutex);
+    state.enum_calls.clear();
+    state.explicit_grid = false;
+    state.shipped_matmul.clear();
+    state.shipped_ssmlp.clear();
+    state.shipped_mha.clear();
     state.matmul_pad_calls.clear();
     state.rows_pad_calls.clear();
     state.mha_pad_calls.clear();

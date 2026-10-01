@@ -95,6 +95,21 @@ void EnsureStorage(FakeObject& object) {
             object.storage->byte_size, std::byte{0});
 }
 
+/// \brief the source with `role` in a create's flat source array, or NULL
+const ryzenai_corelib_weights_source* FindSource(const ryzenai_corelib_weights_source* sources,
+                                                 std::size_t count,
+                                                 ryzenai_corelib_weights_role role) {
+    for (std::size_t i = 0; sources && i < count; ++i)
+        if (sources[i].role == role) return &sources[i];
+    return nullptr;
+}
+
+const void* SourceData(const ryzenai_corelib_weights_source* sources, std::size_t count,
+                       ryzenai_corelib_weights_role role) {
+    const auto* source = FindSource(sources, count, role);
+    return source ? source->data : nullptr;
+}
+
 void ObserveCreateConcurrency() {
     const int active = ++state.active_weight_creates;
     int maximum = state.maximum_active_weight_creates.load();
@@ -321,7 +336,46 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             // exactly" (see kernel_grid.hpp). Argument 1 is the callback,
             // argument 2 is its context, for all three of these entry points.
             const auto status = Status(Tag::name);
-            if (status == ryzenai_corelib_status_success) {
+            if (status == ryzenai_corelib_status_success && !state.pad_row_overrides.empty()) {
+                // A test that overrides a padded extent gets an explicit grid
+                // of Phi-4's own shapes: each prefill bucket ships at its
+                // override, and the shipped M never shrinks as rows grow.
+                auto* callback = std::get<1>(arguments);
+                auto* ctx = std::get<2>(arguments);
+                const auto shipped = [](std::string_view helper) {
+                    constexpr std::int64_t buckets[] = {1, 64, 128, 256, 512, 1024, 2048, 4096};
+                    std::vector<std::int64_t> rows;
+                    std::int64_t floor = 0;
+                    for (const auto bucket : buckets) {
+                        floor = std::max(floor, PaddedRows(helper, bucket));
+                        rows.push_back(floor);
+                    }
+                    return rows;
+                };
+                if (callback) {
+                    if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag>) {
+                        constexpr std::int64_t outputs[] = {3072, 1024, 200064};
+                        for (const auto n : outputs) {
+                            for (const auto m : shipped(n == 1024 ? "matmul-1024" : "matmul-3072"))
+                                callback(ctx, 0, m, static_cast<std::int64_t>(3072), n,
+                                         static_cast<std::int64_t>(64), false,
+                                         static_cast<std::int64_t>(0), static_cast<std::int64_t>(0));
+                        }
+                    } else if constexpr (std::is_same_v<Tag, ssmlp_enum_kernels_tag>) {
+                        for (const auto m : shipped("ssmlp"))
+                            callback(ctx, 0, "fusion_mladf_ssmlp", m,
+                                     static_cast<std::int64_t>(3072), static_cast<std::int64_t>(8192),
+                                     static_cast<std::int64_t>(64));
+                    } else {
+                        for (const auto m : shipped("mha"))
+                            callback(ctx, 0, static_cast<std::int64_t>(24),
+                                     static_cast<std::int64_t>(8), m, static_cast<std::int64_t>(0),
+                                     static_cast<std::int64_t>(128), static_cast<std::int64_t>(4096),
+                                     static_cast<std::int64_t>(96), static_cast<std::int64_t>(0),
+                                     false, false);
+                    }
+                }
+            } else if (status == ryzenai_corelib_status_success) {
                 auto* callback = std::get<1>(arguments);
                 auto* ctx = std::get<2>(arguments);
                 if (callback) {
@@ -350,50 +404,89 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                 }
             }
             return status;
-        } else if constexpr (std::is_same_v<Tag, matmul_weights_create_gguf_requantized_tag>) {
+        } else if constexpr (std::is_same_v<Tag, matmul_weights_create_tag> ||
+                             std::is_same_v<Tag, ssmlp_weights_create_tag>) {
+            // One create per op: a lone `packed` source is a cache load, and
+            // anything else is a pack from model components.
+            constexpr bool matmul = std::is_same_v<Tag, matmul_weights_create_tag>;
             const auto status = Status(Tag::name);
             auto* desc = std::get<0>(arguments);
-            auto* components = std::get<1>(arguments);
-            auto* out = std::get<3>(arguments);
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
+            const auto* options = std::get<3>(arguments);
+            auto* out = std::get<4>(arguments);
             if (out) *out = nullptr;
-            ObserveCreateConcurrency();
-            SimulatePackingWork(state_lock);
-            if (desc && components) state.weight_creates.push_back({"matmul", desc->k, desc->n,
-                desc->group_size, std::get<2>(arguments), {components->blocks}});
-            if (status == ryzenai_corelib_status_success && out) {
-                *out = NewObject("matmul_weights");
-                auto* object = static_cast<FakeObject*>(*out);
-                object->byte_size = PackedSize(desc ? desc->k : 0, desc ? desc->n : 0);
-                object->fill = FillFor(components ? components->blocks : nullptr);
+            if (const auto* packed =
+                    FindSource(sources, count, ryzenai_corelib_weights_role_packed)) {
+                state.weight_from_file.push_back({matmul ? "matmul" : "ssmlp",
+                    packed->path ? packed->path : "", packed->offset, packed->size});
+                // corelib rejects a slice that is not exactly what the
+                // descriptor packs to, because a truncated blob is still a
+                // plausible one.
+                if (count != 1 || (desc && packed->size != PackedSize(desc->k, desc->n)))
+                    return ryzenai_corelib_status_failure;
+                if (status == ryzenai_corelib_status_success && out) {
+                    *out = NewObject(matmul ? "matmul_weights" : "ssmlp_weights");
+                    static_cast<FakeObject*>(*out)->byte_size =
+                        static_cast<std::size_t>(packed->size);
+                }
+                return status;
             }
-            --state.active_weight_creates;
-            return status;
-        } else if constexpr (std::is_same_v<Tag, ssmlp_weights_create_gguf_requantized_tag>) {
-            const auto status = Status(Tag::name);
-            auto* desc = std::get<0>(arguments);
-            auto* components = std::get<1>(arguments);
-            auto* out = std::get<3>(arguments);
-            if (out) *out = nullptr;
             ObserveCreateConcurrency();
             SimulatePackingWork(state_lock);
-            if (desc && components) {
-                fake_corelib::WeightCreateRecord record{"ssmlp", desc->k, desc->n,
-                    desc->group_size, std::get<2>(arguments),
-                    {components->gate_blocks, components->up_blocks, components->down_blocks}};
-                if (components->epsilon) record.epsilon = *static_cast<const std::uint16_t*>(components->epsilon);
-                if (components->norm0) record.norm0.assign(static_cast<const std::uint16_t*>(components->norm0),
-                                                           static_cast<const std::uint16_t*>(components->norm0) + desc->k);
-                if (components->norm1) record.norm1.assign(static_cast<const std::uint16_t*>(components->norm1),
-                                                           static_cast<const std::uint16_t*>(components->norm1) + desc->k);
+            const std::uint32_t threads = options ? options->fast_packer_threads : 0;
+            const void* first = nullptr;
+            if (desc) {
+                fake_corelib::WeightCreateRecord record{matmul ? "matmul" : "ssmlp", desc->k,
+                    desc->n, desc->group_size, threads, {}};
+                const auto* qweight = FindSource(sources, count,
+                    matmul ? ryzenai_corelib_weights_role_qweight
+                           : ryzenai_corelib_weights_role_gate_qweight);
+                if (qweight) record.qweight_type = qweight->data_type;
+                if constexpr (matmul) {
+                    first = SourceData(sources, count, ryzenai_corelib_weights_role_qweight);
+                    record.pointers = {first};
+                } else {
+                    first = SourceData(sources, count, ryzenai_corelib_weights_role_gate_qweight);
+                    record.pointers = {first,
+                        SourceData(sources, count, ryzenai_corelib_weights_role_up_qweight),
+                        SourceData(sources, count, ryzenai_corelib_weights_role_down_qweight)};
+                    const auto bf16 = [&](ryzenai_corelib_weights_role role) {
+                        return static_cast<const std::uint16_t*>(SourceData(sources, count, role));
+                    };
+                    if (const auto* epsilon = bf16(ryzenai_corelib_weights_role_epsilon))
+                        record.epsilon = *epsilon;
+                    if (const auto* norm0 = bf16(ryzenai_corelib_weights_role_norm0))
+                        record.norm0.assign(norm0, norm0 + desc->k);
+                    if (const auto* norm1 = bf16(ryzenai_corelib_weights_role_norm1))
+                        record.norm1.assign(norm1, norm1 + desc->k);
+                }
                 state.weight_creates.push_back(std::move(record));
             }
             if (status == ryzenai_corelib_status_success && out) {
-                *out = NewObject("ssmlp_weights");
+                *out = NewObject(matmul ? "matmul_weights" : "ssmlp_weights");
                 auto* object = static_cast<FakeObject*>(*out);
                 object->byte_size = PackedSize(desc ? desc->k : 0, desc ? desc->n : 0);
-                object->fill = FillFor(components ? components->gate_blocks : nullptr);
+                object->fill = FillFor(first);
             }
             --state.active_weight_creates;
+            return status;
+        } else if constexpr (std::is_same_v<Tag, rmsnorm_weights_create_tag>) {
+            const auto status = Status(Tag::name);
+            const auto* desc = std::get<0>(arguments);
+            const auto* sources = std::get<1>(arguments);
+            const auto count = std::get<2>(arguments);
+            auto* out = std::get<4>(arguments);
+            if (out) *out = nullptr;
+            const auto* scale = static_cast<const std::uint16_t*>(
+                SourceData(sources, count, ryzenai_corelib_weights_role_scale));
+            if (desc) {
+                fake_corelib::WeightCreateRecord record{"rmsnorm", desc->k, 0, 0, 0, {scale}};
+                record.epsilon = Bf16(desc->epsilon);
+                if (scale) record.norm0.assign(scale, scale + desc->k);
+                state.weight_creates.push_back(std::move(record));
+            }
+            if (status == ryzenai_corelib_status_success && out) *out = NewObject("rmsnorm_weights");
             return status;
         } else if constexpr (std::is_same_v<Tag, weights_copy_data_tag>) {
             // Two-call protocol: NULL out learns the size, then the caller
@@ -410,36 +503,13 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             if (out_size < packed) return ryzenai_corelib_status_failure;
             std::memset(out, weights ? weights->fill : 0, packed);
             return status;
-        } else if constexpr (std::is_same_v<Tag, matmul_weights_create_from_file_tag> ||
-                             std::is_same_v<Tag, ssmlp_weights_create_from_file_tag>) {
-            const auto status = Status(Tag::name);
-            auto* desc = std::get<0>(arguments);
-            const char* path = std::get<1>(arguments);
-            const auto offset = std::get<2>(arguments);
-            const auto size = std::get<3>(arguments);
-            auto* out = std::get<4>(arguments);
-            if (out) *out = nullptr;
-            const bool matmul =
-                std::is_same_v<Tag, matmul_weights_create_from_file_tag>;
-            state.weight_from_file.push_back({matmul ? "matmul" : "ssmlp",
-                path ? path : "", offset, size});
-            // corelib rejects a slice that is not exactly what the descriptor
-            // packs to, because a truncated blob is still a plausible one.
-            if (desc && size != PackedSize(desc->k, desc->n)) {
-                return ryzenai_corelib_status_failure;
-            }
-            if (status == ryzenai_corelib_status_success && out) {
-                *out = NewObject(matmul ? "matmul_weights" : "ssmlp_weights");
-                auto* object = static_cast<FakeObject*>(*out);
-                object->byte_size = static_cast<std::size_t>(size);
-            }
-            return status;
         } else if constexpr (std::is_same_v<Tag, stream_synchronize_tag>) {
             state.work_in_flight = false;
             return Status(Tag::name);
         } else if constexpr (std::is_same_v<Tag, matmul_tag> ||
                              std::is_same_v<Tag, ssmlp_tag> ||
-                             std::is_same_v<Tag, flat_mha_tag>) {
+                             std::is_same_v<Tag, flat_mha_tag> ||
+                             std::is_same_v<Tag, rmsnorm_tag>) {
             if (state.statuses.contains("test_observe_dispatch_concurrency")) {
                 const int active = ++state.active_leases;
                 int maximum = state.maximum_active_leases.load();
@@ -465,12 +535,13 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             fake_corelib::DispatchRecord record{};
             record.thread_id = std::this_thread::get_id();
             record.kind = std::is_same_v<Tag, matmul_tag> ? "matmul" :
-                          std::is_same_v<Tag, ssmlp_tag> ? "ssmlp" : "mha";
+                          std::is_same_v<Tag, ssmlp_tag> ? "ssmlp" :
+                          std::is_same_v<Tag, rmsnorm_tag> ? "rmsnorm" : "mha";
             record.stream = std::get<0>(arguments);
             // 0.5.0 removed the row count from every dispatch: M is the leading
             // extent of the operand that was bound. Read it back off the input
             // so the recorded value still means what the tests assert about it.
-            if constexpr (std::is_same_v<Tag, matmul_tag>) {
+            if constexpr (std::is_same_v<Tag, matmul_tag> || std::is_same_v<Tag, rmsnorm_tag>) {
                 record.input = std::get<1>(arguments);
                 record.output = std::get<3>(arguments);
             } else if constexpr (std::is_same_v<Tag, ssmlp_tag>) {

@@ -3,6 +3,7 @@
 #include "models/gemma4/rai/aie_next/gemma4_rai_host.hpp"
 #include "rai/gguf_file.hpp"
 #include "rai/weight_cache.hpp"
+#include "rai/weight_source.hpp"
 
 #include "fake_corelib.hpp"
 #include "gemma4_gguf_fixture.hpp"
@@ -33,6 +34,25 @@ using flm::gemma4::Gemma4Config;
 using flm::gemma4::Gemma4GgufPackage;
 using flm::gemma4::gemma4_rai;
 using flm::rai::GgufFile;
+
+/// \brief a matmul source set: one Q8_0 qweight over `blocks`
+std::vector<ryzenai_corelib_weights_source> MatmulSources(const std::vector<std::byte>& blocks) {
+    return {flm::corelib::GgufQ8(ryzenai_corelib_weights_role_qweight, blocks.data(),
+                                 blocks.size(), 1, 32)};
+}
+
+/// \brief an ssmlp source set whose six components all read `blocks`
+std::vector<ryzenai_corelib_weights_source> SsMlpSources(const std::vector<std::byte>& blocks) {
+    std::vector<ryzenai_corelib_weights_source> sources;
+    for (const auto role : {ryzenai_corelib_weights_role_epsilon, ryzenai_corelib_weights_role_norm0,
+                            ryzenai_corelib_weights_role_norm1})
+        sources.push_back(flm::corelib::Bf16(role, blocks.data(), 1));
+    for (const auto role : {ryzenai_corelib_weights_role_gate_qweight,
+                            ryzenai_corelib_weights_role_up_qweight,
+                            ryzenai_corelib_weights_role_down_qweight})
+        sources.push_back(flm::corelib::GgufQ8(role, blocks.data(), blocks.size(), 1, 32));
+    return sources;
+}
 
 // ---------------------------------------------------------------------------
 // The two fixtures, written ONCE each.
@@ -428,16 +448,14 @@ void TestE2bSsmlpDeclaresGeluAndKeepsBothOfItsOwnNorms() { RequireSsmlp(E2bFixtu
 void TestE4bSsmlpDeclaresGeluAndKeepsBothOfItsOwnNorms() { RequireSsmlp(E4bFixture()); }
 
 // ---------------------------------------------------------------------------
-// ple: the two-call protocol, the group, and the NEXT layer's norm.
+// ple: one create per layer, the group, and the NEXT layer's norm.
 
-/// \brief find the two pack calls belonging to one layer
+/// \brief find the pack calls belonging to one layer
 /// \note KEYED ON `layer_scale`, not on call order. The engine packs across
-///       eight threads, so the recorded order interleaves layers; what does
-///       NOT interleave is that one thread makes a layer's sizing call and
-///       its full call back to back, so the sizing one still precedes the
-///       full one WITHIN a layer. `layer_output_scale` is a one-element F32
-///       tensor and the fixture gives every F32 tensor a distinct constant,
-///       so it names the layer exactly.
+///       eight threads, so the recorded order interleaves layers.
+///       `layer_output_scale` is a one-element F32 tensor and the fixture
+///       gives every F32 tensor a distinct constant, so it names the layer
+///       exactly.
 std::vector<std::size_t> PackCallsForLayer(float layer_scale) {
     std::vector<std::size_t> indices;
     const auto& calls = fake_corelib::GetState().ple_pack_calls;
@@ -455,26 +473,19 @@ void RequirePle(const Fixture& fixture) {
     TEST_REQUIRE(state.ple_create_calls.size() ==
                  static_cast<std::size_t>(shape.layers));
     TEST_REQUIRE(state.ple_pack_calls.size() ==
-                 2 * static_cast<std::size_t>(shape.layers));
+                 static_cast<std::size_t>(shape.layers));
 
     for (std::int64_t layer = 0; layer < shape.layers; ++layer) {
         const auto scale =
             builder.SignatureOf(Blk(layer, ".layer_output_scale.weight"));
         const auto indices = PackCallsForLayer(scale);
-        // TWO CALLS, NOT ONE AND NOT THREE. The protocol is size-then-fill;
-        // an engine that skipped the sizing leg and guessed a buffer would
-        // show up here as one call, and one that called the full packer
-        // twice would show up as two non-sizing ones.
-        TEST_REQUIRE(indices.size() == 2);
-        const auto& sizing = state.ple_pack_calls[indices[0]];
-        const auto& full = state.ple_pack_calls[indices[1]];
-        TEST_REQUIRE(sizing.sizing_leg);
-        TEST_REQUIRE(!sizing.read_any_array);   // reads NONE of the arrays
+        // ONE CREATE PER LAYER. corelib packs the four arrays and creates
+        // the weights in a single call.
+        TEST_REQUIRE(indices.size() == 1);
+        const auto& full = state.ple_pack_calls[indices[0]];
         TEST_REQUIRE(!full.sizing_leg);
         TEST_REQUIRE(full.read_any_array);
-        TEST_REQUIRE(sizing.reported_size == full.reported_size);
-        TEST_REQUIRE(sizing.reported_size ==
-                     fake_corelib::PlePackedSize(sizing.desc));
+        TEST_REQUIRE(full.reported_size == fake_corelib::PlePackedSize(full.desc));
 
         // The descriptor: k is hidden, n is the per-layer embedding width
         // (256 on both rows), and the group is `ple_group` -- NOT `group`.
@@ -580,7 +591,7 @@ void TestPleUsesPleGroupAndNotGroup() {
             Harness harness(fixture,
                             [](Gemma4Config& shape) { shape.ple_group = 64; });
         });
-        RequireContains(error, "ple_bf16_weights_pack");
+        RequireContains(error, "ple_bf16_weights_create");
     }
     {
         // group 64 everywhere else; ple must still be packed at 32 and the
@@ -592,10 +603,10 @@ void TestPleUsesPleGroupAndNotGroup() {
     }
 }
 
-void TestE2bPacksOnePleBlockPerLayerThroughTheTwoCallProtocol() {
+void TestE2bPacksOnePleBlockPerLayer() {
     RequirePle(E2bFixture());
 }
-void TestE4bPacksOnePleBlockPerLayerThroughTheTwoCallProtocol() {
+void TestE4bPacksOnePleBlockPerLayer() {
     RequirePle(E4bFixture());
 }
 
@@ -616,9 +627,7 @@ void RequireRmsNorms(const Fixture& fixture) {
 
     for (const auto& call : creates) {
         TEST_REQUIRE(call.desc.epsilon == shape.eps);
-        // The reference packer resolves the blob through a kernel, so it
-        // takes the PREFILL tag -- 8 on this model.
-        TEST_REQUIRE(call.prefill_pdi == flm::gemma4::kPrefillPdi);
+        TEST_REQUIRE(!call.from_file);
         TEST_REQUIRE(call.scale.size() == static_cast<std::size_t>(call.desc.k));
     }
 
@@ -1068,23 +1077,19 @@ void TestADispatchRecordsTheWeightsObjectItRanWith() {
     };
 
     ryzenai_corelib_matmul_bf16_weights_desc matmul_desc{kK, kN, 32, false};
-    ryzenai_corelib_matmul_bf16_gguf_components matmul_components{
-        blocks.data(), ryzenai_corelib_gguf_quant_type_q8_0};
+    const auto matmul_sources = MatmulSources(blocks);
     void* matmul_weights = nullptr;
-    TEST_REQUIRE(functions.matmul_weights_create_gguf_requantized(
-                     &matmul_desc, &matmul_components, 0, &matmul_weights) ==
-                 ryzenai_corelib_status_success);
+    TEST_REQUIRE(functions.matmul_weights_create(
+                     &matmul_desc, matmul_sources.data(), matmul_sources.size(), nullptr,
+                     &matmul_weights) == ryzenai_corelib_status_success);
     TEST_REQUIRE(functions.matmul(stream, tensor(kK), matmul_weights, tensor(kN)) ==
                  ryzenai_corelib_status_success);
 
-    ryzenai_corelib_ssmlp_bf16_gguf_components ssmlp_components{
-        blocks.data(), blocks.data(), blocks.data(),
-        blocks.data(), blocks.data(), blocks.data(),
-        ryzenai_corelib_gguf_quant_type_q8_0};
+    const auto ssmlp_sources = SsMlpSources(blocks);
     void* ssmlp_weights = nullptr;
-    TEST_REQUIRE(functions.ssmlp_weights_create_gguf_requantized(
-                     &ssmlp_desc, &ssmlp_components, 0, &ssmlp_weights) ==
-                 ryzenai_corelib_status_success);
+    TEST_REQUIRE(functions.ssmlp_weights_create(
+                     &ssmlp_desc, ssmlp_sources.data(), ssmlp_sources.size(), nullptr,
+                     &ssmlp_weights) == ryzenai_corelib_status_success);
     TEST_REQUIRE(functions.ssmlp(stream, tensor(kK), tensor(kK), ssmlp_weights,
                                  tensor(kK), tensor(kK)) ==
                  ryzenai_corelib_status_success);
@@ -1165,19 +1170,24 @@ void TestPleAndRmsNormAreRecordedAsDispatchesInSequence() {
     // ---- the two weights objects, through the entry points the engine uses
     ryzenai_corelib_rmsnorm_bf16_weights_desc norm_desc{kHidden, 1.0e-6f};
     const std::vector<std::uint16_t> gamma(static_cast<std::size_t>(kHidden), 0x3F80);
-    ryzenai_corelib_rmsnorm_bf16_reference_components norm_components{gamma.data()};
+    const ryzenai_corelib_weights_source norm_sources[]{flm::corelib::Bf16(
+        ryzenai_corelib_weights_role_scale, gamma.data(), gamma.size())};
     void* norm_weights = nullptr;
-    TEST_REQUIRE(functions.rmsnorm_weights_create_reference(
-                     flm::gemma4::kPrefillPdi, &norm_desc, &norm_components,
-                     &norm_weights) == ryzenai_corelib_status_success);
+    TEST_REQUIRE(functions.rmsnorm_weights_create(&norm_desc, norm_sources, 1, nullptr,
+                                                  &norm_weights) ==
+                 ryzenai_corelib_status_success);
 
     ryzenai_corelib_ple_bf16_weights_desc ple_desc{kHidden, kPleDim, 32, 1.0e-6f, 1.5f};
     const std::size_t packed = fake_corelib::PlePackedSize(ple_desc);
     std::vector<std::byte> blob(packed, std::byte{0});
+    ryzenai_corelib_weights_source ple_source{};
+    ple_source.data = blob.data();
+    ple_source.role = ryzenai_corelib_weights_role_packed;
+    ple_source.size = blob.size();
+    ple_source.data_type = ryzenai_corelib_weights_data_type_native_packed;
     void* ple_weights = nullptr;
-    TEST_REQUIRE(functions.ple_weights_create(
-                     &ple_desc, blob.data(), blob.size(),
-                     ryzenai_corelib_weights_memory_copy, &ple_weights) ==
+    TEST_REQUIRE(functions.ple_weights_create(&ple_desc, &ple_source, 1, nullptr,
+                                              &ple_weights) ==
                  ryzenai_corelib_status_success);
 
     // ---- rmsnorm, IN PLACE, through two windows onto ONE allocation
@@ -1259,23 +1269,19 @@ void TestPleAndRmsNormAreRecordedAsDispatchesInSequence() {
                  ryzenai_corelib_status_success);
     std::vector<std::byte> blocks(64, std::byte{0});
     ryzenai_corelib_matmul_bf16_weights_desc matmul_desc{kHidden, kHidden, 32, false};
-    ryzenai_corelib_matmul_bf16_gguf_components matmul_components{
-        blocks.data(), ryzenai_corelib_gguf_quant_type_q8_0};
+    const auto matmul_sources = MatmulSources(blocks);
     void* matmul_weights = nullptr;
-    TEST_REQUIRE(functions.matmul_weights_create_gguf_requantized(
-                     &matmul_desc, &matmul_components, 0, &matmul_weights) ==
-                 ryzenai_corelib_status_success);
+    TEST_REQUIRE(functions.matmul_weights_create(
+                     &matmul_desc, matmul_sources.data(), matmul_sources.size(), nullptr,
+                     &matmul_weights) == ryzenai_corelib_status_success);
     TEST_REQUIRE(functions.matmul(stream, tensor(1, kHidden), matmul_weights,
                                   tensor(1, kHidden)) ==
                  ryzenai_corelib_status_success);
-    ryzenai_corelib_ssmlp_bf16_gguf_components ssmlp_components{
-        blocks.data(), blocks.data(), blocks.data(),
-        blocks.data(), blocks.data(), blocks.data(),
-        ryzenai_corelib_gguf_quant_type_q8_0};
+    const auto ssmlp_sources = SsMlpSources(blocks);
     void* ssmlp_weights = nullptr;
-    TEST_REQUIRE(functions.ssmlp_weights_create_gguf_requantized(
-                     &ssmlp_desc, &ssmlp_components, 0, &ssmlp_weights) ==
-                 ryzenai_corelib_status_success);
+    TEST_REQUIRE(functions.ssmlp_weights_create(
+                     &ssmlp_desc, ssmlp_sources.data(), ssmlp_sources.size(), nullptr,
+                     &ssmlp_weights) == ryzenai_corelib_status_success);
     TEST_REQUIRE(functions.ssmlp(stream, tensor(1, kHidden), tensor(1, kHidden),
                                  ssmlp_weights, tensor(1, kHidden),
                                  tensor(1, kHidden)) ==
@@ -2691,10 +2697,8 @@ void RequireSecondLoadHitsTheCache(const Fixture& fixture) {
         TEST_REQUIRE(engine->weight_slot_count() == expected_slots);
 
         const auto& state = fake_corelib::GetState();
-        // NOTHING WAS REQUANTIZED. Every matmul, ssmlp and rmsnorm came off
-        // the file, and ple -- which has no `..._weights_create_from_file` in
-        // 0.5.0 -- came from bytes read back and handed to the in-memory
-        // create, so its PACKER never ran.
+        // NOTHING WAS REQUANTIZED. Every weight, ple included, was created
+        // from its packed slice of the file, so no packer ran.
         TEST_REQUIRE(state.ple_pack_calls.empty());
         TEST_REQUIRE(state.ple_create_calls.size() ==
                      static_cast<std::size_t>(package->Config().layers));
@@ -3042,13 +3046,11 @@ constexpr std::string_view kAllowedAboveTheStream[] = {
 ///
 /// WHAT IT CANNOT CATCH, stated because the whole value of this test is that
 /// it is read rather than trusted:
-///   - a NEW non-corelib member that must nonetheless outlive the weights,
-///     the way `ple_blobs` does. Nothing in the source says which host
-///     buffers corelib may have bound; `ple_blobs` is pinned below by name
-///     because its comment claims exactly that, and a second such member
-///     would have to be added here by hand. The default-deny half does NOT
-///     cover this: such a member belongs below `stream` and above `layers`,
-///     which is inside the region the allowlist says nothing about.
+///   - a non-corelib member that must nonetheless outlive the weights, such
+///     as a host buffer corelib binds in place. The engine holds none today:
+///     every create copies its sources or maps the cache file itself. One
+///     added later would have to be pinned here by hand, because the
+///     default-deny half says nothing about the region below `stream`.
 ///   - anything about whether corelib actually faults. The fake's
 ///     `object_release` is a `delete`. See this section's header.
 ///   - an ordering error inside a nested type held by value elsewhere.
@@ -3114,16 +3116,6 @@ void TestEveryCorelibOwningMemberIsDeclaredAfterTheStream() {
     // depend on it and nothing else would say so.
     TEST_REQUIRE(api < owning.front());
     TEST_REQUIRE(package < owning.front());
-
-    // `ple_blobs` IS THE ONE HOST BUFFER corelib may have bound in place, so
-    // it must outlive the ple weights objects in `layers`. Its own comment
-    // says so; this is what makes that comment load-bearing.
-    const auto ple_blobs =
-        DeclarationIndex(lines, "std::vector<std::vector<std::byte>> ple_blobs;");
-    const auto layers = DeclarationIndex(lines, "std::vector<LayerWeights> layers;");
-    TEST_REQUIRE(ple_blobs < lines.size());
-    TEST_REQUIRE(layers < lines.size());
-    TEST_REQUIRE(ple_blobs < layers);
 }
 
 /// \brief the release kinds the fake recorded after `mark`
@@ -3677,8 +3669,8 @@ int main() {
     RUN_TEST(TestE2bSsmlpDeclaresGeluAndKeepsBothOfItsOwnNorms);
     RUN_TEST(TestE4bSsmlpDeclaresGeluAndKeepsBothOfItsOwnNorms);
     RUN_TEST(TestPleUsesPleGroupAndNotGroup);
-    RUN_TEST(TestE2bPacksOnePleBlockPerLayerThroughTheTwoCallProtocol);
-    RUN_TEST(TestE4bPacksOnePleBlockPerLayerThroughTheTwoCallProtocol);
+    RUN_TEST(TestE2bPacksOnePleBlockPerLayer);
+    RUN_TEST(TestE4bPacksOnePleBlockPerLayer);
     RUN_TEST(TestE2bPacksTheStandaloneNormsIncludingVsVectorOfOnes);
     RUN_TEST(TestE4bPacksTheStandaloneNormsIncludingVsVectorOfOnes);
     RUN_TEST(TestE2bHoldsTwoDistinctRotaryPairsWrittenOnce);
