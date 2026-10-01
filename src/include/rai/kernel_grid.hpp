@@ -1,6 +1,6 @@
 /// \file kernel_grid.hpp
 /// \brief The shapes a corelib stream can actually run
-/// \note corelib 0.9 reports shipped kernels and rounds nothing. A reported
+/// \note corelib 0.11 reports shipped kernels and rounds nothing. A reported
 ///       M below zero is a test double meaning "every requested M ships
 ///       exactly"; a real corelib never says that.
 #pragma once
@@ -131,17 +131,23 @@ private:
     }
 
     static bool OnFlatMha(void* ctx, int, std::int64_t heads, std::int64_t kv_heads,
-                          std::int64_t seq_len_q, std::int64_t, std::int64_t head_size,
+                          std::int64_t seq_len_q, std::int64_t seq_pad, std::int64_t head_size,
                           std::int64_t max_seq, std::int64_t, std::int64_t window,
                           bool kv_shared, bool scale_one) {
         auto* pack = static_cast<FlatCtx*>(ctx);
         if (seq_len_q < 0) pack->grid->wildcard = true;
         const auto* desc = pack->desc;
         const bool scale_matches = scale_one == (desc->scale == 1.0f);
+        // corelib keys a kernel on the window only while the window is shorter
+        // than the phase's sequence; a sliding layer at or below its window
+        // runs the unwindowed kernel, which reports window 0.
+        const std::int64_t phase_seq = seq_pad != 0 ? seq_pad : seq_len_q;
+        const std::int64_t keyed_window =
+            desc->window > 0 && desc->window < phase_seq ? desc->window : 0;
         if (seq_len_q >= 0 &&
             (heads != desc->num_heads || kv_heads != desc->kv_num_heads ||
              head_size != desc->head_size || max_seq != desc->max_seq ||
-             window != desc->window || kv_shared != (desc->kv_shared != 0) ||
+             window != keyed_window || kv_shared != (desc->kv_shared != 0) ||
              !scale_matches))
             return true;
         pack->grid->shapes.push_back({seq_len_q, 0, 0, 0});

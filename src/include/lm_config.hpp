@@ -151,6 +151,15 @@ class LM_Config{
             if (!audio_model_weight.empty()){
                 this->_json_config["audio_model_weight"] = this->model_path + "/" + audio_model_weight;
             }
+            // An upstream multimodal config (Gemma 4, Qwen3.5) states the
+            // vocabulary only under text_config; the sampler is sized from the
+            // top-level key.
+            if (cfg_get<u32>(this->_json_config, "vocab_size", 0) == 0){
+                const u32 text_vocab = cfg_get<u32>(cfg_sub(this->_json_config, "text_config"), "vocab_size", 0);
+                if (text_vocab != 0){
+                    this->_json_config["vocab_size"] = text_vocab;
+                }
+            }
         }
 
         /// \brief shared pretty printer, reads everything from the normalized json
