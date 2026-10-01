@@ -137,6 +137,8 @@ jobs:
           if-no-files-found: error
 
   build-windows-portable-hrx:
+    # Temporarily disabled.
+    if: false
     runs-on: [self-hosted, windows, x64, portable]
 
     defaults:
