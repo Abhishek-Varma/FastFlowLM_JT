@@ -1052,9 +1052,9 @@ void TestADispatchRecordsTheWeightsObjectItRanWith() {
     std::int64_t rows = 1, padded_k = kK, padded_n = kN;
     ryzenai_corelib_ssmlp_bf16_weights_desc ssmlp_desc{kK, kN, 32, 1, 1};
     std::int64_t ssmlp_rows = 1;
-    TEST_REQUIRE(functions.matmul_pad_shape(stream, &rows, &padded_k, &padded_n, 32) ==
+    TEST_REQUIRE(fake_corelib::NoteMatmulPad(stream, &rows, &padded_k, &padded_n, 32) ==
                  ryzenai_corelib_status_success);
-    TEST_REQUIRE(functions.ssmlp_pad_rows(stream, &ssmlp_rows, &ssmlp_desc) ==
+    TEST_REQUIRE(fake_corelib::NoteSsmlpRows(stream, &ssmlp_rows, &ssmlp_desc) ==
                  ryzenai_corelib_status_success);
 
     std::vector<std::byte> blocks(64, std::byte{0});
@@ -1172,14 +1172,12 @@ void TestPleAndRmsNormAreRecordedAsDispatchesInSequence() {
                      &norm_weights) == ryzenai_corelib_status_success);
 
     ryzenai_corelib_ple_bf16_weights_desc ple_desc{kHidden, kPleDim, 32, 1.0e-6f, 1.5f};
-    std::size_t packed = 0;
-    TEST_REQUIRE(functions.ple_weights_pack(&ple_desc, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr, 0, &packed) ==
-                 ryzenai_corelib_status_success);
+    const std::size_t packed = fake_corelib::PlePackedSize(ple_desc);
     std::vector<std::byte> blob(packed, std::byte{0});
     void* ple_weights = nullptr;
-    TEST_REQUIRE(functions.ple_weights_create(&ple_desc, blob.data(), blob.size(),
-                                              &ple_weights) ==
+    TEST_REQUIRE(functions.ple_weights_create(
+                     &ple_desc, blob.data(), blob.size(),
+                     ryzenai_corelib_weights_memory_copy, &ple_weights) ==
                  ryzenai_corelib_status_success);
 
     // ---- rmsnorm, IN PLACE, through two windows onto ONE allocation
@@ -1255,9 +1253,9 @@ void TestPleAndRmsNormAreRecordedAsDispatchesInSequence() {
     std::int64_t rows = 1, padded_k = kHidden, padded_n = kHidden;
     ryzenai_corelib_ssmlp_bf16_weights_desc ssmlp_desc{kHidden, kPleDim, 32, 1, 1};
     std::int64_t ssmlp_rows = 1;
-    TEST_REQUIRE(functions.matmul_pad_shape(stream, &rows, &padded_k, &padded_n, 32) ==
+    TEST_REQUIRE(fake_corelib::NoteMatmulPad(stream, &rows, &padded_k, &padded_n, 32) ==
                  ryzenai_corelib_status_success);
-    TEST_REQUIRE(functions.ssmlp_pad_rows(stream, &ssmlp_rows, &ssmlp_desc) ==
+    TEST_REQUIRE(fake_corelib::NoteSsmlpRows(stream, &ssmlp_rows, &ssmlp_desc) ==
                  ryzenai_corelib_status_success);
     std::vector<std::byte> blocks(64, std::byte{0});
     ryzenai_corelib_matmul_bf16_weights_desc matmul_desc{kHidden, kHidden, 32, false};
@@ -1347,7 +1345,7 @@ void TestAnMhaDispatchRecordsItsRotaryTablesAndCaches() {
     desc.kv_shared = 0;
     desc.scale = 1.0f;
     std::int64_t rows = 1;
-    TEST_REQUIRE(functions.flat_mha_pad_rows(stream, &rows, &desc) ==
+    TEST_REQUIRE(fake_corelib::NoteMhaRows(stream, &rows, &desc) ==
                  ryzenai_corelib_status_success);
 
     const auto tensor = [&](std::vector<std::int64_t> shape,

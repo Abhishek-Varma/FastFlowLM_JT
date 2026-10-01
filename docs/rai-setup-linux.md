@@ -53,15 +53,15 @@ cmake --build build-corelib -j"$(nproc)"
 ```
 
 **Version must match exactly.** `src/include/rai/corelib_api.hpp` has a
-`#error` for anything other than corelib **0.9.0**:
+`#error` for anything other than corelib **0.11.0**:
 
 ```bash
 grep -E 'CORELIB_VERSION_(MAJOR|MINOR|PATCH)' \
   $P/install-corelib/include/ryzenai/corelib.h
 ```
 
-Must print `0`, `5`, `0`. (`BUILD-NOTES.md` still says 0.4.0 in its opening
-line — that text is stale; the installed headers are 0.9.0.)
+Must print `0`, `11`, `0`. (`BUILD-NOTES.md` still says 0.4.0 in its opening
+line — that text is stale; the installed headers are 0.11.0.)
 
 ### Verify corelib before going further
 

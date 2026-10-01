@@ -3,6 +3,7 @@
 #include "rai/corelib_object.hpp"
 #include "rai/host_ops.hpp"
 #include "rai/kernel_grid.hpp"
+#include "rai/weight_source.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -288,12 +289,12 @@ private:
 
     UniqueMatMulWeights Matmul(std::span<const std::byte> blocks, int k, int n, const std::string& label) {
         const ryzenai_corelib_matmul_bf16_weights_desc desc{k, n, kGroup, false};
-        const ryzenai_corelib_matmul_bf16_gguf_components components{
-            blocks.data(), ryzenai_corelib_gguf_quant_type_q8_0};
+        ryzenai_corelib_matmul_bf16_components components{};
+        components.qweight = corelib::GgufQ8(blocks.data(), blocks.size(), n, k);
         void* created = nullptr;
-        api->Check(api->functions().matmul_weights_create_gguf_requantized(
+        api->Check(api->functions().matmul_weights_pack(
                        &desc, &components, kRequantizeThreads, &created),
-                   "ryzenai_corelib_matmul_bf16_weights_create_gguf_requantized " + label);
+                   "ryzenai_corelib_matmul_bf16_weights_pack " + label);
         return UniqueMatMulWeights(api, created);
     }
 
@@ -305,16 +306,19 @@ private:
                                      const std::vector<float>& bias, const std::string& label) {
         const auto onnx = Q8ToOnnx(blocks, k, n, kGroup);
         const ryzenai_corelib_matmul_bf16_weights_desc desc{k, n, kGroup, true};
-        const ryzenai_corelib_onnx_source qweight{onnx.qweight.data(), nullptr, onnx.qweight.size(), 0};
-        const ryzenai_corelib_onnx_source scales{
-            onnx.scales.data(), nullptr, onnx.scales.size() * sizeof(std::uint16_t), 0};
-        const ryzenai_corelib_onnx_source qzeros{onnx.qzeros.data(), nullptr, onnx.qzeros.size(), 0};
-        const ryzenai_corelib_onnx_source bias_source{
-            bias.data(), nullptr, bias.size() * sizeof(float), 0};
-        const ryzenai_corelib_matmul_bf16_onnx_components components{qweight, scales, qzeros, bias_source};
+        const auto groups = k / kGroup;
+        ryzenai_corelib_matmul_bf16_components components{};
+        components.qweight = corelib::MemorySource(
+            onnx.qweight.data(), onnx.qweight.size(),
+            ryzenai_corelib_weights_data_type_onnx_uint8, {n, k / 2});
+        components.scales = corelib::Fp16(onnx.scales.data(), onnx.scales.size(), {n, groups});
+        components.qzeros = corelib::MemorySource(
+            onnx.qzeros.data(), onnx.qzeros.size(),
+            ryzenai_corelib_weights_data_type_onnx_uint8, {n, groups / 2});
+        components.bias = corelib::Fp32(bias.data(), bias.size(), {n});
         void* created = nullptr;
-        api->Check(api->functions().matmul_weights_create_onnx(&desc, &components, kRequantizeThreads, &created),
-                   "ryzenai_corelib_matmul_bf16_weights_create_onnx " + label);
+        api->Check(api->functions().matmul_weights_pack(&desc, &components, kRequantizeThreads, &created),
+                   "ryzenai_corelib_matmul_bf16_weights_pack " + label);
         return UniqueMatMulWeights(api, created);
     }
 
@@ -322,20 +326,22 @@ private:
         const std::int64_t shape[] = {k};
         const auto scale = rai::F32ToBf16(package->F32(name, shape));
         const ryzenai_corelib_rmsnorm_bf16_weights_desc desc{k, static_cast<float>(cfg->eps)};
-        const ryzenai_corelib_rmsnorm_bf16_onnx_components components{scale.data()};
+        ryzenai_corelib_rmsnorm_bf16_components components{};
+        components.scale = corelib::Bf16(scale.data(), scale.size());
         void* created = nullptr;
-        api->Check(api->functions().rmsnorm_weights_create_onnx(&desc, &components, &created),
-                   "ryzenai_corelib_rmsnorm_bf16_weights_create_onnx " + std::string(name));
+        api->Check(api->functions().rmsnorm_weights_pack(&desc, &components, &created),
+                   "ryzenai_corelib_rmsnorm_bf16_weights_pack " + std::string(name));
         return UniqueRmsNormWeights(api, created);
     }
 
     UniqueRmsNormWeights NormValues(const std::vector<float>& values, int k, const std::string& label) {
         const auto scale = rai::F32ToBf16(values);
         const ryzenai_corelib_rmsnorm_bf16_weights_desc desc{k, static_cast<float>(cfg->eps)};
-        const ryzenai_corelib_rmsnorm_bf16_onnx_components components{scale.data()};
+        ryzenai_corelib_rmsnorm_bf16_components components{};
+        components.scale = corelib::Bf16(scale.data(), scale.size());
         void* created = nullptr;
-        api->Check(api->functions().rmsnorm_weights_create_onnx(&desc, &components, &created),
-                   "ryzenai_corelib_rmsnorm_bf16_weights_create_onnx " + label);
+        api->Check(api->functions().rmsnorm_weights_pack(&desc, &components, &created),
+                   "ryzenai_corelib_rmsnorm_bf16_weights_pack " + label);
         return UniqueRmsNormWeights(api, created);
     }
 
@@ -354,13 +360,17 @@ private:
                                    : "blk." + std::to_string(layer + 1) + ".attn_norm.weight";
         const auto norm1_scale = rai::F32ToBf16(package->F32(next_name, norm_shape));
         const ryzenai_corelib_ssmlp_bf16_weights_desc desc{cfg->hidden, cfg->intermediate, kGroup, 0, 0};
-        const ryzenai_corelib_ssmlp_bf16_gguf_components components{
-            epsilon_bf16.data(), norm0_scale.data(), norm1_scale.data(), gate.data(), up.data(),
-            down.data(), ryzenai_corelib_gguf_quant_type_q8_0};
+        ryzenai_corelib_ssmlp_bf16_components components{};
+        components.epsilon = corelib::Bf16(epsilon_bf16.data(), epsilon_bf16.size());
+        components.norm0 = corelib::Bf16(norm0_scale.data(), norm0_scale.size());
+        components.norm1 = corelib::Bf16(norm1_scale.data(), norm1_scale.size());
+        components.gate_qweight = corelib::GgufQ8(gate.data(), gate.size(), cfg->intermediate, cfg->hidden);
+        components.up_qweight = corelib::GgufQ8(up.data(), up.size(), cfg->intermediate, cfg->hidden);
+        components.down_qweight = corelib::GgufQ8(down.data(), down.size(), cfg->hidden, cfg->intermediate);
         void* created = nullptr;
-        api->Check(api->functions().ssmlp_weights_create_gguf_requantized(
+        api->Check(api->functions().ssmlp_weights_pack(
                        &desc, &components, kRequantizeThreads, &created),
-                   "ryzenai_corelib_ssmlp_bf16_weights_create_gguf_requantized layer " +
+                   "ryzenai_corelib_ssmlp_bf16_weights_pack layer " +
                        std::to_string(layer));
         return UniqueSsMlpWeights(api, created);
     }
@@ -415,14 +425,14 @@ private:
             const ryzenai_corelib_dwconv_bf16_weights_desc desc{
                 cfg->conv_channels(), cfg->conv_width, cfg->lin_k_dim, cfg->lin_k_heads, cfg->lin_k_heads,
                 cfg->lin_v_heads, 1.0e-6f, static_cast<float>(1.0 / std::sqrt(cfg->lin_k_dim)), 1.0f};
-            const ryzenai_corelib_onnx_source weight_source{
-                weights.data(), nullptr, weights.size() * sizeof(std::uint16_t), 0};
-            const ryzenai_corelib_onnx_source bias_source{
-                bias.data(), nullptr, bias.size() * sizeof(std::uint16_t), 0};
-            const ryzenai_corelib_dwconv_bf16_onnx_components components{weight_source, bias_source};
+            ryzenai_corelib_dwconv_bf16_components components{};
+            components.weights = corelib::Fp16(
+                weights.data(), weights.size(),
+                {desc.channels, 1, desc.kernel_width});
+            components.bias = corelib::Fp16(bias.data(), bias.size(), {desc.channels});
             void* created = nullptr;
-            api->Check(api->functions().dwconv_weights_create_onnx(&desc, &components, &created),
-                       "ryzenai_corelib_dwconv_bf16_weights_create_onnx blk." + id);
+            api->Check(api->functions().dwconv_weights_pack(&desc, &components, &created),
+                       "ryzenai_corelib_dwconv_bf16_weights_pack blk." + id);
             linear[layer].conv = UniqueDwConvWeights(api, created);
             linear[layer].z = MatmulOwned(package->ZBlocks(layer), cfg->hidden, cfg->lin_value_dim(),
                                           "blk." + id + ".attn_gate");

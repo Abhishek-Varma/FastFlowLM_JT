@@ -673,7 +673,7 @@ void TestFakeRejectsSsmlpOperandsThatAliasOneAllocation() {
     // left to reject is the aliasing.
     std::int64_t rows = 64;
     const ryzenai_corelib_ssmlp_bf16_weights_desc desc{1536, 6144, 32, 1, 1};
-    TEST_REQUIRE(fns.ssmlp_pad_rows(stream, &rows, &desc) ==
+    TEST_REQUIRE(fake_corelib::NoteSsmlpRows(stream, &rows, &desc) ==
                  ryzenai_corelib_status_success);
     TEST_REQUIRE(rows == 64);
 
@@ -727,7 +727,7 @@ void TestFakeRejectsADispatchAtARowCountNoHelperProduced() {
 
     std::int64_t rows = 64;
     const ryzenai_corelib_ssmlp_bf16_weights_desc desc{1536, 6144, 32, 1, 1};
-    TEST_REQUIRE(fns.ssmlp_pad_rows(stream, &rows, &desc) ==
+    TEST_REQUIRE(fake_corelib::NoteSsmlpRows(stream, &rows, &desc) ==
                  ryzenai_corelib_status_success);
 
     auto make = [&](std::int64_t m) {

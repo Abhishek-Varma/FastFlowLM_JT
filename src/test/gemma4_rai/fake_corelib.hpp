@@ -836,6 +836,21 @@ void Reset();
 flm::corelib::CorelibApi::Resolver Resolver();
 ryzenai_corelib_stream_ptr MakeStreamForTest();
 
+/// \brief record a shipped matmul row count the way a kernel enumeration would
+ryzenai_corelib_status NoteMatmulPad(ryzenai_corelib_stream_ptr stream,
+                                     std::int64_t* rows,
+                                     std::int64_t* k,
+                                     std::int64_t* n,
+                                     std::int64_t group);
+/// \brief record a shipped ssmlp row count
+ryzenai_corelib_status NoteSsmlpRows(ryzenai_corelib_stream_ptr stream,
+                                     std::int64_t* rows,
+                                     const ryzenai_corelib_ssmlp_bf16_weights_desc* desc);
+/// \brief record a shipped attention row count
+ryzenai_corelib_status NoteMhaRows(ryzenai_corelib_stream_ptr stream,
+                                   std::int64_t* rows,
+                                   const ryzenai_corelib_flat_mha_bf16_desc* desc);
+
 /// \brief the byte count this fake's `ple_bf16_weights_pack` reports for a
 ///        descriptor, and the only length its `ple_bf16_weights_create`
 ///        accepts

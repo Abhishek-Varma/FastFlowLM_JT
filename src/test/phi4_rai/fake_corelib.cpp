@@ -149,6 +149,9 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             return current_detail.c_str();
         } else if constexpr (std::is_same_v<Tag, selftest_dependencies_tag>) {
             return state.selftest_status;
+        } else if constexpr (std::is_same_v<Tag, stream_get_kernels_root_tag>) {
+            static const char kKernelsRoot[] = "";
+            return kKernelsRoot;
         } else if constexpr (std::is_same_v<Tag, get_device_tag>) {
             // 0.5.0 answers "is there an NPU" with the device pointer itself,
             // NULL when there is none. The fake has no device to hand out, so

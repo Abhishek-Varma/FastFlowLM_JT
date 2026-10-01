@@ -2,9 +2,9 @@
 
 #include <ryzenai/corelib.h>
 
-#if RYZENAI_CORELIB_VERSION_MAJOR != 0 || RYZENAI_CORELIB_VERSION_MINOR != 9 || \
+#if RYZENAI_CORELIB_VERSION_MAJOR != 0 || RYZENAI_CORELIB_VERSION_MINOR != 11 || \
     RYZENAI_CORELIB_VERSION_PATCH != 0
-#error "FastFlowLM requires ryzenai-corelib headers exactly 0.9.0"
+#error "FastFlowLM requires ryzenai-corelib headers exactly 0.11.0"
 #endif
 
 #include <atomic>
@@ -37,37 +37,26 @@
     X(stream_set_kernels_root, ryzenai_corelib_stream_set_kernels_root)            \
     X(weights_slice, ryzenai_corelib_weights_slice)                                \
     X(matmul_enum_kernels, ryzenai_corelib_matmul_bf16_enum_kernels)               \
-    X(matmul_weights_create_gguf_requantized,                                      \
-      ryzenai_corelib_matmul_bf16_weights_create_gguf_requantized)                 \
-    X(matmul_weights_create_onnx,                                                  \
-      ryzenai_corelib_matmul_bf16_weights_create_onnx)                             \
-    X(matmul_weights_create_from_file,                                             \
-      ryzenai_corelib_matmul_bf16_weights_create_from_file)                        \
+    X(matmul_weights_pack, ryzenai_corelib_matmul_bf16_weights_pack)               \
+    X(matmul_weights_load, ryzenai_corelib_matmul_bf16_weights_load)               \
     X(matmul, ryzenai_corelib_matmul_bf16)                                         \
     X(matmul_act, ryzenai_corelib_matmul_act_bf16)                                 \
     X(matmul_act_enum_kernels, ryzenai_corelib_matmul_act_bf16_enum_kernels)       \
     X(ssmlp_enum_kernels, ryzenai_corelib_ssmlp_bf16_enum_kernels)                 \
-    X(ssmlp_weights_create_gguf_requantized,                                       \
-      ryzenai_corelib_ssmlp_bf16_weights_create_gguf_requantized)                  \
-    X(ssmlp_weights_create_from_file,                                              \
-      ryzenai_corelib_ssmlp_bf16_weights_create_from_file)                         \
+    X(ssmlp_weights_pack, ryzenai_corelib_ssmlp_bf16_weights_pack)                 \
+    X(ssmlp_weights_load, ryzenai_corelib_ssmlp_bf16_weights_load)                 \
     X(weights_copy_data, ryzenai_corelib_weights_copy_data)                        \
     X(ssmlp, ryzenai_corelib_ssmlp_bf16)                                           \
-    X(rmsnorm_weights_create_reference,                                            \
-      ryzenai_corelib_rmsnorm_bf16_weights_create_reference)                       \
-    X(rmsnorm_weights_create_onnx,                                                 \
-      ryzenai_corelib_rmsnorm_bf16_weights_create_onnx)                            \
-    X(rmsnorm_weights_create_from_file,                                            \
-      ryzenai_corelib_rmsnorm_bf16_weights_create_from_file)                       \
+    X(rmsnorm_weights_pack, ryzenai_corelib_rmsnorm_bf16_weights_pack)             \
+    X(rmsnorm_weights_load, ryzenai_corelib_rmsnorm_bf16_weights_load)             \
     X(rmsnorm, ryzenai_corelib_rmsnorm_bf16)                                       \
-    X(ple_weights_create_onnx, ryzenai_corelib_ple_bf16_weights_create_onnx)       \
-    X(ple_weights_create, ryzenai_corelib_ple_bf16_weights_create)                 \
+    X(ple_weights_pack, ryzenai_corelib_ple_bf16_weights_pack)                     \
+    X(ple_weights_load, ryzenai_corelib_ple_bf16_weights_load)                     \
     X(ple, ryzenai_corelib_ple_bf16)                                               \
     X(flat_mha_enum_kernels, ryzenai_corelib_flat_mha_bf16_enum_kernels)           \
     X(flat_mha, ryzenai_corelib_flat_mha_bf16)                                     \
     X(linear_attention, ryzenai_corelib_linear_attention_bf16)                     \
-    X(dwconv_weights_create_onnx,                                                  \
-      ryzenai_corelib_dwconv_bf16_weights_create_onnx)                             \
+    X(dwconv_weights_pack, ryzenai_corelib_dwconv_bf16_weights_pack)               \
     X(dwconv, ryzenai_corelib_dwconv_bf16)                                         \
     X(cleanup, ryzenai_corelib_cleanup)
 

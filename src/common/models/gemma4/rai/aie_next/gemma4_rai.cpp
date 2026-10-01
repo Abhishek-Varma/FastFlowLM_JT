@@ -6,6 +6,7 @@
 #include "rai/corelib_object.hpp"
 #include "rai/gguf_file.hpp"
 #include "rai/weight_cache.hpp"
+#include "rai/weight_source.hpp"
 
 #include <algorithm>
 #include <array>
@@ -96,8 +97,7 @@ enum class SlotKind { Matmul, SsMlp, RmsNorm, Ple };
 ///
 /// ONE TABLE, WALKED THE SAME WAY BOTH DIRECTIONS. The pack path runs
 /// `pack()` for every slot across a thread pool; the cache path calls the
-/// matching `..._weights_create_from_file` (or, for ple, `..._weights_create`
-/// over bytes read back) and `assign()`s the handle. Because both walk the
+/// matching `..._weights_load` and `assign()`s the handle. Because both walk the
 /// same vector in the same order, a cache index entry always refers to the
 /// weight it was written from -- which is the property Phi-4's engine gets
 /// from a hand-written `slot % 5` scheme and Gemma 4 cannot, because its
@@ -185,9 +185,9 @@ struct gemma4_rai::Impl {
     /// bad code.
     ///
     /// IF YOU ADD A MEMBER: a corelib handle, or anything holding one, goes
-    /// BELOW `stream`. Host memory corelib may have BOUND -- see `ple_blobs`
-    /// -- goes ABOVE the weights that bound it, and needs its own line in
-    /// that test, because nothing in the type says which buffers those are.
+    /// BELOW `stream`. Host memory corelib may have BOUND goes ABOVE the
+    /// weights that bound it, and needs its own line in that test, because
+    /// nothing in the type says which buffers those are.
     std::shared_ptr<CorelibRuntime> runtime;
     std::shared_ptr<Gemma4GgufPackage> package;
     std::shared_ptr<const CorelibApi> api;
@@ -201,18 +201,6 @@ struct gemma4_rai::Impl {
 
     UniqueStream stream;
     Gemma4ShapePlan plan;
-
-    /// \brief the packed ple blobs, one per layer, kept for the engine's life
-    /// \note NOT a scratch buffer. `ryzenai_corelib_ple_bf16_weights_create`
-    ///       has the same ownership contract as every other create --
-    ///       "retained, imported or copied, and is_owned() reports which" --
-    ///       so corelib is allowed to bind these pages in place rather than
-    ///       copy them. The adapter does not bind `weights_is_owned`, so the
-    ///       honest choice is to assume the pages are bound and keep them.
-    ///       They are also what the weight cache writes: ple is the one
-    ///       operator with no `..._weights_create_from_file`, so its bytes
-    ///       have to come from here rather than from `weights_copy_data`.
-    std::vector<std::vector<std::byte>> ple_blobs;
 
     struct LayerWeights {
         /// Present on every layer.
@@ -347,7 +335,6 @@ struct gemma4_rai::Impl {
         const auto& file = package->File();
         const auto layer_count = static_cast<std::size_t>(cfg.layers);
         layers.resize(layer_count);
-        ple_blobs.resize(layer_count);
 
         // ---- host-side material, all of it resolved before any thread runs
         //
@@ -558,12 +545,13 @@ struct gemma4_rai::Impl {
             const auto desc = slot.matmul;
             const auto name = slot.label;
             slot.pack = [this, desc, name, blocks, destination] {
-                ryzenai_corelib_matmul_bf16_gguf_components components{
-                    blocks->bytes.data(), ryzenai_corelib_gguf_quant_type_q8_0};
+                ryzenai_corelib_matmul_bf16_components components{};
+                components.qweight = corelib::GgufQ8(
+                    blocks->bytes.data(), blocks->bytes.size(), desc.n, desc.k);
                 void* created = nullptr;
-                api->Check(api->functions().matmul_weights_create_gguf_requantized(
+                api->Check(api->functions().matmul_weights_pack(
                                &desc, &components, kRequantizeThreads, &created),
-                           "ryzenai_corelib_matmul_bf16_weights_create_gguf_requantized " + name);
+                           "ryzenai_corelib_matmul_bf16_weights_pack " + name);
                 *destination = UniqueMatMulWeights(api, created);
             };
             slot.assign = [this, destination](void* handle) {
@@ -588,16 +576,11 @@ struct gemma4_rai::Impl {
             const auto desc = slot.rmsnorm;
             const auto name = slot.label;
             slot.pack = [this, desc, name, gamma, destination] {
-                // THE *REFERENCE* PACKER, and it is the only one that fits:
-                // `..._weights_create` takes already-packed bytes, which a
-                // GGUF does not have -- the file stores a bare FP32 gamma and
-                // the kernel reads a const blob with epsilon in it. It takes
-                // a PDI because it resolves the blob through a kernel; the
-                // prefill tag is the one that resolves the shape.
-                ryzenai_corelib_rmsnorm_bf16_onnx_components components{gamma->data()};
+                ryzenai_corelib_rmsnorm_bf16_components components{};
+                components.scale = corelib::Bf16(gamma->data(), gamma->size());
                 void* created = nullptr;
-                api->Check(api->functions().rmsnorm_weights_create_onnx(&desc, &components, &created),
-                           "ryzenai_corelib_rmsnorm_bf16_weights_create_onnx " + name);
+                api->Check(api->functions().rmsnorm_weights_pack(&desc, &components, &created),
+                           "ryzenai_corelib_rmsnorm_bf16_weights_pack " + name);
                 *destination = UniqueRmsNormWeights(api, created);
             };
             slot.assign = [this, destination](void* handle) {
@@ -670,14 +653,20 @@ struct gemma4_rai::Impl {
                 auto* destination = &weights.mlp;
                 slot.pack = [this, desc, name, norm0, norm1, gate, up, down, eps,
                              destination] {
-                    ryzenai_corelib_ssmlp_bf16_gguf_components components{
-                        eps->data(), norm0->data(), norm1->data(),
-                        gate->bytes.data(), up->bytes.data(), down->bytes.data(),
-                        ryzenai_corelib_gguf_quant_type_q8_0};
+                    ryzenai_corelib_ssmlp_bf16_components components{};
+                    components.epsilon = corelib::Bf16(eps->data(), eps->size());
+                    components.norm0 = corelib::Bf16(norm0->data(), norm0->size());
+                    components.norm1 = corelib::Bf16(norm1->data(), norm1->size());
+                    components.gate_qweight = corelib::GgufQ8(
+                        gate->bytes.data(), gate->bytes.size(), desc.n, desc.k);
+                    components.up_qweight = corelib::GgufQ8(
+                        up->bytes.data(), up->bytes.size(), desc.n, desc.k);
+                    components.down_qweight = corelib::GgufQ8(
+                        down->bytes.data(), down->bytes.size(), desc.k, desc.n);
                     void* created = nullptr;
-                    api->Check(api->functions().ssmlp_weights_create_gguf_requantized(
+                    api->Check(api->functions().ssmlp_weights_pack(
                                    &desc, &components, kRequantizeThreads, &created),
-                               "ryzenai_corelib_ssmlp_bf16_weights_create_gguf_requantized " + name);
+                               "ryzenai_corelib_ssmlp_bf16_weights_pack " + name);
                     *destination = UniqueSsMlpWeights(api, created);
                 };
                 slot.assign = [this, destination](void* handle) {
@@ -712,12 +701,16 @@ struct gemma4_rai::Impl {
                     // first. The packer allocates its own blob.
                     const auto gate_rows = Transposed(gate->values, desc.n, desc.k);
                     const auto proj_rows = Transposed(projection->values, desc.k, desc.n);
-                    const ryzenai_corelib_ple_bf16_components components{
-                        gate_rows.data(), proj_rows.data(), post_norm->values.data(),
-                        next_norm->values.data()};
+                    ryzenai_corelib_ple_bf16_components components{};
+                    components.gate = corelib::Fp32(gate_rows.data(), gate_rows.size(), {desc.k, desc.n});
+                    components.proj = corelib::Fp32(proj_rows.data(), proj_rows.size(), {desc.n, desc.k});
+                    components.post_norm = corelib::Fp32(
+                        post_norm->values.data(), post_norm->values.size(), {desc.k});
+                    components.next_norm = corelib::Fp32(
+                        next_norm->values.data(), next_norm->values.size(), {desc.k});
                     void* created = nullptr;
-                    api->Check(api->functions().ple_weights_create_onnx(&desc, &components, &created),
-                               "ryzenai_corelib_ple_bf16_weights_create_onnx " + name);
+                    api->Check(api->functions().ple_weights_pack(&desc, &components, &created),
+                               "ryzenai_corelib_ple_bf16_weights_pack " + name);
                     *destination = UniquePleWeights(api, created);
                 };
                 slot.assign = [this, destination](void* handle) {
@@ -907,45 +900,37 @@ struct gemma4_rai::Impl {
                        std::vector<WeightSlot>& slots) {
         if (spans.size() != slots.size()) return false;
         const auto path = data_path.string();
-        std::ifstream ple_source;
         for (std::size_t index = 0; index < slots.size(); ++index) {
             auto& slot = slots[index];
             void* handle = nullptr;
             auto status = ryzenai_corelib_status_failure;
             switch (slot.kind) {
-                case SlotKind::Matmul:
-                    status = api->functions().matmul_weights_create_from_file(
-                        &slot.matmul, path.c_str(), spans[index].offset,
-                        spans[index].size, &handle);
+                case SlotKind::Matmul: {
+                    const auto packed = corelib::PackedFile(
+                        path.c_str(), spans[index].offset, spans[index].size);
+                    status = api->functions().matmul_weights_load(
+                        &slot.matmul, &packed, &handle);
                     break;
-                case SlotKind::SsMlp:
-                    status = api->functions().ssmlp_weights_create_from_file(
-                        &slot.ssmlp, path.c_str(), spans[index].offset,
-                        spans[index].size, &handle);
+                }
+                case SlotKind::SsMlp: {
+                    const auto packed = corelib::PackedFile(
+                        path.c_str(), spans[index].offset, spans[index].size);
+                    status = api->functions().ssmlp_weights_load(
+                        &slot.ssmlp, &packed, &handle);
                     break;
-                case SlotKind::RmsNorm:
-                    status = api->functions().rmsnorm_weights_create_from_file(
-                        &slot.rmsnorm, path.c_str(), spans[index].offset,
-                        spans[index].size, &handle);
+                }
+                case SlotKind::RmsNorm: {
+                    const auto packed = corelib::PackedFile(
+                        path.c_str(), spans[index].offset, spans[index].size);
+                    status = api->functions().rmsnorm_weights_load(
+                        &slot.rmsnorm, &packed, &handle);
                     break;
+                }
                 case SlotKind::Ple: {
-                    // PLE HAS NO `..._weights_create_from_file` IN 0.5.0, so
-                    // its bytes are read here and handed to the in-memory
-                    // create. They are kept (see Impl::ple_blobs) for the
-                    // same ownership reason the packed path keeps them.
-                    if (!ple_source.is_open()) {
-                        ple_source.open(data_path, std::ios::binary);
-                        if (!ple_source) { ReleaseAllWeights(); return false; }
-                    }
-                    auto& blob = ple_blobs[static_cast<std::size_t>(slot.layer)];
-                    blob.assign(static_cast<std::size_t>(spans[index].size), std::byte{0});
-                    ple_source.seekg(static_cast<std::streamoff>(spans[index].offset));
-                    ple_source.read(reinterpret_cast<char*>(blob.data()),
-                                    static_cast<std::streamsize>(blob.size()));
-                    if (!ple_source) { ReleaseAllWeights(); return false; }
-                    status = api->functions().ple_weights_create(
-                        &slot.ple, blob.data(), blob.size(),
-                        ryzenai_corelib_weights_memory_copy, &handle);
+                    const auto packed = corelib::PackedFile(
+                        path.c_str(), spans[index].offset, spans[index].size);
+                    status = api->functions().ple_weights_load(
+                        &slot.ple, &packed, &handle);
                     break;
                 }
             }
@@ -962,7 +947,6 @@ struct gemma4_rai::Impl {
         for (auto& layer : layers) layer = LayerWeights{};
         input_norm = {};
         lm_head = {};
-        for (auto& blob : ple_blobs) blob.clear();
     }
 
     /// \brief copy the packed bytes out and write them beside the model
@@ -985,28 +969,18 @@ struct gemma4_rai::Impl {
                 std::vector<char> buffer;
                 std::uint64_t offset = 0;
                 for (const auto& slot : slots) {
-                    const char* bytes = nullptr;
                     std::size_t size = 0;
-                    if (slot.kind == SlotKind::Ple &&
-                        !ple_blobs[static_cast<std::size_t>(slot.layer)].empty()) {
-                        const auto& blob = ple_blobs[static_cast<std::size_t>(slot.layer)];
-                        bytes = reinterpret_cast<const char*>(blob.data());
-                        size = blob.size();
-                    } else {
-                        if (api->functions().weights_copy_data(slot.handle(), nullptr, 0,
-                                                               &size) !=
-                                ryzenai_corelib_status_success ||
-                            size == 0)
-                            return;
-                        buffer.resize(size);
-                        if (api->functions().weights_copy_data(
-                                slot.handle(), buffer.data(), buffer.size(), &size) !=
-                            ryzenai_corelib_status_success)
-                            return;
-                        bytes = buffer.data();
-                    }
+                    if (api->functions().weights_copy_data(slot.handle(), nullptr, 0, &size) !=
+                            ryzenai_corelib_status_success ||
+                        size == 0)
+                        return;
+                    buffer.resize(size);
+                    if (api->functions().weights_copy_data(
+                            slot.handle(), buffer.data(), buffer.size(), &size) !=
+                        ryzenai_corelib_status_success)
+                        return;
                     if (size == 0) return;
-                    output.write(bytes, static_cast<std::streamsize>(size));
+                    output.write(buffer.data(), static_cast<std::streamsize>(size));
                     if (!output) return;
                     spans.push_back({offset, static_cast<std::uint64_t>(size)});
                     offset += size;

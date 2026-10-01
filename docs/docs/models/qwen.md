@@ -107,7 +107,7 @@ flm run qwen3:8b
 - **Backend:** `rai` — one engine for all four sizes. The GGUF's own metadata selects the size and is cross-checked against it.
 - **Source format:** GGUF `Q8_0`, read directly. Every weight is requantized to **group 64** while it is packed, except the 0.6B lm_head, which packs at **group 32**.
 - **Usable generation window:** 4095 tokens, prompt plus output. Over-capacity requests are rejected with HTTP 400 before any work reaches the device.
-- **Availability:** developer build against corelib 0.9.0 — see [Phi-4 on the rai backend](phi.md).
+- **Availability:** developer build against corelib 0.11.0 — see [Phi-4 on the rai backend](phi.md).
 
 The same corelib path also runs `gemma4-it-rai:e2b`, `gemma4-it-rai:e4b` (text only) and `qwen3.5-rai:9b`.
 

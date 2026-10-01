@@ -387,6 +387,9 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             return "success";
         } else if constexpr (std::is_same_v<Tag, get_last_error_message_tag>) {
             return "";
+        } else if constexpr (std::is_same_v<Tag, stream_get_kernels_root_tag>) {
+            static const char kKernelsRoot[] = "";
+            return kKernelsRoot;
         } else if constexpr (std::is_same_v<Tag, get_device_tag>) {
             static const int kFakeDevice = 0;
             return static_cast<const void*>(&kFakeDevice);
@@ -611,6 +614,10 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             auto* object = static_cast<FakeObject*>(*out);
             object->weight_n = desc->n;
             object->packed_size = packed;
+            static constexpr std::int64_t kBuckets[] = {
+                1, 64, 128, 256, 512, 1024, 2048, 3072, 4096};
+            for (const std::int64_t bucket : kBuckets)
+                PaddedRows(MatmulHelperFor(desc->n), bucket);
             object->identity_tag = blocks_tag;
             state.matmul_weights_creates.push_back({*desc, kFromFile, blocks_tag, *out});
             return ryzenai_corelib_status_success;
@@ -725,11 +732,43 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             std::memset(out, static_cast<int>(size & 0xFF), size);
             state.ple_pack_calls.push_back(std::move(call));
             return ryzenai_corelib_status_success;
+        } else if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag> ||
+                             std::is_same_v<Tag, ssmlp_enum_kernels_tag> ||
+                             std::is_same_v<Tag, flat_mha_enum_kernels_tag>) {
+            auto* callback = std::get<1>(arguments);
+            auto* ctx = std::get<2>(arguments);
+            if (callback) {
+                if constexpr (std::is_same_v<Tag, matmul_enum_kernels_tag>) {
+                    callback(ctx, 0, static_cast<std::int64_t>(-1),
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(0),
+                             static_cast<std::int64_t>(0), false,
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(0));
+                } else if constexpr (std::is_same_v<Tag, ssmlp_enum_kernels_tag>) {
+                    static constexpr std::int64_t kBuckets[] = {
+                        1, 64, 128, 256, 512, 1024, 2048, 3072, 4096};
+                    for (const std::int64_t bucket : kBuckets)
+                        PaddedRows("ssmlp", bucket);
+                    callback(ctx, 0, "gemma_fusion", static_cast<std::int64_t>(-1),
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(0),
+                             static_cast<std::int64_t>(0));
+                } else {
+                    static constexpr std::int64_t kBuckets[] = {
+                        1, 64, 128, 256, 512, 1024, 2048, 3072, 4096};
+                    for (const std::int64_t bucket : kBuckets)
+                        PaddedRows("mha", bucket);
+                    callback(ctx, 0, static_cast<std::int64_t>(-1),
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(-1),
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(0),
+                             static_cast<std::int64_t>(0), static_cast<std::int64_t>(0),
+                             static_cast<std::int64_t>(0), false, false);
+                }
+            }
+            return ryzenai_corelib_status_success;
         } else if constexpr (std::is_same_v<Tag, ple_weights_create_tag>) {
             const auto* desc = std::get<0>(arguments);
             const void* packed = std::get<1>(arguments);
             const auto packed_size = std::get<2>(arguments);
-            auto* out = std::get<3>(arguments);
+            auto* out = std::get<4>(arguments);
             if (out) *out = nullptr;
             if (!desc || !packed || !out) return ryzenai_corelib_status_bad_argument;
             const auto expected = fake_corelib::PlePackedSize(*desc);
@@ -1060,6 +1099,43 @@ State& GetState() { return state; }
 
 std::size_t PlePackedSize(const ryzenai_corelib_ple_bf16_weights_desc& desc) {
     return PackedSizeFor(4, desc.k, desc.n, desc.group_size);
+}
+
+ryzenai_corelib_status NoteMatmulPad(ryzenai_corelib_stream_ptr stream,
+                                     std::int64_t* rows,
+                                     std::int64_t* k,
+                                     std::int64_t* n,
+                                     std::int64_t group) {
+    std::lock_guard<std::recursive_mutex> lock(state_mutex);
+    state.matmul_pad_calls.push_back(
+        {stream, rows ? *rows : -1, k ? *k : -1, n ? *n : -1,
+         static_cast<std::uint32_t>(group)});
+    if (rows) *rows = PaddedRows(MatmulHelperFor(n ? *n : -1), *rows);
+    if (k) *k += state.matmul_k_delta;
+    if (n) *n += state.matmul_n_delta;
+    return ryzenai_corelib_status_success;
+}
+
+ryzenai_corelib_status NoteSsmlpRows(
+    ryzenai_corelib_stream_ptr stream, std::int64_t* rows,
+    const ryzenai_corelib_ssmlp_bf16_weights_desc* desc) {
+    std::lock_guard<std::recursive_mutex> lock(state_mutex);
+    state.rows_pad_calls.push_back(
+        {stream, rows ? *rows : -1,
+         desc ? *desc : ryzenai_corelib_ssmlp_bf16_weights_desc{}});
+    if (rows) *rows = PaddedRows("ssmlp", *rows);
+    return ryzenai_corelib_status_success;
+}
+
+ryzenai_corelib_status NoteMhaRows(ryzenai_corelib_stream_ptr stream,
+                                   std::int64_t* rows,
+                                   const ryzenai_corelib_flat_mha_bf16_desc* desc) {
+    std::lock_guard<std::recursive_mutex> lock(state_mutex);
+    state.mha_pad_calls.push_back(
+        {stream, rows ? *rows : -1,
+         desc ? *desc : ryzenai_corelib_flat_mha_bf16_desc{}});
+    if (rows) *rows = PaddedRows("mha", *rows);
+    return ryzenai_corelib_status_success;
 }
 
 void Reset() {

@@ -1,5 +1,6 @@
 #include "models/phi4/rai/aie_next/phi4_rai.hpp"
 #include "rai/corelib_object.hpp"
+#include "rai/weight_source.hpp"
 #include "models/phi4/rai/aie_next/phi4_rai_constants.hpp"
 #include "models/phi4/rai/aie_next/phi4_rai_host.hpp"
 #include "models/phi4/rai/aie_next/phi4_rai_shape_plan.hpp"
@@ -145,8 +146,10 @@ struct phi4_rai::Impl {
         phases.shape_plan = phases.Lap();
         auto mm=[&](const TensorView& tv,std::int64_t kk,std::int64_t nn,const std::string& label){
             ryzenai_corelib_matmul_bf16_weights_desc d{kk,nn,kRequantizedGroupSize,false};
-            ryzenai_corelib_matmul_bf16_gguf_components c{tv.bytes.data(),ryzenai_corelib_gguf_quant_type_q8_0}; void* p=nullptr;
-            api->Check(api->functions().matmul_weights_create_gguf_requantized(&d,&c,kRequantizeThreads,&p),"ryzenai_corelib_matmul_bf16_weights_create_gguf_requantized "+label);
+            ryzenai_corelib_matmul_bf16_components c{};
+            c.qweight = corelib::GgufQ8(tv.bytes.data(), tv.bytes.size(), nn, kk);
+            void* p=nullptr;
+            api->Check(api->functions().matmul_weights_pack(&d,&c,kRequantizeThreads,&p),"ryzenai_corelib_matmul_bf16_weights_pack "+label);
             return UniqueMatMulWeights(api,p);
         };
         // Each create reads its own mapped range and writes its own array slot,
@@ -163,9 +166,15 @@ struct phi4_rai::Impl {
             creates.push_back([&,i]{
                 const auto& next=i+1<kLayerCount?an_bf[i+1]:final_bf;
                 ryzenai_corelib_ssmlp_bf16_weights_desc d{kHiddenSize,kIntermediateSize,kRequantizedGroupSize};
-                ryzenai_corelib_ssmlp_bf16_gguf_components c{eps.data(),fn_bf[i].data(),next.data(),gu[i].values[0].bytes.data(),gu[i].values[1].bytes.data(),dw[i].bytes.data(),ryzenai_corelib_gguf_quant_type_q8_0};
+                ryzenai_corelib_ssmlp_bf16_components c{};
+                c.epsilon = corelib::Bf16(eps.data(), eps.size());
+                c.norm0 = corelib::Bf16(fn_bf[i].data(), fn_bf[i].size());
+                c.norm1 = corelib::Bf16(next.data(), next.size());
+                c.gate_qweight = corelib::GgufQ8(gu[i].values[0].bytes.data(), gu[i].values[0].bytes.size(), kIntermediateSize, kHiddenSize);
+                c.up_qweight = corelib::GgufQ8(gu[i].values[1].bytes.data(), gu[i].values[1].bytes.size(), kIntermediateSize, kHiddenSize);
+                c.down_qweight = corelib::GgufQ8(dw[i].bytes.data(), dw[i].bytes.size(), kHiddenSize, kIntermediateSize);
                 void* p=nullptr;
-                api->Check(api->functions().ssmlp_weights_create_gguf_requantized(&d,&c,kRequantizeThreads,&p),"ryzenai_corelib_ssmlp_bf16_weights_create_gguf_requantized layer "+std::to_string(i));
+                api->Check(api->functions().ssmlp_weights_pack(&d,&c,kRequantizeThreads,&p),"ryzenai_corelib_ssmlp_bf16_weights_pack layer "+std::to_string(i));
                 mlp_weights[i]=UniqueSsMlpWeights(api,p);
             });
         }
@@ -313,15 +322,14 @@ struct phi4_rai::Impl {
         for (std::size_t slot = 0; slot < total; ++slot) {
             void* handle = nullptr;
             ryzenai_corelib_status status;
+            const auto packed = corelib::PackedFile(path.c_str(), spans[slot].offset, spans[slot].size);
             if (SlotIsMatmul(slot)) {
                 const auto desc = MatmulDescAt(slot);
-                status = api->functions().matmul_weights_create_from_file(
-                    &desc, path.c_str(), spans[slot].offset, spans[slot].size, &handle);
+                status = api->functions().matmul_weights_load(&desc, &packed, &handle);
             } else {
                 const ryzenai_corelib_ssmlp_bf16_weights_desc desc{
                     kHiddenSize, kIntermediateSize, kRequantizedGroupSize};
-                status = api->functions().ssmlp_weights_create_from_file(
-                    &desc, path.c_str(), spans[slot].offset, spans[slot].size, &handle);
+                status = api->functions().ssmlp_weights_load(&desc, &packed, &handle);
             }
             if (status != ryzenai_corelib_status_success || handle == nullptr) {
                 ReleaseAllWeights();
