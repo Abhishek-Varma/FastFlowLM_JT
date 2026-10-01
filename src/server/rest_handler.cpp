@@ -394,6 +394,19 @@ RestHandler::~RestHandler() = default;
 ///@param model_tag the model tag
 bool RestHandler::ensure_model_loaded(const std::string& model_tag,
                                       const std::string& request_backend) {
+    // Refuse a name the catalog does not have before anything resolves it;
+    // an unknown name used to load a substitute model (and on aie_next could
+    // end the process). Checked after rectify_model_tag, as get_model_info
+    // does, so "Ollama/<tag>" and bare family names still resolve.
+    // "model-faker" means no model was chosen.
+    if (model_tag != "model-faker" &&
+        !supported_models.is_model_supported(
+            supported_models.rectify_model_tag(model_tag))) {
+        header_print_r("ERROR", "Model tag '" << model_tag
+            << "' is not supported. Please check with `flm list`.");
+        return false;
+    }
+
     // A per-request "backend" overrides --backend; either one differing from
     // what is loaded forces a reload, exactly as a different model tag does.
     const std::string requested_backend =
