@@ -53,8 +53,8 @@ std::vector<std::uint16_t> ToBf16(std::span<const float> values) {
 ///       layout table in the review of C7/R1: matmul's `blocks`, ssmlp's
 ///       gate/up/down, both norm ports are all correct as mapped). `ple` is
 ///       the exception, and the transpose is materialised rather than
-///       described because `ryzenai_corelib_ple_bf16_weights_pack` takes a
-///       bare `const float*` with no stride.
+///       described because `ryzenai_corelib_ple_bf16_weights_create` takes a
+///       dense FP32 source with no stride.
 std::vector<float> Transposed(std::span<const float> source, std::int64_t rows,
                               std::int64_t cols) {
     const auto row_count = static_cast<std::size_t>(rows);
@@ -97,7 +97,8 @@ enum class SlotKind { Matmul, SsMlp, RmsNorm, Ple };
 ///
 /// ONE TABLE, WALKED THE SAME WAY BOTH DIRECTIONS. The pack path runs
 /// `pack()` for every slot across a thread pool; the cache path calls the
-/// matching `..._weights_load` and `assign()`s the handle. Because both walk the
+/// matching `..._weights_create` with the cached blob as its one `packed`
+/// source and `assign()`s the handle. Because both walk the
 /// same vector in the same order, a cache index entry always refers to the
 /// weight it was written from -- which is the property Phi-4's engine gets
 /// from a hand-written `slot % 5` scheme and Gemma 4 cannot, because its
@@ -545,13 +546,14 @@ struct gemma4_rai::Impl {
             const auto desc = slot.matmul;
             const auto name = slot.label;
             slot.pack = [this, desc, name, blocks, destination] {
-                ryzenai_corelib_matmul_bf16_components components{};
-                components.qweight = corelib::GgufQ8(
-                    blocks->bytes.data(), blocks->bytes.size(), desc.n, desc.k);
+                const ryzenai_corelib_weights_source sources[]{corelib::GgufQ8(
+                    ryzenai_corelib_weights_role_qweight, blocks->bytes.data(),
+                    blocks->bytes.size(), desc.n, desc.k)};
+                const auto options = corelib::PackOptions(kRequantizeThreads);
                 void* created = nullptr;
-                api->Check(api->functions().matmul_weights_pack(
-                               &desc, &components, kRequantizeThreads, &created),
-                           "ryzenai_corelib_matmul_bf16_weights_pack " + name);
+                api->Check(api->functions().matmul_weights_create(
+                               &desc, sources, std::size(sources), &options, &created),
+                           "ryzenai_corelib_matmul_bf16_weights_create " + name);
                 *destination = UniqueMatMulWeights(api, created);
             };
             slot.assign = [this, destination](void* handle) {
@@ -576,11 +578,12 @@ struct gemma4_rai::Impl {
             const auto desc = slot.rmsnorm;
             const auto name = slot.label;
             slot.pack = [this, desc, name, gamma, destination] {
-                ryzenai_corelib_rmsnorm_bf16_components components{};
-                components.scale = corelib::Bf16(gamma->data(), gamma->size());
+                const ryzenai_corelib_weights_source sources[]{corelib::Bf16(
+                    ryzenai_corelib_weights_role_scale, gamma->data(), gamma->size())};
                 void* created = nullptr;
-                api->Check(api->functions().rmsnorm_weights_pack(&desc, &components, &created),
-                           "ryzenai_corelib_rmsnorm_bf16_weights_pack " + name);
+                api->Check(api->functions().rmsnorm_weights_create(
+                               &desc, sources, std::size(sources), nullptr, &created),
+                           "ryzenai_corelib_rmsnorm_bf16_weights_create " + name);
                 *destination = UniqueRmsNormWeights(api, created);
             };
             slot.assign = [this, destination](void* handle) {
@@ -653,20 +656,21 @@ struct gemma4_rai::Impl {
                 auto* destination = &weights.mlp;
                 slot.pack = [this, desc, name, norm0, norm1, gate, up, down, eps,
                              destination] {
-                    ryzenai_corelib_ssmlp_bf16_components components{};
-                    components.epsilon = corelib::Bf16(eps->data(), eps->size());
-                    components.norm0 = corelib::Bf16(norm0->data(), norm0->size());
-                    components.norm1 = corelib::Bf16(norm1->data(), norm1->size());
-                    components.gate_qweight = corelib::GgufQ8(
-                        gate->bytes.data(), gate->bytes.size(), desc.n, desc.k);
-                    components.up_qweight = corelib::GgufQ8(
-                        up->bytes.data(), up->bytes.size(), desc.n, desc.k);
-                    components.down_qweight = corelib::GgufQ8(
-                        down->bytes.data(), down->bytes.size(), desc.k, desc.n);
+                    const ryzenai_corelib_weights_source sources[]{
+                        corelib::Bf16(ryzenai_corelib_weights_role_epsilon, eps->data(), eps->size()),
+                        corelib::Bf16(ryzenai_corelib_weights_role_norm0, norm0->data(), norm0->size()),
+                        corelib::Bf16(ryzenai_corelib_weights_role_norm1, norm1->data(), norm1->size()),
+                        corelib::GgufQ8(ryzenai_corelib_weights_role_gate_qweight,
+                                        gate->bytes.data(), gate->bytes.size(), desc.n, desc.k),
+                        corelib::GgufQ8(ryzenai_corelib_weights_role_up_qweight,
+                                        up->bytes.data(), up->bytes.size(), desc.n, desc.k),
+                        corelib::GgufQ8(ryzenai_corelib_weights_role_down_qweight,
+                                        down->bytes.data(), down->bytes.size(), desc.k, desc.n)};
+                    const auto options = corelib::PackOptions(kRequantizeThreads);
                     void* created = nullptr;
-                    api->Check(api->functions().ssmlp_weights_pack(
-                                   &desc, &components, kRequantizeThreads, &created),
-                               "ryzenai_corelib_ssmlp_bf16_weights_pack " + name);
+                    api->Check(api->functions().ssmlp_weights_create(
+                                   &desc, sources, std::size(sources), &options, &created),
+                               "ryzenai_corelib_ssmlp_bf16_weights_create " + name);
                     *destination = UniqueSsMlpWeights(api, created);
                 };
                 slot.assign = [this, destination](void* handle) {
@@ -696,21 +700,26 @@ struct gemma4_rai::Impl {
                 auto* destination = &weights.ple;
                 slot.pack = [this, desc, name, gate, projection, post_norm, next_norm,
                              destination] {
-                    // create_onnx takes gate as FP32 [k, n] and proj as [n, k].
+                    // corelib takes gate as FP32 [k, n] and proj as [n, k].
                     // The GGUF mapping is the other way round, so transpose
                     // first. The packer allocates its own blob.
                     const auto gate_rows = Transposed(gate->values, desc.n, desc.k);
                     const auto proj_rows = Transposed(projection->values, desc.k, desc.n);
-                    ryzenai_corelib_ple_bf16_components components{};
-                    components.gate = corelib::Fp32(gate_rows.data(), gate_rows.size(), {desc.k, desc.n});
-                    components.proj = corelib::Fp32(proj_rows.data(), proj_rows.size(), {desc.n, desc.k});
-                    components.post_norm = corelib::Fp32(
-                        post_norm->values.data(), post_norm->values.size(), {desc.k});
-                    components.next_norm = corelib::Fp32(
-                        next_norm->values.data(), next_norm->values.size(), {desc.k});
+                    const ryzenai_corelib_weights_source sources[]{
+                        corelib::Fp32(ryzenai_corelib_weights_role_gate, gate_rows.data(),
+                                      gate_rows.size(), {desc.k, desc.n}),
+                        corelib::Fp32(ryzenai_corelib_weights_role_proj, proj_rows.data(),
+                                      proj_rows.size(), {desc.n, desc.k}),
+                        corelib::Fp32(ryzenai_corelib_weights_role_post_norm,
+                                      post_norm->values.data(), post_norm->values.size(),
+                                      {desc.k}),
+                        corelib::Fp32(ryzenai_corelib_weights_role_next_norm,
+                                      next_norm->values.data(), next_norm->values.size(),
+                                      {desc.k})};
                     void* created = nullptr;
-                    api->Check(api->functions().ple_weights_pack(&desc, &components, &created),
-                               "ryzenai_corelib_ple_bf16_weights_pack " + name);
+                    api->Check(api->functions().ple_weights_create(
+                                   &desc, sources, std::size(sources), nullptr, &created),
+                               "ryzenai_corelib_ple_bf16_weights_create " + name);
                     *destination = UniquePleWeights(api, created);
                 };
                 slot.assign = [this, destination](void* handle) {
@@ -904,35 +913,25 @@ struct gemma4_rai::Impl {
             auto& slot = slots[index];
             void* handle = nullptr;
             auto status = ryzenai_corelib_status_failure;
+            const auto packed =
+                corelib::PackedFile(path.c_str(), spans[index].offset, spans[index].size);
             switch (slot.kind) {
-                case SlotKind::Matmul: {
-                    const auto packed = corelib::PackedFile(
-                        path.c_str(), spans[index].offset, spans[index].size);
-                    status = api->functions().matmul_weights_load(
-                        &slot.matmul, &packed, &handle);
+                case SlotKind::Matmul:
+                    status = api->functions().matmul_weights_create(
+                        &slot.matmul, &packed, 1, nullptr, &handle);
                     break;
-                }
-                case SlotKind::SsMlp: {
-                    const auto packed = corelib::PackedFile(
-                        path.c_str(), spans[index].offset, spans[index].size);
-                    status = api->functions().ssmlp_weights_load(
-                        &slot.ssmlp, &packed, &handle);
+                case SlotKind::SsMlp:
+                    status = api->functions().ssmlp_weights_create(
+                        &slot.ssmlp, &packed, 1, nullptr, &handle);
                     break;
-                }
-                case SlotKind::RmsNorm: {
-                    const auto packed = corelib::PackedFile(
-                        path.c_str(), spans[index].offset, spans[index].size);
-                    status = api->functions().rmsnorm_weights_load(
-                        &slot.rmsnorm, &packed, &handle);
+                case SlotKind::RmsNorm:
+                    status = api->functions().rmsnorm_weights_create(
+                        &slot.rmsnorm, &packed, 1, nullptr, &handle);
                     break;
-                }
-                case SlotKind::Ple: {
-                    const auto packed = corelib::PackedFile(
-                        path.c_str(), spans[index].offset, spans[index].size);
-                    status = api->functions().ple_weights_load(
-                        &slot.ple, &packed, &handle);
+                case SlotKind::Ple:
+                    status = api->functions().ple_weights_create(
+                        &slot.ple, &packed, 1, nullptr, &handle);
                     break;
-                }
             }
             if (status != ryzenai_corelib_status_success || handle == nullptr) {
                 ReleaseAllWeights();

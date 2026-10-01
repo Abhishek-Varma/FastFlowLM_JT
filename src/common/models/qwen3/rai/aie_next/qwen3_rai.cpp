@@ -138,11 +138,12 @@ struct qwen3_rai::Impl {
         // cost nothing to pack, and so are not worth a place in the cache.
         const ryzenai_corelib_rmsnorm_bf16_weights_desc norm_desc{kQkNormWidth, c->epsilon};
         const auto norm = [&](const std::vector<std::uint16_t>& scale, const std::string& label) {
-            ryzenai_corelib_rmsnorm_bf16_components components{};
-            components.scale = corelib::Bf16(scale.data(), scale.size());
+            const ryzenai_corelib_weights_source sources[]{
+                corelib::Bf16(ryzenai_corelib_weights_role_scale, scale.data(), scale.size())};
             void* p = nullptr;
-            api->Check(api->functions().rmsnorm_weights_pack(&norm_desc, &components, &p),
-                       "ryzenai_corelib_rmsnorm_bf16_weights_pack " + label);
+            api->Check(api->functions().rmsnorm_weights_create(&norm_desc, sources, std::size(sources),
+                                                               nullptr, &p),
+                       "ryzenai_corelib_rmsnorm_bf16_weights_create " + label);
             return UniqueRmsNormWeights(api, p);
         };
         for (std::size_t i = 0; i < layers; ++i) {
@@ -153,12 +154,14 @@ struct qwen3_rai::Impl {
         const auto matmul = [&](const rai::GgufTensor& tensor, std::int64_t k_in, std::int64_t n_out,
                                 std::uint32_t group, const std::string& label) {
             const ryzenai_corelib_matmul_bf16_weights_desc desc{k_in, n_out, group, false};
-            ryzenai_corelib_matmul_bf16_components components{};
-            components.qweight = corelib::GgufQ8(tensor.bytes.data(), tensor.bytes.size(), n_out, k_in);
+            const ryzenai_corelib_weights_source sources[]{corelib::GgufQ8(
+                ryzenai_corelib_weights_role_qweight, tensor.bytes.data(), tensor.bytes.size(),
+                n_out, k_in)};
+            const auto options = corelib::PackOptions(kRequantizeThreads);
             void* p = nullptr;
-            api->Check(api->functions().matmul_weights_pack(
-                           &desc, &components, kRequantizeThreads, &p),
-                       "ryzenai_corelib_matmul_bf16_weights_pack " + label);
+            api->Check(api->functions().matmul_weights_create(
+                           &desc, sources, std::size(sources), &options, &p),
+                       "ryzenai_corelib_matmul_bf16_weights_create " + label);
             return UniqueMatMulWeights(api, p);
         };
         std::vector<std::function<void()>> creates;
@@ -176,17 +179,18 @@ struct qwen3_rai::Impl {
                 // norm before lm_head.
                 const auto& next = i + 1 < layers ? attn_norm[i + 1] : final_norm;
                 const ryzenai_corelib_ssmlp_bf16_weights_desc desc{c->hidden, c->intermediate, c->group};
-                ryzenai_corelib_ssmlp_bf16_components components{};
-                components.epsilon = corelib::Bf16(epsilon.data(), epsilon.size());
-                components.norm0 = corelib::Bf16(ffn_norm[i].data(), ffn_norm[i].size());
-                components.norm1 = corelib::Bf16(next.data(), next.size());
-                components.gate_qweight = corelib::GgufQ8(t.gate.bytes.data(), t.gate.bytes.size(), c->intermediate, c->hidden);
-                components.up_qweight = corelib::GgufQ8(t.up.bytes.data(), t.up.bytes.size(), c->intermediate, c->hidden);
-                components.down_qweight = corelib::GgufQ8(t.down.bytes.data(), t.down.bytes.size(), c->hidden, c->intermediate);
+                const ryzenai_corelib_weights_source sources[]{
+                    corelib::Bf16(ryzenai_corelib_weights_role_epsilon, epsilon.data(), epsilon.size()),
+                    corelib::Bf16(ryzenai_corelib_weights_role_norm0, ffn_norm[i].data(), ffn_norm[i].size()),
+                    corelib::Bf16(ryzenai_corelib_weights_role_norm1, next.data(), next.size()),
+                    corelib::GgufQ8(ryzenai_corelib_weights_role_gate_qweight, t.gate.bytes.data(), t.gate.bytes.size(), c->intermediate, c->hidden),
+                    corelib::GgufQ8(ryzenai_corelib_weights_role_up_qweight, t.up.bytes.data(), t.up.bytes.size(), c->intermediate, c->hidden),
+                    corelib::GgufQ8(ryzenai_corelib_weights_role_down_qweight, t.down.bytes.data(), t.down.bytes.size(), c->hidden, c->intermediate)};
+                const auto options = corelib::PackOptions(kRequantizeThreads);
                 void* p = nullptr;
-                api->Check(api->functions().ssmlp_weights_pack(
-                               &desc, &components, kRequantizeThreads, &p),
-                           "ryzenai_corelib_ssmlp_bf16_weights_pack layer " +
+                api->Check(api->functions().ssmlp_weights_create(
+                               &desc, sources, std::size(sources), &options, &p),
+                           "ryzenai_corelib_ssmlp_bf16_weights_create layer " +
                                std::to_string(i));
                 mlp_weights[i] = UniqueSsMlpWeights(api, p);
             });
@@ -365,10 +369,10 @@ struct qwen3_rai::Impl {
             const auto packed = corelib::PackedFile(path.c_str(), spans[slot].offset, spans[slot].size);
             if (SlotIsMatmul(slot)) {
                 const auto desc = MatmulDescAt(slot);
-                status = api->functions().matmul_weights_load(&desc, &packed, &handle);
+                status = api->functions().matmul_weights_create(&desc, &packed, 1, nullptr, &handle);
             } else {
                 const ryzenai_corelib_ssmlp_bf16_weights_desc desc{c->hidden, c->intermediate, c->group};
-                status = api->functions().ssmlp_weights_load(&desc, &packed, &handle);
+                status = api->functions().ssmlp_weights_create(&desc, &packed, 1, nullptr, &handle);
             }
             if (status != ryzenai_corelib_status_success || handle == nullptr) {
                 ReleaseCachedWeights();

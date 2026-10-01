@@ -61,7 +61,9 @@ grep -E 'CORELIB_VERSION_(MAJOR|MINOR|PATCH)' \
 ```
 
 Must print `0`, `11`, `0`. (`BUILD-NOTES.md` still says 0.4.0 in its opening
-line — that text is stale; the installed headers are 0.11.0.)
+line — that text is stale; the installed headers are 0.11.0.) The headers must
+also be from after the weight API became one `*_weights_create` per operator;
+an older 0.11.0 checkout fails the FastFlowLM build on those symbols.
 
 ### Verify corelib before going further
 

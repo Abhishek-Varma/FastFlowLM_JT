@@ -35,8 +35,8 @@ This is a contributor document. For *using* a backend once it exists — `--back
 |---|---|
 | **Platform** | Windows and Linux. Both configure and build; only Windows has been run on hardware, and the `src/test/phi4_rai` suite is still Windows-only. |
 | **Hardware** | An aie_next NPU. There is no simulator; a wrong shape shows up as garbage output, not an error. |
-| **corelib headers** | Exactly **0.11.0**. [`corelib_api.hpp`](../../include/rai/corelib_api.hpp) `#error`s on any other version — deliberately, because the C ABI has changed shape between patch releases. |
-| **Weights** | A GGUF the vendor kernels can requantize. Phi-4 uses Q8_0; the corelib entry points are `*_create_gguf_requantized`. |
+| **corelib headers** | Exactly **0.11.0**, from after the weight API became one `*_weights_create` per operator. [`corelib_api.hpp`](../../include/rai/corelib_api.hpp) `#error`s on any other version — deliberately, because the C ABI has changed shape between patch releases. |
+| **Weights** | A GGUF the vendor kernels can requantize. Phi-4 uses Q8_0; each weight is a `*_weights_create` call whose qweight source states `gguf_q8_0`. |
 
 Configure with:
 
