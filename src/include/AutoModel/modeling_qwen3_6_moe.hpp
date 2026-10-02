@@ -49,6 +49,11 @@ private:
 
     void preprocess_image(qwen3_6_moe_image_t& image,  std::vector<bf16> &pixel_values);
 
+protected:
+    /// \brief Build the engine that backs this wrapper. Overridden by the
+    ///        pure/native-HRX variant to swap in qwen3_6_moe_npu_pure_hrx.
+    virtual void create_engine();
+
 public:
     Qwen3_6_MOE(flm_rt::device* npu_device_inst);
 

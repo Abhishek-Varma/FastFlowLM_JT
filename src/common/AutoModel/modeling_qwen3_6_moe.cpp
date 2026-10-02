@@ -13,12 +13,16 @@
 /************              Qwen3_6_MOE family            **************/
 Qwen3_6_MOE::Qwen3_6_MOE(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Qwen3_6_MOE") {}
 
+void Qwen3_6_MOE::create_engine() {
+    this->lm_engine = std::make_unique<qwen3_6_moe_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
+}
+
 void Qwen3_6_MOE::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption) {
     this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
 
     this->q4nx = std::make_unique<Q4NX>(this->model_path);
     // lm_config->get<std::string>("model_type", "") == qwen3
-    this->lm_engine = std::make_unique<qwen3_6_moe_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
+    this->create_engine();
 
     this->lm_engine->load_weights(*this->q4nx);
     //free the q4nx
@@ -288,11 +292,13 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
 
     // hardware
     int restore_idx = -1;
-    qwen3_6_moe_npu *qwen3_6_moe_engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine.get());
+    // checkpoint()/restore() are virtual on causal_lm, so call them through the
+    // base engine pointer -- this keeps the code engine-agnostic so the
+    // native/pure-HRX engine (a sibling type, not qwen3_6_moe_npu) works too.
     const bool has_images = image_payload.num_images > 0;
 
     if (meta_info.restore_allowed) {
-        restore_idx = qwen3_6_moe_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
@@ -305,7 +311,7 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
         : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = qwen3_6_moe_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
     return success;
 }
 
@@ -446,9 +452,8 @@ std::string Qwen3_6_MOE::generate_with_prompt(chat_meta_info_t& meta_info, lm_un
         return "";
     }
     header_print("FLM", "Prompt inserted, starting generation...");
-    qwen3_6_moe_npu* qwen36_engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine.get());
-    int checkpoint_idx = qwen36_engine->checkpoint();
-    int restore_idx = qwen36_engine->restore();
+    int checkpoint_idx = this->lm_engine->checkpoint();
+    int restore_idx = this->lm_engine->restore();
     header_print_r("FLM", "Checkpoint before generation: " << checkpoint_idx << ", restore point: " << restore_idx << ", user context length: " << this->token_history.size());
     if (this->enable_think) {
         os << "<think>\n" << std::flush;

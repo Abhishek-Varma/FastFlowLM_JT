@@ -38,6 +38,11 @@ llama3-purehrx:3b
 llama3-purehrx:8b
 lfm2-purehrx:2.6b
 gemma4e-purehrx:e2b
+qwen3.5-purehrx:0.8b
+qwen3.5-purehrx:2b
+qwen3.5-purehrx:4b
+qwen3.5-purehrx:9b
+qwen3.6-moe-purehrx:35b-a3b
 "
 
 wedged () { grep -qaE "ert state|hrx\]\[ERROR\]|did not complete" "$1" && return 0

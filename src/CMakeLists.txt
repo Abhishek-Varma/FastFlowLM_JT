@@ -426,8 +426,10 @@ list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_npu_pure_hrx)
 
 list(APPEND FLM_ENGINE_LINK_LIBS
     qwen3_5vl_npu
+    qwen3_5vl_npu_pure_hrx
     qwen3_5_omni_npu
     qwen3_6_moe_npu
+    qwen3_6_moe_npu_pure_hrx
     gemma_npu
     gemma_npu_pure_hrx
     gemma_text_npu

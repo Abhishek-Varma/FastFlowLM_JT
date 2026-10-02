@@ -17,8 +17,11 @@ The four tables below cover the four scopes requested:
 
 - **Harness:** `flm bench <tag> -i bench_1k_20.json` with `FLM_PUREHRX_PROFILE=1`.
 - **Workload:** **1k context**, **20 iterations** per model (to stabilize profiled data),
-  **default stride** (`FLM_PUREHRX_FLUSH_STRIDE` default = 1). Each iteration runs one
-  prefill (`insert`) followed by a 32-token decode (`generate`).
+  **default stride** (`FLM_PUREHRX_FLUSH_STRIDE` default = 1 — per-layer pipelined flush).
+  Each iteration runs one prefill (`insert`) followed by a 32-token decode (`generate`).
+  **Exception:** `qwen3.6-moe:35b-a3b` uses a single-flush chain submit (equivalent to
+  stride=0) baked into its engine — its layer chain is too large for the per-layer flush,
+  which wedges the device. See Coverage for details.
 - **NPU time** = wall time spent inside device stream waits (`hrx_stream_wait`). Every
   NPU dispatch in the native-HRX engines funnels through a single phase-tagged
   `hrx::timed_stream_wait()`, tagged PREFILL / DECODE from the bench loop. This captures
@@ -67,11 +70,18 @@ The four tables below cover the four scopes requested:
 | qwen3:1.7b | 637.57 | 572.54 | 89.8% | 10.2% | 59 |
 | qwen3:4b | 1052.08 | 939.82 | 89.3% | 10.7% | 59 |
 | qwen3:8b | 1490.04 | 1346.18 | 90.3% | 9.7% | 59 |
+| qwen3.5:0.8b | 351.05 | 317.21 | 90.4% | 9.6% | 54 |
+| qwen3.5:2b | 472.05 | 426.82 | 90.4% | 9.6% | 54 |
+| qwen3.5:4b | 850.04 | 771.12 | 90.7% | 9.3% | 54 |
+| qwen3.5:9b | 1046.15 | 930.46 | 88.9% | 11.1% | 54 |
+| qwen3.6-moe:35b-a3b | 3485.32 | 2559.60 | 73.4% | 26.6% | 54 |
 | qwen3vl-flash:4b | 239.53 | 202.04 | 84.3% | 15.7% | 54 |
 | qwen3vl:4b | 1047.68 | 942.05 | 89.9% | 10.1% | 54 |
 
-> `gpt-oss:20b` is the clear outlier at **31.7% host** — larger prompt (114 tok) plus MoE
-> routing/dispatch overhead leave the biggest host-side slice during prefill.
+> The two MoE models carry the biggest prefill host slices: `gpt-oss:20b` at **31.7% host**
+> (larger 114-tok prompt + expert routing/dispatch overhead) and `qwen3.6-moe:35b-a3b` at
+> **26.6% host** (35B/A3B, the largest and most dispatch-heavy chain profiled). Dense models
+> stay at 8–16% host regardless of size.
 
 ---
 
@@ -100,12 +110,23 @@ The four tables below cover the four scopes requested:
 | qwen3:1.7b | 23.405 | 22.313 | 95.3% | 4.7% | 42.7 |
 | qwen3:4b | 54.015 | 52.518 | 97.2% | 2.8% | 18.5 |
 | qwen3:8b | 94.688 | 93.027 | 98.2% | 1.8% | 10.6 |
+| qwen3.5:0.8b | 25.010 | 24.789 | 99.1% | 0.9% | 40.0 |
+| qwen3.5:2b | 39.524 | 39.653 | ~100% | ~0% | 25.3 |
+| qwen3.5:4b | 72.560 | 73.452 | ~100% | ~0% | 13.8 |
+| qwen3.5:9b | 111.437 | 112.983 | ~100% | ~0% | 9.0 |
+| qwen3.6-moe:35b-a3b | 64.896 | 64.647 | 99.6% | 0.4% | 15.4 |
 | qwen3vl-flash:4b | 52.901 | 49.557 | 93.7% | 6.3% | 18.9 |
 | qwen3vl:4b | 51.782 | 48.612 | 93.9% | 6.1% | 19.3 |
 
 > Decode is overwhelmingly NPU-bound, and the host share **shrinks as model size grows**:
 > `llama3` 1b→3b→8b = 96.1%→98.0%→**99.1%** NPU; `qwen3` 0.6b→8b = 94.1%→**98.2%**. The fixed
 > per-token host overhead becomes negligible once each token's NPU compute is large.
+>
+> **`qwen3.5` (2b/4b/9b) decode is NPU-saturated** — measured decode-NPU ≈ decode-wall, so the
+> raw split lands marginally **above 100% NPU / below 0% host** (−0.3% to −1.4%). That is
+> phase-boundary attribution noise (the per-token lm_head device wait is timed across the
+> `set_context_length` host step), not a real negative host cost; read these as ≈100% NPU,
+> host ≈ 0.
 
 ---
 
@@ -134,6 +155,11 @@ The four tables below cover the four scopes requested:
 | qwen3:1.7b | 748.94 | 714.02 | 95.3% | 4.7% | 32 |
 | qwen3:4b | 1728.48 | 1680.58 | 97.2% | 2.8% | 32 |
 | qwen3:8b | 3030.03 | 2976.86 | 98.2% | 1.8% | 32 |
+| qwen3.5:0.8b | 800.31 | 793.26 | 99.1% | 0.9% | 32 |
+| qwen3.5:2b | 1264.76 | 1268.89 | ~100% | ~0% | 32 |
+| qwen3.5:4b | 2321.93 | 2350.46 | ~100% | ~0% | 32 |
+| qwen3.5:9b | 3565.99 | 3615.47 | ~100% | ~0% | 32 |
+| qwen3.6-moe:35b-a3b | 2076.68 | 2068.69 | 99.6% | 0.4% | 32 |
 | qwen3vl-flash:4b | 1692.82 | 1585.81 | 93.7% | 6.3% | 32 |
 | qwen3vl:4b | 1657.03 | 1555.58 | 93.9% | 6.1% | 32 |
 
@@ -167,18 +193,25 @@ The four tables below cover the four scopes requested:
 | qwen3:1.7b | 1386.52 | 1286.57 | 92.8% | 7.2% |
 | qwen3:4b | 2780.56 | 2620.40 | 94.2% | 5.8% |
 | qwen3:8b | 4520.07 | 4323.03 | 95.6% | 4.4% |
+| qwen3.5:0.8b | 1151.36 | 1110.47 | 96.4% | 3.6% |
+| qwen3.5:2b | 1736.81 | 1695.71 | 97.6% | 2.4% |
+| qwen3.5:4b | 3171.97 | 3121.57 | 98.4% | 1.6% |
+| qwen3.5:9b | 4612.14 | 4545.93 | 98.6% | 1.4% |
+| qwen3.6-moe:35b-a3b | 5561.99 | 4628.29 | 83.2% | 16.8% |
 | qwen3vl-flash:4b | 1932.36 | 1787.85 | 92.5% | 7.5% |
 | qwen3vl:4b | 2704.71 | 2497.63 | 92.3% | 7.7% |
 
-> Whole-run sits at **90–96% NPU-bound** for most models. `gpt-oss:20b` (22.3% host) and the
-> small/fast decoders (`lfm2:1.2b` 15.0%, `gemma3-text:1b` 13.3%) carry the biggest host
-> slices.
+> Whole-run sits at **90–96% NPU-bound** for most models, with the dense `qwen3.5` family
+> among the most NPU-saturated end-to-end (96.4%→**98.6%** NPU as it scales 0.8b→9b). The
+> biggest host slices are the MoE models — `gpt-oss:20b` (22.3%) and `qwen3.6-moe:35b-a3b`
+> (16.8%), both dominated by their prefill host overhead — followed by the small/fast dense
+> decoders (`lfm2:1.2b` 15.0%, `gemma3-text:1b` 13.3%).
 
 ---
 
 ## Coverage
 
-**23 arch×size configurations** are profiled above, spanning **all 11 architecture families
+**28 arch×size configurations** are profiled above, spanning **all 13 architecture families
 that have a native pure-HRX engine**, at every model size whose weights are available
 locally:
 
@@ -198,6 +231,8 @@ locally:
 | qwen2 | 3b |
 | qwen2vl | 3b |
 | qwen3 | 0.6b, 1.7b, 4b, 8b |
+| qwen3.5 (hybrid linear+full attn, VL) | 0.8b, 2b, 4b, 9b |
+| qwen3.6-moe (MoE) | 35b-a3b |
 | qwen3vl | 4b |
 | qwen3vl-flash | 4b |
 
@@ -217,17 +252,22 @@ locally:
      `qwen2.5vl-it`, `llama3.2`, `phi4-mini-it`, `hy-mt2`, `nanbeige4.1`, `qwen3vl-it`, …)
      point to the exact checkpoints already measured via their `-purehrx` twins.
 
-2. **Distinct architectures with no pure-HRX engine yet** (would require a from-scratch
-   engine port, like the gemma4e-flash port):
+2. **Distinct architectures newly ported to pure-HRX for this round** (now measured above):
    - **`qwen3.5`** (0.8b / 2b / 4b / 9b) — hybrid *linear-attention + full-attention*
      architecture (`attn_output_gate`, `full_attention_interval`, `layer_types`), VL-capable.
-     Its engine (`qwen3_5vl_npu`) is ~250 KB of custom prefill/sequence/rotary code; porting
-     to pure-HRX is a substantial, higher-risk effort.
-   - **`qwen3.6-moe:35b-a3b`** — Mixture-of-Experts (expert routing on top of the above);
-     larger still (~21 GB) and the most involved port.
-   - **`qwen3.5-omni`** — omni (audio+vision+text), likewise unported.
+     Ported from `qwen3_5vl_npu`; decode is NPU-saturated across all four sizes.
+   - **`qwen3.6-moe:35b-a3b`** — Mixture-of-Experts (expert routing); the largest chain
+     profiled (~21 GB). Its pure-HRX decode uses a **single-flush** chain submit
+     (`submit_chain`, record-all-then-flush-once, bit-identical to the shim's
+     `runlist::execute`); the per-layer pipelined flush (`submit_chain_auto`, stride=1) used
+     by the dense engines overruns the amdxdna command queue and wedges the device
+     (`ert state 8`) on a chain this large.
 
-3. **Not prefill+decode LLMs** (don't fit this bench shape at all):
+3. **Distinct architectures still with no pure-HRX engine** (would require a from-scratch
+   engine port):
+   - **`qwen3.5-omni`** — omni (audio+vision+text), unported.
+
+4. **Not prefill+decode LLMs** (don't fit this bench shape at all):
    `embed-gemma:300m` (embeddings) and `whisper-v3:turbo` (ASR).
 
 ### Raw per-model totals
