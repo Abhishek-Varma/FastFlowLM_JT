@@ -414,27 +414,34 @@ set(FLM_ENGINE_LINK_LIBS
     qwen2_npu
     qwen2_npu_pure_hrx
     qwen2vl_npu
+    qwen2vl_npu_pure_hrx
     qwen3_npu
     qwen3_npu_pure_hrx
     qwen3vl_npu
 )
 
 list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_flash)
+list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_flash_pure_hrx)
+list(APPEND FLM_ENGINE_LINK_LIBS qwen3vl_npu_pure_hrx)
 
 list(APPEND FLM_ENGINE_LINK_LIBS
     qwen3_5vl_npu
     qwen3_5_omni_npu
     qwen3_6_moe_npu
     gemma_npu
+    gemma_npu_pure_hrx
     gemma_text_npu
     gemma_text_npu_pure_hrx
     gemma4e_npu
+    gemma4e_npu_pure_hrx
 )
 
 list(APPEND FLM_ENGINE_LINK_LIBS gemma4e_flash)
+list(APPEND FLM_ENGINE_LINK_LIBS gemma4e_flash_pure_hrx)
 
 list(APPEND FLM_ENGINE_LINK_LIBS
     gemma4_12b_npu
+    gemma4_12b_npu_pure_hrx
     gpt_oss_npu
     gpt_oss_npu_pure_hrx
     whisper_npu

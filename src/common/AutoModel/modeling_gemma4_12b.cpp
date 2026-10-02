@@ -403,12 +403,16 @@ std::pair<std::string, json> parse_gemma4_12b_tool_content(std::string tool_cont
 /************              Gemma4_12B family            **************/
 Gemma4_12B::Gemma4_12B(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Gemma4_12B") {}
 
+void Gemma4_12B::create_engine() {
+    this->lm_engine = std::make_unique<gemma4_12b_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
+}
+
 void Gemma4_12B::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption) {
 
     this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
 
     this->q4nx = std::make_unique<Q4NX>(this->model_path);
-    this->lm_engine = std::make_unique<gemma4_12b_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
+    this->create_engine();
 
     this->lm_engine->load_weights(*this->q4nx);
     // free the q4nx
@@ -859,10 +863,13 @@ bool Gemma4_12B::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
 
     // hardware
     int restore_idx = -1;
-    gemma4_12b_npu *gemma4_12b_engine = dynamic_cast<gemma4_12b_npu*>(this->lm_engine.get());
+    // checkpoint()/restore() are causal_lm virtuals, so dispatch them through the base
+    // lm_engine pointer rather than a dynamic_cast to the concrete engine. This keeps
+    // the stock path identical while also working for sibling engines (e.g. the
+    // pure-HRX variant) that are not derived from gemma4_12b_npu.
 
     if (meta_info.restore_allowed) {
-        restore_idx = gemma4_12b_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
@@ -880,7 +887,7 @@ bool Gemma4_12B::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
         : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = gemma4_12b_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
     return success;
 }
 

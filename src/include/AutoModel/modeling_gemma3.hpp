@@ -26,6 +26,10 @@ private:
     bytes load_image_base64(const std::string& base64_string);
     buffer<bf16> preprocess_image(bytes& image);
 
+protected:
+    /// \brief instantiate the decode engine (overridable so pure-HRX variant can swap it)
+    virtual void create_engine();
+
 public:
     Gemma3(flm_rt::device* npu_device_inst);
 

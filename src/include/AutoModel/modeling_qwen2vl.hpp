@@ -42,6 +42,11 @@ private:
     
     void preprocess_image(qwen2vl_image_t& image,  std::vector<bf16> &pixel_values);
 
+protected:
+    /// \brief Instantiate the decode engine. Overridden by Qwen2VLPureHrx to swap
+    ///        in the native/pure-HRX engine; the base builds the stock qwen2vl_npu.
+    virtual void create_engine();
+
 public:
     Qwen2VL(flm_rt::device* npu_device_inst);
 

@@ -98,6 +98,10 @@ private:
         int max_patches,
         int pooling_kernel_size
     );
+protected:
+    /// \brief instantiate the decode engine (overridable so the pure-HRX variant can swap it)
+    virtual void create_engine();
+
 public:
     Gemma4_12B(flm_rt::device* npu_device_inst);
 
