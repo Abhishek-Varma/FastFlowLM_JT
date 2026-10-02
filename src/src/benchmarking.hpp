@@ -18,6 +18,7 @@
 #include "AutoModel/all_models.hpp"
 #include "nlohmann/json.hpp"
 #include "model_list.hpp"
+#include "hrx_cpp/hrx_cpp.hpp"
 
 
 namespace benchmarking {
@@ -315,6 +316,13 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
     ttft.resize(stages);
     prefill_speed.resize(stages);
     decoding_speed.resize(stages);
+
+    // ---- host<->device phase accounting (NPU vs host, profiling) -----------
+    // Reset the shared device-wait accumulator and bracket insert()/generate()
+    // with the prefill/decode phase so every NPU wait is attributed correctly.
+    hrx::ph_accum().reset();
+    double tot_prefill_wall_ms = 0.0, tot_decode_wall_ms = 0.0;
+    long long tot_prompt_tokens = 0, tot_gen_tokens = 0, tot_bench_iters = 0;
     
     for (int it = 0; it < bench_config["iterations"]; it++) {
         for (int bench_len = stages - 1; bench_len >= 0; bench_len--)
@@ -333,14 +341,24 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
 
             chat_meta_info_t meta_info;
             auto_chat_engine->start_ttft_timer();
+            hrx::set_phase(hrx::HRX_PHASE_PREFILL);
             auto_chat_engine->insert(meta_info, uniformed_input);
             auto_chat_engine->stop_ttft_timer();
+            hrx::set_phase(hrx::HRX_PHASE_DECODE);
             auto_chat_engine->generate(meta_info, 32, null_stream);
+            hrx::set_phase(hrx::HRX_PHASE_OTHER);
 
             ttft[bench_len].push_back((float)auto_chat_engine->get_ttft()); // in second
             prefill_speed[bench_len].push_back((float)meta_info.prompt_tokens / (meta_info.prefill_duration / 1e9)); // in tokens per second
             decoding_speed[bench_len].push_back((float)meta_info.generated_tokens / (meta_info.decoding_duration / 1e9)); // in second
             header_print("FLM", "\tTTFT: " << ttft[bench_len].back() << "s, Prefill Speed: " << prefill_speed[bench_len].back() << " tokens/s, Decoding Speed: " << decoding_speed[bench_len].back() << " tokens/s");
+
+            // accumulate wall-clock phase durations (ns -> ms) for the NPU/host split
+            tot_prefill_wall_ms += (double)meta_info.prefill_duration / 1e6;
+            tot_decode_wall_ms  += (double)meta_info.decoding_duration / 1e6;
+            tot_prompt_tokens   += meta_info.prompt_tokens;
+            tot_gen_tokens      += meta_info.generated_tokens;
+            tot_bench_iters     += 1;
             auto_chat_engine->clear_context();
             // sleep for 1 second between benchmarks to avoid overheating or memory issues
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -351,6 +369,45 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
         results.TTFT[bench_len].calculate_statistics(ttft[bench_len]);
         results.prefill_speed[bench_len].calculate_statistics(prefill_speed[bench_len]);
         results.decoding_speed[bench_len].calculate_statistics(decoding_speed[bench_len]);
+    }
+
+    // ---- host<->device phase summary (parseable; gated on FLM_PUREHRX_PROFILE) ----
+    // Raw totals + per-iter / per-token derivations feed the 4 report tables:
+    //   prefill-all, per-token decode, all-token decode, whole-run (Option B).
+    if (std::getenv("FLM_PUREHRX_PROFILE")) {
+        hrx::PhaseAccum& A = hrx::ph_accum();
+        double pf_wall = tot_prefill_wall_ms, pf_npu = A.prefill_ms;
+        double de_wall = tot_decode_wall_ms,  de_npu = A.decode_ms;
+        long long iters = tot_bench_iters > 0 ? tot_bench_iters : 1;
+        long long gtoks = tot_gen_tokens  > 0 ? tot_gen_tokens  : 1;
+        double whole_wall = pf_wall + de_wall;
+        double whole_npu  = pf_npu + de_npu + A.other_ms;
+        std::fprintf(stderr,
+            "\n===== [hrxphase] engine=%s iters=%lld =====\n"
+            "  prompt_tokens_total=%lld gen_tokens_total=%lld\n"
+            "  prefill_wall_ms_total=%.4f prefill_npu_ms_total=%.4f prefill_waits=%lld\n"
+            "  decode_wall_ms_total=%.4f decode_npu_ms_total=%.4f decode_waits=%lld\n"
+            "  other_npu_ms_total=%.4f other_waits=%lld\n"
+            "  [T1 prefill-all]   wall/iter=%.4f ms  npu/iter=%.4f ms  npu%%=%.2f host%%=%.2f\n"
+            "  [T2 decode/token]  wall=%.4f ms  npu=%.4f ms  npu%%=%.2f host%%=%.2f\n"
+            "  [T3 decode-all]    wall/iter=%.4f ms  npu/iter=%.4f ms  (tokens/iter=%.1f)\n"
+            "  [T4 whole-run]     wall/iter=%.4f ms  npu/iter=%.4f ms  npu%%=%.2f host%%=%.2f\n"
+            "=====================================================\n\n",
+            new_tag.c_str(), iters,
+            tot_prompt_tokens, tot_gen_tokens,
+            pf_wall, pf_npu, A.prefill_n,
+            de_wall, de_npu, A.decode_n,
+            A.other_ms, A.other_n,
+            pf_wall / iters, pf_npu / iters,
+            pf_wall > 0 ? 100.0 * pf_npu / pf_wall : 0.0,
+            pf_wall > 0 ? 100.0 * (pf_wall - pf_npu) / pf_wall : 0.0,
+            de_wall / gtoks, de_npu / gtoks,
+            de_wall > 0 ? 100.0 * de_npu / de_wall : 0.0,
+            de_wall > 0 ? 100.0 * (de_wall - de_npu) / de_wall : 0.0,
+            de_wall / iters, de_npu / iters, (double)gtoks / iters,
+            whole_wall / iters, whole_npu / iters,
+            whole_wall > 0 ? 100.0 * whole_npu / whole_wall : 0.0,
+            whole_wall > 0 ? 100.0 * (whole_wall - whole_npu) / whole_wall : 0.0);
     }
 
     auto_chat_engine.reset();
