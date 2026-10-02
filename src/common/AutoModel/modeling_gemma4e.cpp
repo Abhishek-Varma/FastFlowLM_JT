@@ -412,17 +412,20 @@ std::pair<std::string, json> parse_gemma4e_tool_content(std::string tool_content
 /************              Gemma4e family            **************/
 Gemma4e::Gemma4e(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Gemma4e") {}
 
-void Gemma4e::create_engine() {
-    this->lm_engine = std::make_unique<gemma4e_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
-}
-
 /// Reads the shared set of engine constants off a concrete engine type.
 /// gemma4e_npu and gemma4e_flash are unrelated types that happen to expose the
 /// same member names, so this is templated rather than taking a common base.
 template <typename EngineT>
 static gemma4e_engine_config_t read_gemma4e_engine_config(causal_lm* engine) {
     EngineT* e = dynamic_cast<EngineT*>(engine);
-    assert(e != nullptr && "engine_config() called on a wrapper whose engine type does not match");
+    if (e == nullptr) {
+        // Reachable in Release with the rai engine, which has no vision or
+        // audio path.
+        throw std::runtime_error(
+            "engine_config() was called on a Gemma4e wrapper whose engine is "
+            "not the expected type -- the vision and audio paths are not "
+            "available on this backend (rai runs text only)");
+    }
     return gemma4e_engine_config_t{
         e->GEMMA4E_VISION_PATCH_SIZE,
         e->GEMMA4E_POOLING_KERNEL_SIZE,
@@ -437,15 +440,11 @@ static gemma4e_engine_config_t read_gemma4e_engine_config(causal_lm* engine) {
 }
 
 gemma4e_engine_config_t Gemma4e::engine_config() const {
-    return read_gemma4e_engine_config<gemma4e_npu>(this->lm_engine.get());
+    return read_gemma4e_engine_config<gemma4e_npu>(this->lm_engine);
 }
 
 gemma4e_engine_config_t Gemma4e_Flash::engine_config() const {
-    return read_gemma4e_engine_config<gemma4e_flash>(this->lm_engine.get());
-}
-
-void Gemma4e_Flash::create_engine() {
-    this->lm_engine = std::make_unique<gemma4e_flash>(*this->lm_config, this->npu.get(), this->MAX_L);
+    return read_gemma4e_engine_config<gemma4e_flash>(this->lm_engine);
 }
 
 int Gemma4e_Flash::_pin_system_prefix(const std::string& system_text) {
@@ -648,17 +647,9 @@ std::string Gemma4e_Flash::generate_with_prompt(chat_meta_info_t& meta_info, lm_
     return this->generate(meta_info, length_limit, os);
 }
 
-void Gemma4e::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption) {
+void Gemma4e::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption, const std::string& backend) {
     
-    this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
-    
-    this->q4nx = std::make_unique<Q4NX>(this->model_path);
-    this->create_engine();
-
-    this->lm_engine->load_weights(*this->q4nx);
-    //free the q4nx
-    this->q4nx.reset();
-    this->lm_engine->clear_context();
+    this->_shared_load_backend(model_path, model_info, default_context_length, enable_preemption, backend);
     this->setup_tokenizer(model_path);
     this->sampler.reset();
 

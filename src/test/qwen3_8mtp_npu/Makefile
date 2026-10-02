@@ -23,7 +23,7 @@ SOURCES += ../../common/image/image_reader.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
-HEADERS += ../../include/models/qwen3_8mtp/qwen3_8mtp_npu.hpp
+HEADERS += ../../include/models/qwen3_8mtp/flm/aie2p/qwen3_8mtp_npu.hpp
 HEADERS += ../../include/AutoModel/modeling_qwen3_8mtp.hpp
 
 

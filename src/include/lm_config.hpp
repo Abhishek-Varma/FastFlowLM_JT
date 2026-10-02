@@ -8,6 +8,7 @@
 
 #include "typedef.hpp"
 #include "utils/utils.hpp"
+#include "utils/file_access.hpp"
 #include "nlohmann/json.hpp"
 #include <filesystem>
 
@@ -99,7 +100,9 @@ class LM_Config{
 
         /// \brief read model_path/config.json into _json_config
         void _load_json(){
-            std::ifstream file(this->model_path + "/config.json");
+            const auto config_path = std::filesystem::path(this->model_path) / "config.json";
+            flm::file_access::ObserveOpen(config_path);
+            std::ifstream file(config_path);
             if (!file.is_open()){
                 std::cerr << "Failed to open file: " << this->model_path << std::endl;
                 exit(1);
@@ -147,6 +150,15 @@ class LM_Config{
             }
             if (!audio_model_weight.empty()){
                 this->_json_config["audio_model_weight"] = this->model_path + "/" + audio_model_weight;
+            }
+            // An upstream multimodal config (Gemma 4, Qwen3.5) states the
+            // vocabulary only under text_config; the sampler is sized from the
+            // top-level key.
+            if (cfg_get<u32>(this->_json_config, "vocab_size", 0) == 0){
+                const u32 text_vocab = cfg_get<u32>(cfg_sub(this->_json_config, "text_config"), "vocab_size", 0);
+                if (text_vocab != 0){
+                    this->_json_config["vocab_size"] = text_vocab;
+                }
             }
         }
 
