@@ -100,7 +100,10 @@ def build_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--platform",
         default="windows" if IS_WINDOWS else "linux",
-        choices=["linux", "windows"],
+        # The -hrx variants are the same OS running an HRX build. Nothing in
+        # the sweep behaves differently; the label exists so the two builds'
+        # results do not land in the same filename or the same summary row.
+        choices=["linux", "windows", "linux-hrx", "windows-hrx"],
         help="Label recorded in the output filename (default: autodetected).",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Server bind address.")
@@ -151,9 +154,9 @@ def build_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--request-timeout",
         type=float,
-        default=300.0,
+        default=600.0,
         help=(
-            "Per-request timeout in seconds (default: 300). Applied both as the "
+            "Per-request timeout in seconds (default: 600). Applied both as the "
             "HTTP timeout and as a wall-clock deadline on streamed responses."
         ),
     )
