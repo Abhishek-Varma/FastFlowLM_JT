@@ -40,9 +40,8 @@ inline constexpr float kLogitSoftcap = 30.0f;
 /// metadata key rather than trusting this constant.
 inline constexpr float kRmsEpsilon = 1.0e-6f;
 
-/// See phi4_rai_constants.hpp for why the intra-packer hint stays at
-/// corelib's default of one while the caller runs concurrent creates
-/// instead.
+/// See phi4_rai_constants.hpp: 0 lets corelib choose the per-create packer
+/// threads, on top of the concurrent creates below.
 inline constexpr std::uint32_t kRequantizeThreads = 0;
 inline constexpr std::size_t kWeightCreateConcurrency = 8;
 

@@ -66,8 +66,7 @@ if(FLM_ENABLE_RAI)
         HINTS "${CMAKE_SOURCE_DIR}/include"
               "${RYZENAI_CORELIB_ROOT}/include"
               "$ENV{RYZENAI_CORELIB_ROOT}/include" REQUIRED)
-    # The main binary needs ryzenai::corelib::GetDevice(), a C++ entry point the
-    # C ABI does not expose, so corelib is linked in rather than dlopened.
+    # corelib is linked in rather than dlopened.
     # A conda/pip prefix keeps its import libs beside the headers; a CMake
     # install prefix puts them in lib/ or lib64/ depending on the distribution,
     # so both are offered rather than assuming either.

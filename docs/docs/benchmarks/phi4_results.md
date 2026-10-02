@@ -44,19 +44,52 @@ AMD Ryzen™ AI 7 350 (Kraken Point) with 32 GB DRAM; performance is comparable 
 
 ---
 
-## 🧪 Phi-4-mini-instruct Q8_0 GGUF on the rai backend (`phi4-mini-it:4b`, resolved for `aie_next`)
+## 🧪 Phi-4-mini-instruct Q8_0 GGUF on the rai backend (`phi4-mini-it-rai:4b`, `aie_next`)
 
-These are **descriptive measurements from individual acceptance runs**, not a benchmark sweep and not a pass threshold. Each figure below comes from one run, not from an average over many. They are not comparable to the tables above: the prompts here are 4–10 tokens, whereas those tables sweep 1k–32k, so the per-token rates are dominated by fixed overhead rather than by context length.
+These are **descriptive measurements from individual runs**, not a benchmark sweep and not a pass threshold. Each figure below comes from one run, not from an average over many. They are not comparable to the tables above, which sweep 1k–32k on NPU2.
 
-## Machine A
+## Current: corelib 0.11.0
 
-Two runs from this machine are reported. The **current** one is the full
+### Provenance
+
+| | |
+|---|---|
+| Machine | aie_next development machine |
+| OS | Microsoft Windows 11 Enterprise 10.0.26100 |
+| FastFlowLM commit | `16943bc4` |
+| corelib commit / version | `a8c6e8d` / `0.11.0`, built from source, loaded from beside `flm.exe` |
+| Run | 2026-10-01, `flm serve phi4-mini-it-rai:4b --ctx-len 4096`, `/api/generate` with `max_tokens: 8` |
+
+### Measurements
+
+One server, four prompts in increasing length, each a fresh conversation. The
+64-token row is the server's first request and carries one-time setup.
+
+| Prompt tokens | Prefill | Prefill rate | Decode (8 tokens) |
+|---|---|---|---|
+| 67 | 0.16 s | ~410 tok/s | 42.7 tok/s |
+| 259 | 0.12 s | ~2,100 tok/s | 47.3 tok/s |
+| 1,027 | 0.62 s | ~1,660 tok/s | 42.1 tok/s |
+| 2,051 | 1.59 s | ~1,290 tok/s | 40.7 tok/s |
+
+Model load was 1.0–1.2 s (`Model loaded in`, as reported by FLM). Every reply
+was a coherent continuation of the prompt, and the server log reports
+`Backend: rai (from model catalog)`.
+
+Not re-measured at this version: cold and warm TTFT in isolation, the
+cancellation and capacity-boundary checks, and machine B's load variance. The
+sections below are from corelib 0.3.0 and are kept as the record of those runs.
+
+## Machine A (corelib 0.3.0)
+
+Two runs from this machine are reported. The **later** one is the full
 acceptance matrix at the restructured tip, with the concurrent packer and the
 on-disk weight cache both in play. The **earlier** one predates both; it is kept
 because its load profiling is what the 45 s → 5 s section explains, and because
-it is still the only run that measured the serial packer.
+it is still the only run that measured the serial packer. Prompts in both were
+4–10 tokens, so per-token rates are dominated by fixed overhead.
 
-### Current run
+### Later run
 
 Full acceptance matrix, `passed: true`, 0 failures.
 
@@ -93,8 +126,8 @@ Cache-warm load is both faster and far tighter than the packing path machine B
 measured (3.50 – 13.51 s, a ~4× spread): 11 loads inside a 0.23 s band. That is
 the point of the cache — it replaces a variable cost with a fixed one.
 
-The decode and TTFT figures are single observations on 4–10 token prompts and
-carry the same caveats as the earlier run below. The REST decode figure moved
+The decode and TTFT figures are single observations and carry the same caveats
+as the earlier run below. The REST decode figure moved
 from 21.3 to 17.3 tok/s between the two runs; nothing measured here explains
 that, and it is within the noise this document already warns about.
 
@@ -152,7 +185,7 @@ The acceptance run measured 44–49 s to serving. Profiling it with `FLM_RAI_PRO
 
 The integrity check was re-hashing every pinned file on every launch — a pull-time concern on the startup path. `flm pull` and `flm check` still verify in full; only the run and serve paths were changed to ask for status alone.
 
-The packer was being given a threads hint of 0, which corelib treats as ONE deliberately, so a single create packed on a single thread. Raising the hint brought requantization to 2.5–3.0 s here, within range of the 2.2 s `python/phi4_driver.py` reports for the same 161 weights. The packer has since moved to concurrent creates instead; machine B carries those figures.
+The packer was being given a threads hint of 0, which corelib 0.3.0 treated as ONE deliberately, so a single create packed on a single thread. Raising the hint brought requantization to 2.5–3.0 s here, within range of the 2.2 s `python/phi4_driver.py` reports for the same 161 weights. The packer has since moved to concurrent creates instead; machine B carries those figures.
 
 Output was re-verified after the change: `2+2` → `4`, `capital of France` → `Paris`, `primary color` → `Red.`, and a correct one-sentence description of AMD.
 
@@ -179,7 +212,7 @@ One `/api/chat` reply to `What is 2+2?` came back as a truncated markdown image 
 
 ---
 
-## Machine B
+## Machine B (corelib 0.3.0)
 
 Measured with the concurrent packer, after the backend restructure. **Load only**: TTFT, decode throughput and the acceptance matrix have not been re-run on this machine, so machine A remains the only source for those.
 

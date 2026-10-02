@@ -8,9 +8,10 @@ repository, so most of the work is standing up that prefix.
 Written against the working install on this machine. Paths use `$P` for the
 dependency prefix (here `/home/alfxu/ddprefix`); substitute your own.
 
-> **Status:** the backend builds, loads a model and dispatches, but a corelib
-> bug makes it very slow — see [Known issues](#known-issues) before you start,
-> so the performance is not a surprise.
+> **Status:** at corelib 0.11.0 the rai backend has been run on hardware on
+> Windows only. The Linux build configures and links against this layout, but
+> it has not been run end to end on Linux at this revision. The
+> [Known issues](#known-issues) are from an earlier Linux bring-up.
 
 ---
 
@@ -104,13 +105,13 @@ What the flags do:
 
 ### How the corelib lookup resolves
 
-`CMakeLists.txt:57-85`, in order:
+The `FLM_ENABLE_RAI` block of `src/CMakeLists.txt`, in order:
 
 | | Headers (`ryzenai/corelib.h`) | Library (`libryzenai_corelib`) |
 |---|---|---|
 | 1 | `src/include/` (vendored) | `src/lib/` (vendored) |
-| 2 | `$RYZENAI_CORELIB_ROOT/include` | `$RYZENAI_CORELIB_ROOT/lib` |
-| 3 | `CMAKE_PREFIX_PATH` | `CMAKE_PREFIX_PATH` |
+| 2 | `$RYZENAI_CORELIB_ROOT/include` | `lib/` then `lib64/` beside the headers found |
+| 3 | `CMAKE_PREFIX_PATH` | `$RYZENAI_CORELIB_LIB_DIR`, then `CMAKE_PREFIX_PATH` |
 
 So dropping the headers into `src/include/` and `libryzenai_corelib.so` into
 `src/lib/` is an alternative to the variable entirely.
@@ -184,16 +185,18 @@ log out and back in, and `tmux kill-server` if you use tmux.
 ```bash
 source /opt/xilinx/xrt/setup.sh
 source /scratch/$USER/flm_exe_rai/flm_env.sh
-/scratch/$USER/flm_exe_rai/flm run phi4-mini-it-rai -c 4096
+/scratch/$USER/flm_exe_rai/flm pull phi4-mini-it-rai:4b
+/scratch/$USER/flm_exe_rai/flm run  phi4-mini-it-rai:4b -c 4096
 ```
 
 `flm_env.sh` sets `FLM_CONFIG_PATH`, `FLM_XCLBIN_PATH`, `FLM_MODEL_PATH`
 (`/scratch/alfxu`) and pins `XILINX_XRT`. It does **not** set `ulimit` — step 4
 is on you.
 
-Models live under `$FLM_MODEL_PATH/<name>`; `phi4-mini-it-rai` is the one set up
-here, and it must also have an entry in
-`share/flm/model_list.json` for `flm run` to resolve the name.
+Models live under `$FLM_MODEL_PATH/models/<name>`. The shipped
+`model_list.json` already carries the `-rai` tags (`phi4-mini-it-rai:4b`,
+`qwen3-rai:*`, `gemma4-it-rai:*`, `qwen3.5-rai:*`), so `flm pull` fetches them
+like any other model.
 
 ---
 
@@ -203,15 +206,12 @@ here, and it must also have an entry in
 
 A corelib stream faults on a later dispatch: the array raises stream switch port
 parity errors, the driver tears the hardware context down, and XRT reports
-`ERT_CMD_STATE_TIMEOUT` against whichever op was in flight. It is not a
-FastFlowLM bug — there is a ~90-line standalone reproducer, with a full write-up
-and a report note, in **`~/corelib-stream-repro/`**.
+`ERT_CMD_STATE_TIMEOUT` against whichever op was in flight. It was reproduced
+with a standalone corelib program, so it is not a FastFlowLM bug.
 
-FastFlowLM works around it on Linux by synchronizing after every dispatch and
-replacing the stream, guarded by `#if defined(__linux__)` in
-`src/common/models/phi4/rai/aie_next/phi4_rai.cpp`. That costs all the
-pipelining: expect roughly **1.6 s per token**, under 1 tok/s. The workaround is
-annotated for removal once corelib no longer needs it.
+This was seen with an earlier corelib. FastFlowLM carries no Linux-specific
+workaround for it at this revision, so if a later dispatch times out this way,
+check the corelib build first.
 
 ### Misleading diagnostics
 

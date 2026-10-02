@@ -1,9 +1,9 @@
 # Adding a model on the rai backend
 
 How to bring up a new model family on **rai**, the backend that reaches its
-kernels through ryzenai-corelib, using Phi-4 as the worked example. Phi-4 is the
-only model on this path today, so every file named below has a `phi4` counterpart
-you can read straight through.
+kernels through ryzenai-corelib, using Phi-4 as the worked example. Qwen3, Gemma 4
+and Qwen3.5 follow the same layout, but every file named below has a `phi4`
+counterpart you can read straight through.
 
 A backend names *where the kernels come from*: `flm` is FastFlowLM's own kernel
 flow, `rai` is corelib. That is a separate axis from which silicon the host has,
@@ -103,12 +103,13 @@ everything the rai path pulls in.
 globs `*/rai/*/*.cpp` — every platform under every family's rai folder — and that
 glob is what `flm_rai` compiles. Creating the folder is the whole registration step.
 
-Phi-4's rai side is five translation units, and the split is worth copying:
+Phi-4's rai side is six translation units, and the split is worth copying:
 
 | file | what belongs in it |
 |---|---|
 | `<model>_rai_gguf.cpp` | Open and validate the GGUF. Tensor lookup by name, shape checks, metadata, and the cross-validation against `config.json` / `tokenizer.json` / `tokenizer_config.json`. **No device code.** |
-| `<model>_rai_shape_plan.cpp` | Ask corelib how it wants each operator padded (`matmul_pad_shape`, `ssmlp_pad_rows`, …) and cache one row-extent record per live row count. Built once per engine. |
+| `<model>_rai_shape_plan.cpp` | Ask corelib which kernels it ships (`*_enum_kernels`), pick the smallest one covering each live row count ([`kernel_grid.hpp`](../../include/rai/kernel_grid.hpp) `CoveringRows`), and cache one row-extent record per row count. Built once per engine. |
+| `<model>_rai_weight_cache.cpp` | The on-disk cache of packed weights: write after a fresh pack, reload as one `role_packed` source per weight. |
 | `<model>_rai_host.cpp` | The math corelib does not do: Q8 embedding-row decode, RMS norm, f32→bf16, RoPE tables. Plain CPU, unit-testable, no corelib types in the signatures. |
 | `<model>_rai.cpp` | The `causal_lm` subclass. Owns the device tensors, the stream and the decode loop. |
 | `<model>_rai_backend.cpp` | The `ModelBackend`. Construction order and execution policy. |
@@ -131,8 +132,9 @@ emitted inside those binaries. Adding, removing or reordering a virtual there
 shifts vtable slots and corrupts dispatch **at runtime, with no compiler error**.
 
 So: you implement `causal_lm` as it stands. You do not change it. The same
-applies to `buffer.hpp`, `tensor_2d.hpp`, `lm_config.hpp`, `q4_npu_eXpress.hpp`
-and `npu_utils/*`. If a change to any of those looks necessary, the seam you
+applies to the layout and virtuals of `buffer.hpp`, `tensor_2d.hpp`,
+`lm_config.hpp`, `q4_npu_eXpress.hpp` and `npu_utils/*` (a fix inside an inline
+function body, such as `LM_Config`'s config normalization, leaves both alone). If a change to any of those looks necessary, the seam you
 actually want is `ModelBackend` (§4), which sits above `causal_lm` and is compiled
 from source.
 
@@ -163,8 +165,9 @@ engine type, never through a `causal_lm*`.
   whole of model load, and the creates are independent — each reads its own
   mapped range and produces its own object — so they run across a pool
   (`kWeightCreateConcurrency`). The per-create thread hint
-  (`kRequantizeThreads`) stays at corelib's default of one so the two forms of
-  parallelism do not multiply into an oversubscribed machine. See
+  (`kRequantizeThreads`) goes to corelib as `fast_packer_threads`: 0 lets corelib
+  choose (8 threads at 0.11.0), 1 keeps each create serial. The two multiply,
+  so pick them together. See
   [`phi4_rai_constants.hpp`](../../include/models/phi4/rai/aie_next/phi4_rai_constants.hpp).
 - Expose `bool poisoned() const noexcept`. A corelib failure mid-decode usually
   leaves device state that only a reload can clear; the backend surfaces this and
@@ -304,8 +307,8 @@ Points that are easy to get wrong:
   `src/test/model_list_platform` fails if one is missing or disagrees with its
   family name. Omitting it is legal — it means *every* generation, which is what
   a catalog written before the key meant — but a shipped entry should say what
-  it was built for. All 42 FastFlowLM entries are `["aie2p"]`; the corelib one
-  is `["aie_next"]`.
+  it was built for. Every FastFlowLM entry is `["aie2p"]`; every `-rai` entry is
+  `["aie_next"]`.
 - Separate families mean **separate tags**, so no `model_info_key` redirect is
   needed: `model_info.json` keys the corelib records under `<family>-rai:<size>`
   directly, which is also the tag a user types.
@@ -313,12 +316,12 @@ Points that are easy to get wrong:
   tokenizer come from different repos (very common with GGUF mirrors).
 - The two keys are checked independently, and **the platform is checked first
   and for everyone**. On today's `aie_next` default that means a corelib build
-  offers `phi4-mini-it-rai` and nothing else, and a build *without* corelib
-  offers **nothing at all** — the 42 FastFlowLM entries are pruned by the
-  generation, and the corelib entry by the kernels it would need. That is the
+  offers the `-rai` tags and nothing else, and a build *without* corelib
+  offers **nothing at all** — the FastFlowLM entries are pruned by the
+  generation, and the `-rai` entries by the kernels they would need. That is the
   cost of bringing up the next generation before its probe exists, and it is
   reversed by setting `default_npu_platform()` back to `aie2p`, which gives
-  both builds the same 42 tags and neither the corelib one.
+  both builds the same FastFlowLM tags and none of the `-rai` ones.
 - An empty catalog is therefore an ordinary state, not a crash: `model_list`
   prints one line naming the generation and the linked kernels, `flm list` says
   it found nothing, `flm run` says the tag is not found, and `flm --help` still
@@ -326,7 +329,7 @@ Points that are easy to get wrong:
 
 **[`model_info.json`](../../model_info.json)** — one record per file, with `size`
 and `sha256`. The downloader refuses anything it cannot match
-([`model_downloader.cpp:46`](../../pull/model_downloader.cpp#L46)).
+([`model_downloader.cpp`](../../pull/model_downloader.cpp)).
 
 ---
 
@@ -371,8 +374,9 @@ Check, in order:
 3. Decode stops at the window limit without a corelib error.
 4. The prompt-length ceiling and the preemption rejection fire *before* any device
    allocation — they are traits, checked by the frontend.
-5. `git diff --stat` shows **zero** changes to `causal_lm.hpp`, `buffer.hpp`,
-   `tensor_2d.hpp`, `lm_config.hpp`, `q4_npu_eXpress.hpp` and `npu_utils/`.
+5. `git diff` shows **no** layout or virtual changes to `causal_lm.hpp`,
+   `buffer.hpp`, `tensor_2d.hpp`, `lm_config.hpp`, `q4_npu_eXpress.hpp` and
+   `npu_utils/`.
    A violation here fails at runtime, not at build time, which is why it is a
    checklist item rather than a compiler's job.
 
@@ -383,7 +387,8 @@ Check, in order:
 - [ ] `src/common/models/<model>/rai/<platform>/` created (no CMake edit)
 - [ ] GGUF/host layers hold no corelib types
 - [ ] `load_weights` is a documented throwing shim
-- [ ] weight creates are serialized, with the thread hint passed
+- [ ] weight creates run across the `kWeightCreateConcurrency` pool, with the
+      thread hint passed
 - [ ] runtime `shared_ptr` declared before the engine member
 - [ ] all validation happens before `GetOrCreate`
 - [ ] `BackendTraits` is `inline` in the header
@@ -391,4 +396,4 @@ Check, in order:
 - [ ] no `#if FLM_ENABLE_RAI` anywhere in the frontend
 - [ ] `model_list.json` and `model_info.json` agree, the corelib family is
       named `-rai` and its `supported_platforms` says `aie_next`
-- [ ] frozen headers untouched
+- [ ] frozen headers: no layout or virtual changes

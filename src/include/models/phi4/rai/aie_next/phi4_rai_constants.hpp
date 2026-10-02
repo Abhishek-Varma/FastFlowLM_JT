@@ -17,10 +17,10 @@ inline constexpr std::int64_t kMaxSequenceLength = 4096;
 inline constexpr std::int64_t kModelContextLength = 131072;
 inline constexpr std::int64_t kMaxDecodeWindow = 4095;
 inline constexpr std::uint32_t kRequantizedGroupSize = 64;
-/// Intra-packer thread hint for one Q8_0 requantizing create. corelib treats 0
-/// as ONE deliberately. Packing many weights at once is the bigger lever and
-/// belongs to the caller, so the parallelism is taken below as concurrent
-/// creates instead; asking for both would oversubscribe the machine.
+/// Intra-packer thread hint for one Q8_0 requantizing create, passed as
+/// weights_options.fast_packer_threads. 0 lets corelib choose (8 threads at
+/// 0.11.0), so with kWeightCreateConcurrency creates in flight the packer
+/// threads multiply; 1 keeps each create serial.
 inline constexpr std::uint32_t kRequantizeThreads = 0;
 
 /// How many weight creates run at once. The 161 creates are independent -- each

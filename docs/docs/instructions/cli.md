@@ -243,11 +243,11 @@ flm serve llama3.2:1b --ctx-len 8192
 
 You normally never set this. The model tag already names the flow — a family ending in `-rai` wants corelib's kernels, everything else FastFlowLM's — and `flm list` only ever offers you tags this build and this machine can actually run. `flm run` separately prints the silicon as `NPU platform: aie_next`. A model family has at most one engine per backend, so there is nothing to choose between.
 
-The flag exists for overriding the detection, and for the targets that will join this list later:
+The flag exists for overriding what the tag says, and for the targets that will join this list later:
 
 ```shell
-flm run   phi4-mini-it:4b --backend flm
-flm serve phi4-mini-it:4b --backend rai
+flm run   phi4-mini-it:4b     --backend flm
+flm serve phi4-mini-it-rai:4b --backend rai
 ```
 
 **Precedence**, highest first:
@@ -256,7 +256,7 @@ flm serve phi4-mini-it:4b --backend rai
 |---|---|---|
 | 1 | `--backend <id>` | the flag above, or a `"backend"` field on an `/api/chat` or `/api/generate` request |
 | 2 | `FLM_BACKEND=<id>` | environment variable, for a whole shell session |
-| 3 | the detected NPU | what `flm validate` reports |
+| 3 | the model's catalog entry | `rai` for a tag whose family ends in `-rai`, `flm` otherwise |
 
 A per-request `"backend"` overrides `--backend` for that request, and reloads the model if it differs from the one already loaded — exactly as asking for a different model does.
 

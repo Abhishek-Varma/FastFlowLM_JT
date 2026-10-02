@@ -77,8 +77,8 @@ A rai build (`-DFLM_ENABLE_RAI=ON`) **links corelib in**, because the NPU device
 The corelib ABI is still pre-1.0, so FastFlowLM requires an **exact `0.11.0`** match on major, minor and patch. The version is queried before any other entry point, so a mismatched runtime reports a version error rather than a missing symbol. Within 0.11.0, FastFlowLM needs a corelib from after the weight API became one `*_weights_create` per operator (corelib commit `ab0bfee`); an older 0.11.0 header fails the build on the missing `*_weights_create` symbols. Corelib's own dependency directory must be reachable on `PATH` (Windows) or `LD_LIBRARY_PATH` (Linux).
 
 ```powershell
-flm pull phi4-mini-it:4b
-flm run  phi4-mini-it:4b
+flm pull phi4-mini-it-rai:4b
+flm run  phi4-mini-it-rai:4b
 ```
 
 ### Why the context is 4096, and why the usable window is one less

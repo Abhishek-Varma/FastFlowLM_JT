@@ -88,7 +88,7 @@ inline constexpr std::array<std::int64_t, 15> kQkNormRows{
 inline constexpr int kPrefillPdi = 1;
 inline constexpr int kTokenPdi = 16;
 
-/// \brief intra-packer thread hint; corelib treats 0 as one
+/// \brief intra-packer thread hint; 0 lets corelib choose
 inline constexpr std::uint32_t kRequantizeThreads = 0;
 
 /// \brief how many requantizing creates run at once
