@@ -1087,6 +1087,68 @@
             "path": "vision_weight.q4nx"
         }
     ],
+    "qwen3.8-mtp:27b": [
+        {
+            "type": "file",
+            "oid": "4024240d1736b025e64675f817c9df18654c8ec0",
+            "size": 1672,
+            "path": ".gitattributes"
+        },
+        {
+            "type": "file",
+            "oid": "c0c686f9c38d70d179fb7b5f5aa7530bc913dda3",
+            "size": 8952,
+            "path": "chat_template.jinja"
+        },
+        {
+            "type": "file",
+            "oid": "d4592f5ff8c19d462954a7c89e659d53ef160e60",
+            "size": 3416,
+            "path": "config.json"
+        },
+        {
+            "type": "file",
+            "oid": "a546f9adfc8b85a36bef98ea52e947fb2c2797b4",
+            "size": 17097334824,
+            "lfs": {
+                "oid": "2f0c797f525d5bbacb9f0cde5ff2ea06a3b498a6fc55f5cccc8c97d7eaf00fa1",
+                "size": 17097334824,
+                "pointerSize": 136
+            },
+            "xetHash": "91d8d236429f77f8d5cbf1002f44d2f1cc5ae3f5ccc50a43ac768f84b8c363e6",
+            "path": "model.q4nx"
+        },
+        {
+            "type": "file",
+            "oid": "9328ce9c41e80f6dd7bc2c66d8ae1fc93bf87440",
+            "size": 12809320,
+            "lfs": {
+                "oid": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+                "size": 12809320,
+                "pointerSize": 133
+            },
+            "xetHash": "f7f96b765ac61700122c4b104fa452ad209a372ce7ae8e09e5fbd629c07dbf17",
+            "path": "tokenizer.json"
+        },
+        {
+            "type": "file",
+            "oid": "ba77108a7680d247a8079763961e8766387cb9be",
+            "size": 18004,
+            "path": "tokenizer_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "4f4ae60a966a3bd1577d0034db82c7da10f5a4dc",
+            "size": 959336080,
+            "lfs": {
+                "oid": "5c257207454c6bb82618e68ef5558963e3ddaecd3efab6f8b528d2b9092715a2",
+                "size": 959336080,
+                "pointerSize": 134
+            },
+            "xetHash": "67dfab1f8e2d88e2a492c1129539015dcee90871b4b48b2c23010994249d2617",
+            "path": "vision_weight.q4nx"
+        }
+    ],
     "lfm2:1.2b": [
         {
             "type": "file",
@@ -3675,7 +3737,7 @@
             "path": "vision_weights.q4nx"
         }
     ],
-    "hy-mt2:1.8b": [
+    "hy-mt2-flash:1.8b": [
         {
             "type": "file",
             "oid": "2ace5b8c3964855369daf18f16907dfdba648708",

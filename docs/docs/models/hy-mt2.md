@@ -5,7 +5,7 @@ nav_order: 14
 parent: Models
 ---
 
-## 🧩 Model Card: [hy-mt2:1.8b](https://huggingface.co/tencent/Hy-MT2-1.8B)
+## 🧩 Model Card: [hy-mt2-flash:1.8b](https://huggingface.co/tencent/Hy-MT2-1.8B)
 
 - **Type:** Text-to-Text (Translation)
 - **Think:** No
@@ -18,7 +18,7 @@ parent: Models
 ▶️ Run with FastFlowLM in PowerShell:
 
 ```shell
-flm run hy-mt2:1.8b
+flm run hy-mt2-flash:1.8b
 ```
 
 ⚠️ **Note:** **Starting from FLM v1.0.6**, Hy-MT2 is served as a single-turn model: every request starts from a clean KV state, and the context length is fixed at **1k tokens** — context-length overrides are ignored. This matches how the model is meant to be used, one short translation request at a time.
