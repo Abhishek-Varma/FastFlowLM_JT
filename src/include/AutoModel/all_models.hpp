@@ -17,6 +17,7 @@
 #include "modeling_qwen3_pure_hrx.hpp"
 #include "modeling_gpt_oss.hpp"
 #include "modeling_gpt_oss_pure_hrx.hpp"
+#include "modeling_gpt_oss_pure_xrt.hpp"
 #include "modeling_lfm2.hpp"
 #include "modeling_lfm2_pure_hrx.hpp"
 #include "modeling_phi4.hpp"
@@ -79,6 +80,7 @@ typedef enum {
     gemma4_12b_pure_hrx,
     gpt_oss,
     gpt_oss_pure_hrx,
+    gpt_oss_pure_xrt,
     lfm2,
     lfm2_pure_hrx,
     lfm2_5_tk,
@@ -127,6 +129,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"gemma4-12b-purehrx", SupportedModelFamily::gemma4_12b_pure_hrx},
         {"gpt-oss", SupportedModelFamily::gpt_oss},
         {"gpt-oss-purehrx", SupportedModelFamily::gpt_oss_pure_hrx},
+        {"gpt-oss-purexrt", SupportedModelFamily::gpt_oss_pure_xrt},
         {"lfm2", SupportedModelFamily::lfm2},
         {"lfm2-purehrx", SupportedModelFamily::lfm2_pure_hrx},
         {"lfm2.5-tk", SupportedModelFamily::lfm2_5_tk},
@@ -223,6 +226,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             break;
         case SupportedModelFamily::gpt_oss_pure_hrx:
             auto_chat_engine = std::make_unique<GptOssPureHrx>(npu_device_inst);
+            break;
+        case SupportedModelFamily::gpt_oss_pure_xrt:
+            auto_chat_engine = std::make_unique<GptOssPureXrt>(npu_device_inst);
             break;
         case SupportedModelFamily::qwen3vl:
             auto_chat_engine = std::make_unique<Qwen3VL>(npu_device_inst);
