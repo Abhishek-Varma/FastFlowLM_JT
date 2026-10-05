@@ -242,6 +242,17 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../third_party/tokenizers-cpp
 file(GLOB SOURCES "src/*.cpp" "runner/*.cpp" "common/*.cpp" "common/*/*.cpp" "server/*.cpp" "pull/*.cpp" )
 file(GLOB HEADERS "include/*.hpp" "runner/*.hpp" "common/*.hpp" "common/*/*.hpp" "server/*.hpp" "pull/*.hpp")
 
+# Backend-scoped AutoModel wrappers: modeling_*_pure_hrx.cpp reference HRX-only
+# engines (only present in lib/hrx) and modeling_*_pure_xrt.cpp reference XRT-only
+# engines (only in lib/xrt). Compile only the set matching the active runtime so the
+# other backend's wrapper symbols aren't pulled in (they'd be undefined at link).
+# Must stay in sync with the #ifdef FLM_USE_HRX guards in all_models.hpp.
+if(FLM_USE_HRX)
+    list(FILTER SOURCES EXCLUDE REGEX ".*modeling_.*_pure_xrt\\.cpp$")
+else()
+    list(FILTER SOURCES EXCLUDE REGEX ".*modeling_.*_pure_hrx\\.cpp$")
+endif()
+
 # Exclude files that depend on missing libraries for Linux
 if(NOT WIN32)
     # list(FILTER SOURCES EXCLUDE REGEX ".*modeling_gemma3\\.cpp$")
@@ -459,6 +470,16 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     hunyuan_npu
     hunyuan_npu_pure_hrx
 )
+
+# Backend-scoped engine linking: *_pure_hrx engines link libhrx and only exist in
+# lib/hrx; *_pure_xrt engines link XRT and only exist in lib/xrt. Keep only the set
+# matching the active runtime so an XRT (FLM_USE_HRX=OFF) build doesn't try to link
+# the HRX-only engines (and vice versa). Baseline engines build for both backends.
+if(FLM_USE_HRX)
+    list(FILTER FLM_ENGINE_LINK_LIBS EXCLUDE REGEX "_pure_xrt$")
+else()
+    list(FILTER FLM_ENGINE_LINK_LIBS EXCLUDE REGEX "_pure_hrx$")
+endif()
 
 # Link your custom libraries (these may still be DLLs if no static versions available)
 target_link_libraries(flm PUBLIC

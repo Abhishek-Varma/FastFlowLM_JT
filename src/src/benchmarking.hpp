@@ -18,7 +18,12 @@
 #include "AutoModel/all_models.hpp"
 #include "nlohmann/json.hpp"
 #include "model_list.hpp"
+// hrx_cpp provides the [hrxphase] host/device phase profiler, which is HRX-only.
+// XRT builds (FLM_USE_HRX undefined) don't ship hrx headers, so guard it out; the
+// standard benchmark results (TTFT / prefill / decode tok-s) don't depend on it.
+#ifdef FLM_USE_HRX
 #include "hrx_cpp/hrx_cpp.hpp"
+#endif
 
 
 namespace benchmarking {
@@ -320,7 +325,9 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
     // ---- host<->device phase accounting (NPU vs host, profiling) -----------
     // Reset the shared device-wait accumulator and bracket insert()/generate()
     // with the prefill/decode phase so every NPU wait is attributed correctly.
+#ifdef FLM_USE_HRX
     hrx::ph_accum().reset();
+#endif
     double tot_prefill_wall_ms = 0.0, tot_decode_wall_ms = 0.0;
     long long tot_prompt_tokens = 0, tot_gen_tokens = 0, tot_bench_iters = 0;
     
@@ -341,12 +348,18 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
 
             chat_meta_info_t meta_info;
             auto_chat_engine->start_ttft_timer();
+#ifdef FLM_USE_HRX
             hrx::set_phase(hrx::HRX_PHASE_PREFILL);
+#endif
             auto_chat_engine->insert(meta_info, uniformed_input);
             auto_chat_engine->stop_ttft_timer();
+#ifdef FLM_USE_HRX
             hrx::set_phase(hrx::HRX_PHASE_DECODE);
+#endif
             auto_chat_engine->generate(meta_info, 32, null_stream);
+#ifdef FLM_USE_HRX
             hrx::set_phase(hrx::HRX_PHASE_OTHER);
+#endif
 
             ttft[bench_len].push_back((float)auto_chat_engine->get_ttft()); // in second
             prefill_speed[bench_len].push_back((float)meta_info.prompt_tokens / (meta_info.prefill_duration / 1e9)); // in tokens per second
@@ -374,6 +387,8 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
     // ---- host<->device phase summary (parseable; gated on FLM_PUREHRX_PROFILE) ----
     // Raw totals + per-iter / per-token derivations feed the 4 report tables:
     //   prefill-all, per-token decode, all-token decode, whole-run (Option B).
+    // HRX-only: the phase accumulator lives in hrx_cpp; XRT builds skip this block.
+#ifdef FLM_USE_HRX
     if (std::getenv("FLM_PUREHRX_PROFILE")) {
         hrx::PhaseAccum& A = hrx::ph_accum();
         double pf_wall = tot_prefill_wall_ms, pf_npu = A.prefill_ms;
@@ -409,6 +424,7 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
             whole_wall > 0 ? 100.0 * whole_npu / whole_wall : 0.0,
             whole_wall > 0 ? 100.0 * (whole_wall - whole_npu) / whole_wall : 0.0);
     }
+#endif // FLM_USE_HRX
 
     auto_chat_engine.reset();
 
