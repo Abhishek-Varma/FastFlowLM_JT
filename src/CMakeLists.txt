@@ -446,6 +446,7 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     gemma_npu_pure_xrt
     gemma_text_npu
     gemma_text_npu_pure_hrx
+    gemma_text_npu_pure_xrt
     gemma4e_npu
     gemma4e_npu_pure_hrx
 )
