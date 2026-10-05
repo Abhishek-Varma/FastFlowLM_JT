@@ -121,10 +121,42 @@ struct PhaseAccum {
         else { other_ms += ms; ++other_n; }
     }
 };
+#if defined(_WIN32)
+// Windows/PE does not merge inline function-local statics across DLL boundaries
+// the way ELF vague linkage does: flm.exe and every engine DLL would otherwise
+// each get a *separate* PhaseAccum, so the engine accumulates device time into
+// its own copy while the harness reads an all-zero copy (NPU% would show 0).
+// Publish the single instance's pointer through the OS process environment
+// (shared by all modules in the process regardless of which CRT they link) so
+// every module resolves the same accumulator. The two kernel32 entry points are
+// forward-declared to avoid pulling <windows.h> into this widely-included header.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetEnvironmentVariableA(const char*, char*, unsigned long);
+extern "C" __declspec(dllimport) int __stdcall
+    SetEnvironmentVariableA(const char*, const char*);
+inline PhaseAccum& ph_accum() {
+    static PhaseAccum& inst = *[]() -> PhaseAccum* {
+        char buf[32];
+        unsigned long n = GetEnvironmentVariableA(
+            "__HRX_PH_ACCUM_PTR", buf, (unsigned long)sizeof(buf));
+        if (n > 0 && n < sizeof(buf)) {
+            unsigned long long v = std::strtoull(buf, nullptr, 16);
+            if (v) return reinterpret_cast<PhaseAccum*>((std::uintptr_t)v);
+        }
+        PhaseAccum* np = new PhaseAccum();
+        std::snprintf(buf, sizeof(buf), "%llx",
+                      (unsigned long long)(std::uintptr_t)np);
+        SetEnvironmentVariableA("__HRX_PH_ACCUM_PTR", buf);
+        return np;
+    }();
+    return inst;
+}
+#else
 inline PhaseAccum& ph_accum() {
     static PhaseAccum a;
     return a;
 }
+#endif
 inline void set_phase(int p) { ph_accum().phase = p; }
 
 // Report (do not swallow) an HRX error. Returns true if status was an error.
