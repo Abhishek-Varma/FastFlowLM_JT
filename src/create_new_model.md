@@ -119,16 +119,13 @@ Gemma4_12B::Gemma4_12B(flm_rt::device* npu_device_inst)
 
 ### 2b. `load_model`
 
-Always in this order — the shared helper parses `config.json`, resolves `MAX_L`,
-and sets `this->model_path` / `this->lm_config` before you can construct the engine:
+`_shared_load_backend` parses `config.json`, resolves `MAX_L`, sets
+`this->model_path` / `this->lm_config`, then builds the engine through the
+backend registry (Step 4b) and points `this->lm_engine` at it -- the frontend no
+longer constructs the engine or loads the Q4NX itself:
 
 ```cpp
-this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
-this->q4nx = std::make_unique<Q4NX>(this->model_path);
-this->lm_engine = std::make_unique<gemma4_12b_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
-this->lm_engine->load_weights(*this->q4nx);
-this->q4nx.reset();                 // free the mmap'd weights immediately
-this->lm_engine->clear_context();
+this->_shared_load_backend(model_path, model_info, default_context_length, enable_preemption, backend);
 this->setup_tokenizer(model_path);
 this->sampler.reset();
 sampler_config config;              // set the model's recommended defaults here
@@ -230,6 +227,18 @@ case SupportedModelFamily::gemma4_12b:
 
 A mismatch between (3) and `model_list.json` shows up at runtime as
 "unsupported model family", not at compile time.
+
+### Step 4b — Register the engine backend
+
+`common/AutoModel/builtin_backends.cpp` — one line, keyed by the same
+`details.family` string:
+
+```cpp
+RegisterFlm<gemma4_12b_npu>(registry, "gemma4-12b");
+```
+
+Without it `load_model` throws at runtime naming the backends the family does
+register (none).
 
 ---
 
@@ -389,6 +398,7 @@ Linux path. Starts with `-include ../common.mk` (which sets
 ```make
 SOURCES += test.cpp
 SOURCES += ../../common/AutoModel/automodel.cpp
+SOURCES += ../../common/AutoModel/model_backend.cpp
 SOURCES += ../../common/AutoModel/modeling_gemma4_12b.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
@@ -398,6 +408,21 @@ LDFLAGS += -lgemma4_12b_npu
 
 The `test` target copies `model_list.json` into `BUILD_DIR` before running — the
 executable looks for it next to itself.
+
+`automodel.cpp` reaches the engine through the backend registry, so the harness
+must also compile `model_backend.cpp` and define `register_builtin_backends`
+itself, registering only its own engine (`builtin_backends.cpp` would pull in
+every engine library). See `test/minicpm_v_npu/test.cpp`:
+
+```cpp
+#include "AutoModel/flm_backend.hpp"
+
+namespace flm::backend {
+void register_builtin_backends(BackendRegistry& registry) {
+    registry.register_backend("gemma4-12b", kFlmBackendId, flm_factory<gemma4_12b_npu>());
+}
+}  // namespace flm::backend
+```
 
 ### `test/<model>/activate.sh` (optional convenience)
 
@@ -440,6 +465,7 @@ flm serve gemma4-12b:12b     # then exercise /v1/chat/completions, streaming, an
 - [ ] `common/AutoModel/modeling_<model>.cpp`
 - [ ] Engine include added to `include/AutoModel/automodel.hpp`
 - [ ] All four edits in `include/AutoModel/all_models.hpp`
+- [ ] `RegisterFlm<…>` line in `common/AutoModel/builtin_backends.cpp`
 - [ ] Engine lib added to `target_link_libraries(flm PUBLIC …)` in `CMakeLists.txt`
 - [ ] `model_list.json` entry, `details.family` matches `modelFamilyMap`
 - [ ] `model_info.json` manifest (if `flm pull` support is wanted)
