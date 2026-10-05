@@ -1313,6 +1313,38 @@
                 "footprint": 4.5
             }
         },
+        "gemma3-purexrt": {
+            "4b": {
+                "name": "Gemma3-4B-NPU2",
+                "url": "https://huggingface.co/FastFlowLM/Gemma3-4B-NPU2",
+                "file_url": "https://huggingface.co/api/models/FastFlowLM/Gemma3-4B-NPU2/tree/main",
+                "ms_url": "https://modelscope.cn/models/amd/Gemma3-4B-NPU2",
+                "modified_at": "2025-05-30T00:00:00Z",
+                "size": 4000000000,
+                "default_context_length": 65536,
+                "max_prefill_len": 4096,
+                "flm_min_version": "0.9.23",
+                "vlm": true,
+                "files": [
+                    "config.json",
+                    "model.q4nx",
+                    "tokenizer.json",
+                    "tokenizer_config.json",
+                    "vision_weight.q4nx"
+                ],
+                "details": {
+                    "family": "gemma3-purexrt",
+                    "think": false,
+                    "think_toggleable": false,
+                    "parameter_size": "4B",
+                    "quantization_level": "Q4_1"
+                },
+                "label":[
+                    "vision"
+                ],
+                "footprint": 4.5
+            }
+        },
         "translategemma": {
             "4b": {
                 "name": "Translategemma-4B-Instruct-NPU2",
