@@ -29,16 +29,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("directory", help="Directory holding the downloaded artifacts.")
     parser.add_argument("--linux-result", default="", help="Job result for the Linux sweep.")
     parser.add_argument("--windows-result", default="", help="Job result for the Windows sweep.")
+    parser.add_argument(
+        "--linux-hrx-result", default="", help="Job result for the Linux HRX sweep."
+    )
+    parser.add_argument(
+        "--windows-hrx-result", default="", help="Job result for the Windows HRX sweep."
+    )
     args = parser.parse_args(argv)
 
     out: list[str] = ["# Model Sweep Results", ""]
 
-    if args.linux_result or args.windows_result:
+    # A platform whose sweep never ran contributes an empty result and is left
+    # out of the table rather than shown as a blank row.
+    overall = [
+        ("Linux", args.linux_result),
+        ("Linux (HRX)", args.linux_hrx_result),
+        ("Windows", args.windows_result),
+        ("Windows (HRX)", args.windows_hrx_result),
+    ]
+    if any(result for _, result in overall):
         out += ["| Platform | Overall |", "| --- | --- |"]
-        if args.linux_result:
-            out.append(f"| Linux | {args.linux_result} |")
-        if args.windows_result:
-            out.append(f"| Windows | {args.windows_result} |")
+        for label, result in overall:
+            if result:
+                out.append(f"| {label} | {result} |")
         out.append("")
 
     summaries = load_summaries(Path(args.directory))

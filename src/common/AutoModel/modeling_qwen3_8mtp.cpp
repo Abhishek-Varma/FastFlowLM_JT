@@ -19,17 +19,8 @@
 /************              Qwen3_8MTP family            **************/
 Qwen3_8MTP::Qwen3_8MTP(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Qwen3_8MTP") {}
 
-void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption) {
-    this->_shared_load_model(model_path, model_info, default_context_length, enable_preemption);
-
-    this->q4nx = std::make_unique<Q4NX>(this->model_path);
-    // lm_config->get<std::string>("model_type", "") == qwen3_5
-    this->lm_engine = std::make_unique<qwen3_8mtp_npu>(*this->lm_config, this->npu.get(), this->MAX_L);
-
-    this->lm_engine->load_weights(*this->q4nx);
-    //free the q4nx
-    this->q4nx.reset();
-    this->lm_engine->clear_context();
+void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption, const std::string& backend) {
+    this->_shared_load_backend(model_path, model_info, default_context_length, enable_preemption, backend);
     this->setup_tokenizer(model_path);
 
     // After setup_tokenizer, which is what fills eos_token_ids -- the engine
@@ -39,7 +30,7 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
     // first id that is_eos() accepts, and every token the engine committed
     // after that one is a cache row with nothing in token_history to describe
     // it. Giving the engine the list moves the cut upstream of the caches.
-    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get()))
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine))
         mtp->set_stop_tokens(this->eos_token_ids);
 
     this->sampler.reset();
@@ -72,7 +63,7 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
         this->vision_image_mean          = cfg_get<float>(vc, "image_mean", 0.5f);
         this->vision_image_std           = cfg_get<float>(vc, "image_std", 0.5f);
     }
-    // if (auto* eng = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+    // if (auto* eng = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine)) {
     //     if (eng->has_vision_tower())
     //         header_print("FLM", "vision backend: " << eng->vision_backend());
     // }
@@ -115,7 +106,7 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     // instead of silently scrambling the prompt.
     constexpr int image_soft_token_id = 248056;
 
-    qwen3_8mtp_npu* qwen3_8mtp_engine = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get());
+    qwen3_8mtp_npu* qwen3_8mtp_engine = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine);
 
     // No vision_weight.q4nx (or FLM_Q38_VISION=0) means no tower: an image
     // would template into placeholders nothing fills and prefill garbage.
@@ -415,7 +406,7 @@ std::string Qwen3_8MTP::generate(chat_meta_info_t& meta_info, int length_limit, 
     // time" in show_profile() resets per turn -- two different windows, on
     // purpose, and the engine cannot label either because it does not know
     // what a session is.
-    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine)) {
         if (mtp->speculation_cycles() > 0) {
             if (!this->log_raw_output) std::cout << std::endl;
             header_print("FLM", mtp->speculation_stats() + ".");
@@ -582,7 +573,7 @@ std::string Qwen3_8MTP::show_profile() {
     // drift from AutoModel's.
     std::string ss = this->AutoModel::show_profile();
 
-    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine)) {
         // Empty for a checkpoint with no MTP head -- keeps that session's
         // profile byte-identical to before.
         ss += mtp->speculation_timing();
@@ -614,7 +605,7 @@ void Qwen3_8MTP::clear_context() {
     // The cast also guards the no-MTP-head case -- a checkpoint without the
     // mtp.* tensors is still a qwen3_8mtp_npu, and zeroing counters that never
     // moved is harmless.
-    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine.get())) {
+    if (auto* mtp = dynamic_cast<qwen3_8mtp_npu*>(this->lm_engine)) {
         mtp->reset_speculation_stats();
     }
 }

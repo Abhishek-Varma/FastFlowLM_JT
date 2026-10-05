@@ -16,6 +16,13 @@ name: Model Sweep
 # The sweep is split by modality (llm, vision, embedding, audio) into one
 # matrix job each, so a failure in one modality does not hide the others and
 # "Re-run failed jobs" restarts only what actually broke.
+#
+# Each platform is swept twice: once against the default portable build and
+# once against the HRX one, which is the same source built with FLM_USE_HRX=ON
+# and a different set of op libraries underneath. Only the artifact differs, so
+# the HRX jobs are their non-HRX counterparts with a different download step
+# and a different --platform label. The HRX jobs are commit-sweep only, because
+# releases do not currently ship an HRX asset.
 
 on:
   pull_request:
@@ -41,7 +48,7 @@ on:
       request_timeout:
         description: "Per-request timeout in seconds"
         type: string
-        default: "300"
+        default: "600"
       limit:
         description: "Test only the first N models per task (0 = all). Use a small N to smoke-test the pipeline without downloading every model."
         type: string
@@ -62,7 +69,7 @@ concurrency:
 
 env:
   GEN_LIM: ${{ inputs.gen_lim || '512' }}
-  REQUEST_TIMEOUT: ${{ inputs.request_timeout || '300' }}
+  REQUEST_TIMEOUT: ${{ inputs.request_timeout || '600' }}
   # 0 unless dispatched, so the cap only exists when someone asks for one.
   MODEL_LIMIT: ${{ inputs.limit || '0' }}
 
@@ -85,10 +92,11 @@ jobs:
   # what stops a sweep from silently picking up a stale artifact built from an
   # earlier push on the same branch.
   #
-  # Either way, a platform whose build is missing or failed is left not-ready,
-  # which skips only that platform's sweep. The build workflow already reports
-  # its own failure, so there is no reason to fail twice or to block the other
-  # platform.
+  # Readiness is per build, not per workflow run: each of the four sweeps has
+  # its own <platform>[_hrx]_ready flag, decided by whether that one artifact
+  # exists. So an HRX build that fails costs you the HRX sweeps and nothing
+  # else, and vice versa. The build workflow already reports its own failure,
+  # so there is no reason to fail twice or to hold back a build that is fine.
   resolve-build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -100,6 +108,8 @@ jobs:
       windows_run_id: ${{ steps.resolve.outputs.windows_run_id }}
       linux_ready: ${{ steps.resolve.outputs.linux_ready }}
       windows_ready: ${{ steps.resolve.outputs.windows_ready }}
+      linux_hrx_ready: ${{ steps.resolve.outputs.linux_hrx_ready }}
+      windows_hrx_ready: ${{ steps.resolve.outputs.windows_hrx_ready }}
 
     steps:
       - name: Resolve the portable builds
@@ -137,16 +147,23 @@ jobs:
 
             # A release can legitimately ship one platform and not the other,
             # so check each asset separately instead of assuming both are there.
-            if printf '%s\n' "${assets}" | grep -q '_linux\.tar\.gz$'; then
+            # Anchored at the start of the name so an HRX_-prefixed asset is
+            # never mistaken for the default build.
+            if printf '%s\n' "${assets}" | grep -q '^fastflowlm_.*_linux\.tar\.gz$'; then
               echo "linux_ready=true" >> "$GITHUB_OUTPUT"
             else
-              echo "::warning::Release ${tag} has no *_linux.tar.gz asset; skipping the Linux sweep."
+              echo "::warning::Release ${tag} has no fastflowlm_*_linux.tar.gz asset; skipping the Linux sweep."
             fi
-            if printf '%s\n' "${assets}" | grep -q '_windows_amd64\.zip$'; then
+            if printf '%s\n' "${assets}" | grep -q '^fastflowlm_.*_windows_amd64\.zip$'; then
               echo "windows_ready=true" >> "$GITHUB_OUTPUT"
             else
-              echo "::warning::Release ${tag} has no *_windows_amd64.zip asset; skipping the Windows sweep."
+              echo "::warning::Release ${tag} has no fastflowlm_*_windows_amd64.zip asset; skipping the Windows sweep."
             fi
+
+            # Releases ship no HRX assets today, so the HRX sweeps only ever
+            # run off CI artifacts. Say so rather than leaving a dispatch
+            # looking like it swept everything.
+            echo "::notice::HRX sweeps are skipped in release mode; ${tag} ships no HRX_* assets."
             exit 0
           fi
 
@@ -173,51 +190,79 @@ jobs:
             done
           }
 
+          # The upload step is the last thing each build job does and carries no
+          # "if: always()", so an artifact exists only if that job got all the
+          # way through. That makes artifact presence a better readiness signal
+          # than the run's conclusion, which is a single verdict over every job
+          # in the workflow: a failed HRX build, or a failed .deb build, would
+          # otherwise take the default portable sweep down with it.
+          #
+          # Names are matched fully anchored, so "fastflowlm-windows-<sha>"
+          # picks up neither the HRX- prefixed artifact nor the MSI job's
+          # "fastflowlm-windows-msi-<sha>".
+          check_artifact() {
+            local artifacts="$1" pattern="$2" flag="$3" label="$4" run_id="$5"
+            if printf '%s\n' "${artifacts}" | grep -qE "${pattern}"; then
+              echo "${flag}=true" >> "$GITHUB_OUTPUT"
+              echo "  ${label}: ready"
+            else
+              echo "::warning::Run ${run_id} published no ${label} artifact; skipping that sweep."
+            fi
+          }
+
           wait_for_build() {
-            local workflow="$1" platform="$2"
-            local run_id="" info status conclusion
+            local workflow="$1" platform="$2" default_pattern="$3" hrx_pattern="$4"
+            local run_id="" status artifacts
 
             while :; do
               run_id=$(find_run "${workflow}")
               [ -n "${run_id}" ] && break
               if [ "${SECONDS}" -ge "${APPEAR_DEADLINE}" ]; then
-                echo "::warning::No ${workflow} run appeared for this commit; skipping that sweep."
+                echo "::warning::No ${workflow} run appeared for this commit; skipping those sweeps."
                 return 1
               fi
               echo "Waiting for a ${workflow} run to appear..."
               sleep "${POLL_SECONDS}"
             done
 
+            # Waits for the whole run rather than the individual build job:
+            # artifacts are only listable once their job has uploaded them, and
+            # the run completing is the one event that guarantees that for all
+            # of them.
             while :; do
-              info=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
-                --jq '"\(.status) \(.conclusion // "none")"')
-              status=${info%% *}
-              conclusion=${info##* }
+              status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')
               [ "${status}" = "completed" ] && break
               if [ "${SECONDS}" -ge "${FINISH_DEADLINE}" ]; then
-                echo "::warning::${workflow} run ${run_id} is still ${status}; skipping that sweep."
+                echo "::warning::${workflow} run ${run_id} is still ${status}; skipping those sweeps."
                 return 1
               fi
               echo "${workflow} run ${run_id} is ${status}; checking again in ${POLL_SECONDS}s."
               sleep "${POLL_SECONDS}"
             done
 
-            if [ "${conclusion}" != "success" ]; then
-              echo "::warning::${workflow} run ${run_id} concluded '${conclusion}'; skipping that sweep."
-              return 1
-            fi
+            artifacts=$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.expired | not) | .name')
+            echo "${workflow} run ${run_id} published:"
+            printf '%s\n' "${artifacts}" | sed 's/^/  /'
 
-            echo "${workflow} run ${run_id} succeeded."
-            {
-              echo "${platform}_run_id=${run_id}"
-              echo "${platform}_ready=true"
-            } >> "$GITHUB_OUTPUT"
+            # Written even when neither artifact landed; the ready flags are
+            # what gate the sweeps, and an unused run id costs nothing.
+            echo "${platform}_run_id=${run_id}" >> "$GITHUB_OUTPUT"
+
+            check_artifact "${artifacts}" "${default_pattern}" \
+              "${platform}_ready" "${platform} portable" "${run_id}"
+            check_artifact "${artifacts}" "${hrx_pattern}" \
+              "${platform}_hrx_ready" "${platform} HRX portable" "${run_id}"
           }
 
           # Neither platform gates the other, so a failure here leaves that
           # platform not-ready rather than aborting the step.
-          wait_for_build debian-portable.yml linux || echo "Linux build unavailable."
-          wait_for_build windows-build.yml windows || echo "Windows build unavailable."
+          wait_for_build debian-portable.yml linux \
+            '^portable$' '^HRX-portable$' || echo "Linux build unavailable."
+          wait_for_build windows-build.yml windows \
+            '^fastflowlm-windows-[0-9a-f]+$' '^HRX-fastflowlm-windows-[0-9a-f]+$' \
+            || echo "Windows build unavailable."
 
   sweep-linux:
     needs: resolve-build
@@ -329,6 +374,98 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: model-sweep-linux-${{ matrix.task }}-${{ github.run_number }}
+          path: sweep-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # The Linux sweep again, against the HRX build. "Build Linux Portable"
+  # produces both from the same run, so this shares linux_run_id with
+  # sweep-linux but has its own readiness flag: whichever of the two builds
+  # succeeded gets swept, independently of the other.
+  sweep-linux-hrx:
+    needs: resolve-build
+    # Only ever set in run mode: no release carries an HRX asset, so a
+    # dispatch leaves this unset and the job skips.
+    if: needs.resolve-build.outputs.linux_hrx_ready == 'true'
+    runs-on: [self-hosted, linux, x64, npu, sweep]
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Kept in step with sweep-linux; see the note there about embedding
+        # and audio.
+        task: [llm, vision]
+
+    env:
+      # Weights are expected at $FLM_MODEL_PATH/models/<ModelName>
+      FLM_MODEL_PATH: /scratch
+
+    steps:
+      # Only the sweep scripts and their test assets, never the sources: this
+      # job runs a prebuilt binary and compiles nothing. src/ is ~880 MB of
+      # code and test media that every sweep job would otherwise copy onto an
+      # NPU machine for no reason. Cone mode also brings the root files along,
+      # which are small enough not to matter.
+      - name: Checkout sweep scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          # sparse-checkout alone still downloads every blob at this depth.
+          # blob:none makes git fetch only the blobs the sparse paths need.
+          filter: blob:none
+
+      # Same shape as the default artifact, under the HRX- name and holding a
+      # single HRX_-prefixed tarball.
+      - name: Download Linux HRX portable build (CI run)
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.resolve-build.outputs.linux_run_id }}
+          name: HRX-portable
+          path: build-artifact
+          if_no_artifact_found: fail
+
+      - name: Unpack Linux HRX portable build
+        run: |
+          set -euo pipefail
+          mkdir -p flm-linux
+          tarball=$(ls build-artifact/HRX_fastflowlm_*_linux.tar.gz)
+          echo "Using tarball: ${tarball}"
+          tar xzf "${tarball}" -C flm-linux
+          chmod +x flm-linux/flm flm-linux/flm-real
+          echo "FLM_BIN=${GITHUB_WORKSPACE}/flm-linux/flm" >> "$GITHUB_ENV"
+
+      - name: Verify FLM binary runs
+        run: |
+          set -euo pipefail
+          "${FLM_BIN}" version
+
+      - name: Set up Python virtualenv
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install openai
+
+      # --platform is only a label, but it is the one that keeps these results
+      # apart from the default build's in the filenames and the summary table.
+      - name: Run ${{ matrix.task }} sweep
+        run: |
+          set -euo pipefail
+          .venv/bin/python .github/script/sweep_${{ matrix.task }}.py \
+            --flm-bin "${FLM_BIN}" \
+            --platform linux-hrx \
+            --gen-lim "${GEN_LIM}" \
+            --request-timeout "${REQUEST_TIMEOUT}" \
+            --limit "${MODEL_LIMIT}" \
+            --output-dir sweep-results
+
+      - name: Upload ${{ matrix.task }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-sweep-linux-hrx-${{ matrix.task }}-${{ github.run_number }}
           path: sweep-results/
           if-no-files-found: warn
           retention-days: 30
@@ -445,10 +582,108 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # The Windows sweep again, against the HRX build. "Build Windows Packages"
+  # produces both from the same run, so this shares windows_run_id with
+  # sweep-windows but has its own readiness flag.
+  sweep-windows-hrx:
+    needs: resolve-build
+    # Only ever set in run mode: no release carries an HRX asset, so a
+    # dispatch leaves this unset and the job skips.
+    if: needs.resolve-build.outputs.windows_hrx_ready == 'true'
+    runs-on: [self-hosted, windows, x64, npu, sweep]
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Kept in step with sweep-windows; see the note there about embedding
+        # and audio.
+        task: [llm, vision]
+
+    steps:
+      # Only the sweep scripts and their test assets, never the sources: this
+      # job runs a prebuilt binary and compiles nothing. src/ is ~880 MB of
+      # code and test media that every sweep job would otherwise copy onto an
+      # NPU machine for no reason. Cone mode also brings the root files along,
+      # which are small enough not to matter.
+      - name: Checkout sweep scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          # sparse-checkout alone still downloads every blob at this depth.
+          # blob:none makes git fetch only the blobs the sparse paths need.
+          filter: blob:none
+
+      - name: Resolve model path
+        shell: powershell
+        run: |
+          $modelPath = Join-Path $env:USERPROFILE ".flm"
+          New-Item -ItemType Directory -Force $modelPath | Out-Null
+          "FLM_MODEL_PATH=$modelPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Same payload as the default Windows portable artifact, under the HRX-
+      # prefixed name: flm.exe and its DLLs at the top level, with the HRX op
+      # libraries and hrx.dll overlaid.
+      - name: Download Windows HRX portable build (CI run)
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.resolve-build.outputs.windows_run_id }}
+          name: HRX-fastflowlm-windows-${{ github.sha }}
+          path: flm-windows
+          if_no_artifact_found: fail
+
+      - name: Verify FLM binary runs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $flm = Join-Path $env:GITHUB_WORKSPACE "flm-windows\flm.exe"
+          if (-not (Test-Path $flm)) {
+            throw "flm.exe not found at $flm"
+          }
+          "FLM_BIN=$flm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $flm version
+
+      - name: Set up Python virtualenv
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install openai
+
+      # --platform is only a label, but it is the one that keeps these results
+      # apart from the default build's in the filenames and the summary table.
+      - name: Run ${{ matrix.task }} sweep
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cmdArgs = @(
+            ".github\script\sweep_${{ matrix.task }}.py",
+            "--flm-bin", $env:FLM_BIN,
+            "--platform", "windows-hrx",
+            "--gen-lim", $env:GEN_LIM,
+            "--request-timeout", $env:REQUEST_TIMEOUT,
+            "--limit", $env:MODEL_LIMIT,
+            "--output-dir", "sweep-results"
+          )
+          & ".\.venv\Scripts\python.exe" $cmdArgs
+          # A native command's exit code does not trip ErrorActionPreference.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload ${{ matrix.task }} results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-sweep-windows-hrx-${{ matrix.task }}-${{ github.run_number }}
+          path: sweep-results/
+          if-no-files-found: warn
+          retention-days: 30
+
   # Reporting only, no NPU needed, so this one stays on a GitHub-hosted runner.
   summary:
     runs-on: ubuntu-latest
-    needs: [sweep-linux, sweep-windows]
+    needs: [sweep-linux, sweep-windows, sweep-linux-hrx, sweep-windows-hrx]
     if: always()
     steps:
       # Only the sweep scripts and their test assets, never the sources: this
@@ -477,4 +712,6 @@ jobs:
           python3 .github/script/sweep_summary.py sweep-results \
             --linux-result "${{ needs.sweep-linux.result }}" \
             --windows-result "${{ needs.sweep-windows.result }}" \
+            --linux-hrx-result "${{ needs.sweep-linux-hrx.result }}" \
+            --windows-hrx-result "${{ needs.sweep-windows-hrx.result }}" \
             >> "$GITHUB_STEP_SUMMARY"
