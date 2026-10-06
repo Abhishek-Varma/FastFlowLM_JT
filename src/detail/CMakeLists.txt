@@ -15,6 +15,13 @@ list(APPEND GEMMA4E_SHARED_SOURCES "${GEMMA4E_ENGINE_DIR}/vision_common/norm.cpp
 
 add_library(gemma4e_npu SHARED ${GEMMA4E_SOURCES} ${GEMMA4E_SHARED_SOURCES})
 
+if(MSVC)
+    set_target_properties(gemma4e_npu PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
+    )
+endif()
+
 target_include_directories(gemma4e_npu BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../include"
 )
