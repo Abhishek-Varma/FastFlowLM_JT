@@ -33,6 +33,9 @@ target_compile_definitions(gemma4e_npu PRIVATE
     VERBOSE=${FLM_ENGINE_VERBOSE}
     DEBUG_LEVEL=${FLM_ENGINE_DEBUG_LEVEL}
 )
+if(FLM_USE_HRX)
+    target_compile_definitions(gemma4e_npu PRIVATE FLM_USE_HRX=1)
+endif()
 
 if(NOT MSVC)
     target_compile_options(gemma4e_npu PRIVATE
