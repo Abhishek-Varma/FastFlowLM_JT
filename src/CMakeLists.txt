@@ -472,6 +472,26 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     hunyuan_npu_pure_hrx
 )
 
+
+# pure-XRT engines (auto-ported). Filtered out of HRX builds below.
+list(APPEND FLM_ENGINE_LINK_LIBS
+    gemma4_12b_npu_pure_xrt
+    gemma4e_flash_pure_xrt
+    gemma4e_npu_pure_xrt
+    hunyuan_npu_pure_xrt
+    lfm2_npu_pure_xrt
+    llama_npu_pure_xrt
+    nanbeige_npu_pure_xrt
+    phi4_npu_pure_xrt
+    qwen2_npu_pure_xrt
+    qwen2vl_npu_pure_xrt
+    qwen3_5vl_npu_pure_xrt
+    qwen3_6_moe_npu_pure_xrt
+    qwen3_npu_pure_xrt
+    qwen3vl_flash_pure_xrt
+    qwen3vl_npu_pure_xrt
+)
+
 # Backend-scoped engine linking: *_pure_hrx engines link libhrx and only exist in
 # lib/hrx; *_pure_xrt engines link XRT and only exist in lib/xrt. Keep only the set
 # matching the active runtime so an XRT (FLM_USE_HRX=OFF) build doesn't try to link

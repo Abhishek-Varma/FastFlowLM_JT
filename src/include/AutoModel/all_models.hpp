@@ -8,6 +8,7 @@
 
 #include "modeling_llama3.hpp"
 #include "modeling_llama3_pure_hrx.hpp"
+#include "modeling_llama3_pure_xrt.hpp"
 #include "modeling_gemma3.hpp"
 #include "modeling_gemma3_pure_hrx.hpp"
 #include "modeling_gemma3_pure_xrt.hpp"
@@ -15,61 +16,83 @@
 #include "modeling_gemma3_text_pure_hrx.hpp"
 #include "modeling_gemma3_text_pure_xrt.hpp"
 #include "modeling_qwen2_pure_hrx.hpp"
+#include "modeling_qwen2_pure_xrt.hpp"
 #include "modeling_qwen3.hpp"
 #include "modeling_qwen3_pure_hrx.hpp"
+#include "modeling_qwen3_pure_xrt.hpp"
 #include "modeling_gpt_oss.hpp"
 #include "modeling_gpt_oss_pure_hrx.hpp"
 #include "modeling_gpt_oss_pure_xrt.hpp"
 #include "modeling_lfm2.hpp"
 #include "modeling_lfm2_pure_hrx.hpp"
+#include "modeling_lfm2_pure_xrt.hpp"
 #include "modeling_phi4.hpp"
 #include "modeling_phi4_pure_hrx.hpp"
+#include "modeling_phi4_pure_xrt.hpp"
 #include "modeling_qwen2.hpp"
 #include "modeling_qwen3.hpp"
 #include "modeling_qwen2vl.hpp"
 #include "modeling_qwen2vl_pure_hrx.hpp"
+#include "modeling_qwen2vl_pure_xrt.hpp"
 #include "modeling_qwen3vl.hpp"
 #include "modeling_qwen3vl_pure_hrx.hpp"
+#include "modeling_qwen3vl_pure_xrt.hpp"
 #include "modeling_qwen3vl_flash_pure_hrx.hpp"
+#include "modeling_qwen3vl_flash_pure_xrt.hpp"
 #include "modeling_qwen3_5vl.hpp"
 #include "modeling_qwen3_5vl_pure_hrx.hpp"
+#include "modeling_qwen3_5vl_pure_xrt.hpp"
 #include "modeling_qwen3_5_omni.hpp"
 #include "modeling_qwen3_6_moe.hpp"
 #include "modeling_qwen3_6_moe_pure_hrx.hpp"
+#include "modeling_qwen3_6_moe_pure_xrt.hpp"
 #include "modeling_nanbeige.hpp"
 #include "modeling_nanbeige_pure_hrx.hpp"
+#include "modeling_nanbeige_pure_xrt.hpp"
 #include "modeling_gemma4e.hpp"
 #include "modeling_gemma4e_pure_hrx.hpp"
+#include "modeling_gemma4e_pure_xrt.hpp"
 #include "modeling_gemma4e_flash_pure_hrx.hpp"
+#include "modeling_gemma4e_flash_pure_xrt.hpp"
 #include "modeling_hunyuan.hpp"
 #include "modeling_hunyuan_pure_hrx.hpp"
+#include "modeling_hunyuan_pure_xrt.hpp"
 #include "modeling_gemma4_12b.hpp"
 #include "modeling_gemma4_12b_pure_hrx.hpp"
+#include "modeling_gemma4_12b_pure_xrt.hpp"
 #include "model_list.hpp"
 #include "nlohmann/json.hpp"
 
 typedef enum {
     llama3,
     llama3_pure_hrx,
+    llama3_pure_xrt,
     deepseek_r1,
     deepseek_r1_0528,
     qwen2,
     qwen2_pure_hrx,
+    qwen2_pure_xrt,
     qwen2vl,
     qwen2vl_pure_hrx,
+    qwen2vl_pure_xrt,
     qwen3,
     qwen3_it,
     qwen3_tk,
     qwen3_pure_hrx,
+    qwen3_pure_xrt,
     qwen3vl,
     qwen3vl_pure_hrx,
+    qwen3vl_pure_xrt,
     qwen3vl_flash,
     qwen3vl_flash_pure_hrx,
+    qwen3vl_flash_pure_xrt,
     qwen3_5,
     qwen3_5_pure_hrx,
+    qwen3_5_pure_xrt,
     qwen3_5_omni,
     qwen3_6_moe,
     qwen3_6_moe_pure_hrx,
+    qwen3_6_moe_pure_xrt,
     gemma3,
     gemma3_pure_hrx,
     gemma3_pure_xrt,
@@ -78,22 +101,29 @@ typedef enum {
     gemma3_text_pure_xrt,
     gemma4e,
     gemma4e_pure_hrx,
+    gemma4e_pure_xrt,
     gemma4e_flash,
     gemma4e_flash_pure_hrx,
+    gemma4e_flash_pure_xrt,
     gemma4_12b,
     gemma4_12b_pure_hrx,
+    gemma4_12b_pure_xrt,
     gpt_oss,
     gpt_oss_pure_hrx,
     gpt_oss_pure_xrt,
     lfm2,
     lfm2_pure_hrx,
+    lfm2_pure_xrt,
     lfm2_5_tk,
     phi4,
     phi4_pure_hrx,
+    phi4_pure_xrt,
     nanbeige,
     nanbeige_pure_hrx,
+    nanbeige_pure_xrt,
     hunyuan,
     hunyuan_pure_hrx,
+    hunyuan_pure_xrt,
     error_whiper,
     error_embedding
 } SupportedModelFamily;
@@ -104,23 +134,37 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
     static const std::map<std::string, SupportedModelFamily> modelFamilyMap = {
         {"llama3", SupportedModelFamily::llama3},
         {"llama3-purehrx", SupportedModelFamily::llama3_pure_hrx},
+
+        {"llama3-purexrt", SupportedModelFamily::llama3_pure_xrt},
         {"deepseek-r1", SupportedModelFamily::deepseek_r1},
         {"deepseek-r1-0528", SupportedModelFamily::deepseek_r1_0528},
         {"qwen2", SupportedModelFamily::qwen2},
         {"qwen2-purehrx", SupportedModelFamily::qwen2_pure_hrx},
+
+        {"qwen2-purexrt", SupportedModelFamily::qwen2_pure_xrt},
         {"qwen3", SupportedModelFamily::qwen3},
         {"qwen3-it", SupportedModelFamily::qwen3_it},
         {"qwen3-tk", SupportedModelFamily::qwen3_tk},
         {"qwen3-purehrx", SupportedModelFamily::qwen3_pure_hrx},
+
+        {"qwen3-purexrt", SupportedModelFamily::qwen3_pure_xrt},
         {"qwen3vl", SupportedModelFamily::qwen3vl},
         {"qwen3vl-purehrx", SupportedModelFamily::qwen3vl_pure_hrx},
+
+        {"qwen3vl-purexrt", SupportedModelFamily::qwen3vl_pure_xrt},
         {"qwen3vl-flash", SupportedModelFamily::qwen3vl_flash},
         {"qwen3vl-flash-purehrx", SupportedModelFamily::qwen3vl_flash_pure_hrx},
+
+        {"qwen3vl-flash-purexrt", SupportedModelFamily::qwen3vl_flash_pure_xrt},
         {"qwen3.5", SupportedModelFamily::qwen3_5},
         {"qwen3.5-purehrx", SupportedModelFamily::qwen3_5_pure_hrx},
+
+        {"qwen3.5-purexrt", SupportedModelFamily::qwen3_5_pure_xrt},
         {"qwen3.5-omni", SupportedModelFamily::qwen3_5_omni},
         {"qwen3.6-moe", SupportedModelFamily::qwen3_6_moe},
         {"qwen3.6-moe-purehrx", SupportedModelFamily::qwen3_6_moe_pure_hrx},
+
+        {"qwen3.6-moe-purexrt", SupportedModelFamily::qwen3_6_moe_pure_xrt},
         {"gemma3", SupportedModelFamily::gemma3},
         {"gemma3-purehrx", SupportedModelFamily::gemma3_pure_hrx},
         {"gemma3-purexrt", SupportedModelFamily::gemma3_pure_xrt},
@@ -129,24 +173,40 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"gemma3-text-purexrt", SupportedModelFamily::gemma3_text_pure_xrt},
         {"gemma4e", SupportedModelFamily::gemma4e},
         {"gemma4e-purehrx", SupportedModelFamily::gemma4e_pure_hrx},
+
+        {"gemma4e-purexrt", SupportedModelFamily::gemma4e_pure_xrt},
         {"gemma4e-flash", SupportedModelFamily::gemma4e_flash},
         {"gemma4e-flash-purehrx", SupportedModelFamily::gemma4e_flash_pure_hrx},
+
+        {"gemma4e-flash-purexrt", SupportedModelFamily::gemma4e_flash_pure_xrt},
         {"gemma4-12b", SupportedModelFamily::gemma4_12b},
         {"gemma4-12b-purehrx", SupportedModelFamily::gemma4_12b_pure_hrx},
+
+        {"gemma4-12b-purexrt", SupportedModelFamily::gemma4_12b_pure_xrt},
         {"gpt-oss", SupportedModelFamily::gpt_oss},
         {"gpt-oss-purehrx", SupportedModelFamily::gpt_oss_pure_hrx},
         {"gpt-oss-purexrt", SupportedModelFamily::gpt_oss_pure_xrt},
         {"lfm2", SupportedModelFamily::lfm2},
         {"lfm2-purehrx", SupportedModelFamily::lfm2_pure_hrx},
+
+        {"lfm2-purexrt", SupportedModelFamily::lfm2_pure_xrt},
         {"lfm2.5-tk", SupportedModelFamily::lfm2_5_tk},
         {"qwen2vl", SupportedModelFamily::qwen2vl},
         {"qwen2vl-purehrx", SupportedModelFamily::qwen2vl_pure_hrx},
+
+        {"qwen2vl-purexrt", SupportedModelFamily::qwen2vl_pure_xrt},
         {"phi4", SupportedModelFamily::phi4},
         {"phi4-purehrx", SupportedModelFamily::phi4_pure_hrx},
+
+        {"phi4-purexrt", SupportedModelFamily::phi4_pure_xrt},
         {"nanbeige", SupportedModelFamily::nanbeige},
         {"nanbeige-purehrx", SupportedModelFamily::nanbeige_pure_hrx},
+
+        {"nanbeige-purexrt", SupportedModelFamily::nanbeige_pure_xrt},
         {"hunyuan", SupportedModelFamily::hunyuan},
         {"hunyuan-purehrx", SupportedModelFamily::hunyuan_pure_hrx},
+
+        {"hunyuan-purexrt", SupportedModelFamily::hunyuan_pure_xrt},
         {"whisper-v3", SupportedModelFamily::error_whiper},
         {"embed-gemma", SupportedModelFamily::error_embedding}
     };
@@ -329,6 +389,53 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
 #ifdef FLM_USE_HRX
         case SupportedModelFamily::phi4_pure_hrx:
             auto_chat_engine = std::make_unique<Phi4PureHrx>(npu_device_inst);
+            break;
+#endif
+#ifndef FLM_USE_HRX
+        case SupportedModelFamily::llama3_pure_xrt:
+            auto_chat_engine = std::make_unique<Llama3PureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen2_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen2PureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen2vl_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen2VLPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen3_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen3PureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::gemma4e_pure_xrt:
+            auto_chat_engine = std::make_unique<Gemma4ePureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::gemma4e_flash_pure_xrt:
+            auto_chat_engine = std::make_unique<Gemma4e_FlashPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::gemma4_12b_pure_xrt:
+            auto_chat_engine = std::make_unique<Gemma4_12BPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen3vl_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen3VLPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen3vl_flash_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen3VL_FlashPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen3_5_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen3_5VLPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::qwen3_6_moe_pure_xrt:
+            auto_chat_engine = std::make_unique<Qwen3_6_MOEPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::lfm2_pure_xrt:
+            auto_chat_engine = std::make_unique<Lfm2PureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::nanbeige_pure_xrt:
+            auto_chat_engine = std::make_unique<NanbeigePureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::hunyuan_pure_xrt:
+            auto_chat_engine = std::make_unique<HunyuanPureXrt>(npu_device_inst);
+            break;
+        case SupportedModelFamily::phi4_pure_xrt:
+            auto_chat_engine = std::make_unique<Phi4PureXrt>(npu_device_inst);
             break;
 #endif
         case SupportedModelFamily::error_whiper:
