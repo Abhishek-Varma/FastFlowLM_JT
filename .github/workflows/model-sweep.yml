@@ -352,7 +352,12 @@ jobs:
           set -euo pipefail
           python3 -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install openai
+          for attempt in 1 2 3; do
+            .venv/bin/python -m pip install --no-cache-dir openai && break
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+          done
 
       # Each script starts and stops its own flm server, picks its own models,
       # and exits non-zero if any model failed.
@@ -446,7 +451,12 @@ jobs:
           set -euo pipefail
           python3 -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install openai
+          for attempt in 1 2 3; do
+            .venv/bin/python -m pip install --no-cache-dir openai && break
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+          done
 
       # --platform is only a label, but it is the one that keeps these results
       # apart from the default build's in the filenames and the summary table.
