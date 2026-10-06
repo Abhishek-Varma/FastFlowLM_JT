@@ -20,7 +20,7 @@
 #include "lm_config.hpp"
 #include "weight_desc.hpp"
 #include "tensor_utils/q4_npu_eXpress.hpp"
-#include "models/gemma4e/gemma4e_npu.hpp"
+#include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
 
 /// minimum tail padding (in bf16 elements) of the rope/rms buffer, kept in sync
 /// with gemma4e_npu_sequence.hpp.

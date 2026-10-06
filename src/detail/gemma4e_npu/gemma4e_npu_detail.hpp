@@ -1,5 +1,5 @@
 #pragma once
-#include "models/gemma4e/gemma4e_npu.hpp"
+#include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
 #include "gemma4e_npu_sequence.hpp"
 #include "gemma4e_image.hpp"
 #include "modules/gemm.hpp"

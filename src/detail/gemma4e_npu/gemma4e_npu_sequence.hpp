@@ -3,7 +3,7 @@
 #include "npu_utils/npu_instr_utils.hpp"
 #include "lm_config.hpp"
 #include "tensor_utils/q4_npu_eXpress.hpp"
-#include "models/gemma4e/gemma4e_npu.hpp"
+#include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
 #include "weight_desc.hpp"
 #include "gemma4e_npu_def.hpp"
 

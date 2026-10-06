@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include "tensor_utils/q4_npu_eXpress.hpp"
-#include "models/gemma4e/gemma4e_npu.hpp"
+#include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
 
 #include "vision/norm.hpp"
 

@@ -5,7 +5,7 @@
 #include <omp.h>
 #include "typedef.hpp"
 #include "buffer.hpp"
-#include "models/gemma4e/gemma4e_npu.hpp"
+#include "models/gemma4e/flm/aie2p/gemma4e_npu.hpp"
 #include "avx512_util.hpp"
 
 /// @brief Host-side batched kernels used by the gemma4e prefill path.
