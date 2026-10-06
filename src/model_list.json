@@ -462,7 +462,7 @@
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/MiniCPM-V4-1B-NPU2/tree/main",
                 "ms_url": "https://modelscope.cn/models/amd/MiniCPM-V4-1B-NPU2",
                 "size": 1000000000,
-                "flm_min_version": "0.9.43",
+                "flm_min_version": "1.0.8",
                 "files": [
                     "config.json",
                     "model.q4nx",
