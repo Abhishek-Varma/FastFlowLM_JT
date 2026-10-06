@@ -18,6 +18,12 @@ add_library(gemma4e_npu SHARED ${GEMMA4E_SOURCES} ${GEMMA4E_SHARED_SOURCES})
 target_include_directories(gemma4e_npu BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../include"
 )
+if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+    target_include_directories(gemma4e_npu PRIVATE
+        C:/dev/boost_1_88_0
+        C:/dev/vcpkg/installed/x64-windows/include/
+    )
+endif()
 # Whichever XRT the parent discovered: pkg-config, a portable build's from-source
 # fetch, or the /opt/xilinx fallback. HRX carries its own headers on hrx::hrx.
 if(NOT FLM_USE_HRX)
@@ -35,6 +41,15 @@ target_compile_definitions(gemma4e_npu PRIVATE
 )
 if(FLM_USE_HRX)
     target_compile_definitions(gemma4e_npu PRIVATE FLM_USE_HRX=1)
+endif()
+if(WIN32)
+    target_compile_definitions(gemma4e_npu PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+        _CRT_NONSTDC_NO_DEPRECATE
+        __WINDOWS__
+    )
 endif()
 
 if(NOT MSVC)
