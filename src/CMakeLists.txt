@@ -110,12 +110,15 @@ set(FLM_ENGINE_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/${FLM_RUNTIME_NAME}")
 # The flash engine libs (qwen3vl_flash, gemma4e_flash) are always shipped in
 # src/lib/${FLM_RUNTIME_NAME} for every backend, so their model families are
 # always compiled in -- no probe/gate/macro needed.
-# Gemma4e is the one engine built from source here; the rest stay prebuilt.
-option(FLM_BUILD_GEMMA4E "Build the Gemma4e engine from src/detail instead of using the prebuilt" ON)
+# Gemma4e can be built from source here; the other engines stay prebuilt.
+option(FLM_BUILD_GEMMA4E "Build the Gemma4e engine from src/detail instead of using the prebuilt" OFF)
 option(FLM_ENGINE_NATIVE_ARCH "Build the from-source engine with -march=native (host-specific, not redistributable)" OFF)
 set(FLM_ENGINE_VERBOSE 0 CACHE STRING "VERBOSE level for the from-source engine")
 set(FLM_ENGINE_DEBUG_LEVEL 0 CACHE STRING "DEBUG_LEVEL for the from-source engine")
 set(FLM_OVERRIDE_FLAGS "" CACHE STRING "Extra compile flags for the from-source engine (see include/flm_override.hpp)")
+if(WIN32 AND FLM_BUILD_GEMMA4E)
+    message(FATAL_ERROR "FLM_BUILD_GEMMA4E=ON supports Linux only")
+endif()
 
 # ———————————————————————————————————————————————
 # NPU runtime discovery.

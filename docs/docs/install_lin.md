@@ -179,6 +179,26 @@ If `flm validate` passes but `flm run` fails with `No such device with index '0'
    cmake --install --preset linux-default
    ```
 
+#### Optional Gemma 4 Source Build
+
+By default, FLM links the prebuilt Gemma 4 engine from `src/lib/<backend>/`. To build the engine from `src/detail/` on Linux:
+
+```sh
+cd src
+cmake --preset linux-default -DFLM_BUILD_GEMMA4E=ON
+cmake --build build
+```
+
+CMake caches `FLM_BUILD_GEMMA4E`. To switch back to the prebuilt engine, reconfigure with `-DFLM_BUILD_GEMMA4E=OFF` or use a fresh build directory.
+
+| Option | Default | Effect |
+|---|---:|---|
+| `FLM_BUILD_GEMMA4E` | `OFF` | Build `gemma4e_npu` from `src/detail/` instead of using the prebuilt engine. Linux only. |
+| `FLM_ENGINE_NATIVE_ARCH` | `OFF` | Add `-march=native`. This produces host-specific binaries that should not be redistributed. |
+| `FLM_ENGINE_VERBOSE` | `0` | Set the logging level for the source-built engine. |
+| `FLM_ENGINE_DEBUG_LEVEL` | `0` | Set the debug level for the source-built engine. |
+| `FLM_OVERRIDE_FLAGS` | empty | Add compile flags for operator overrides. See `src/include/flm_override.hpp`. |
+
 #### Advanced Build Options
 
 **Static Build with Bundled XRT/XDNA**
