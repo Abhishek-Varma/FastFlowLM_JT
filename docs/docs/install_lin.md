@@ -193,7 +193,7 @@ CMake caches `FLM_BUILD_GEMMA4E`. To switch back to the prebuilt engine, reconfi
 
 | Option | Default | Effect |
 |---|---:|---|
-| `FLM_BUILD_GEMMA4E` | `OFF` | Build `gemma4e_npu` from `src/detail/` instead of using the prebuilt engine. Linux only. |
+| `FLM_BUILD_GEMMA4E` | `OFF` | Build `gemma4e_npu` from `src/detail/` instead of using the prebuilt engine. |
 | `FLM_ENGINE_NATIVE_ARCH` | `OFF` | Add `-march=native`. This produces host-specific binaries that should not be redistributed. |
 | `FLM_ENGINE_VERBOSE` | `0` | Set the logging level for the source-built engine. |
 | `FLM_ENGINE_DEBUG_LEVEL` | `0` | Set the debug level for the source-built engine. |

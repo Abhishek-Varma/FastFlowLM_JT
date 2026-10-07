@@ -170,7 +170,7 @@ More details on the exact procedure, with dependencies to be installed, for Linu
 
         This will configure the build to install to `/opt/fastflowlm`.
 
-        To build the Gemma 4 engine from source on Linux instead of using the prebuilt engine:
+        To build the Gemma 4 engine from source instead of using the prebuilt engine:
 
         ```bash
         cmake --preset linux-default -DFLM_BUILD_GEMMA4E=ON
@@ -184,6 +184,8 @@ More details on the exact procedure, with dependencies to be installed, for Linu
         ```bash
         cmake --preset windows-default
         ```
+
+        Add `-DFLM_BUILD_GEMMA4E=ON` to build the Gemma 4 engine from source.
 
 3.  **Build the project:**
 

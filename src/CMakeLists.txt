@@ -26,7 +26,7 @@ set(CMAKE_ERROR_DEPRECATED ON)
 
 
 # Set output directories
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build/)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 
 # Force output directories to be absolute
@@ -116,9 +116,6 @@ option(FLM_ENGINE_NATIVE_ARCH "Build the from-source engine with -march=native (
 set(FLM_ENGINE_VERBOSE 0 CACHE STRING "VERBOSE level for the from-source engine")
 set(FLM_ENGINE_DEBUG_LEVEL 0 CACHE STRING "DEBUG_LEVEL for the from-source engine")
 set(FLM_OVERRIDE_FLAGS "" CACHE STRING "Extra compile flags for the from-source engine (see include/flm_override.hpp)")
-if(WIN32 AND FLM_BUILD_GEMMA4E)
-    message(FATAL_ERROR "FLM_BUILD_GEMMA4E=ON supports Linux only")
-endif()
 
 # ———————————————————————————————————————————————
 # NPU runtime discovery.
