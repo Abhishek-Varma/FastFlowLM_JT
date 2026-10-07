@@ -100,10 +100,15 @@ def build_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--platform",
         default="windows" if IS_WINDOWS else "linux",
-        # The -hrx variants are the same OS running an HRX build. Nothing in
-        # the sweep behaves differently; the label exists so the two builds'
-        # results do not land in the same filename or the same summary row.
-        choices=["linux", "windows", "linux-hrx", "windows-hrx"],
+        # Build variants use separate labels so their results do not land in
+        # the same filename or summary row.
+        choices=[
+            "linux",
+            "windows",
+            "linux-hrx",
+            "windows-hrx",
+            "linux-models-from-source",
+        ],
         help="Label recorded in the output filename (default: autodetected).",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Server bind address.")

@@ -35,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--windows-hrx-result", default="", help="Job result for the Windows HRX sweep."
     )
+    parser.add_argument(
+        "--linux-models-from-source-result",
+        default="",
+        help="Job result for the Linux models-from-source sweep.",
+    )
     args = parser.parse_args(argv)
 
     out: list[str] = ["# Model Sweep Results", ""]
@@ -46,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         ("Linux (HRX)", args.linux_hrx_result),
         ("Windows", args.windows_result),
         ("Windows (HRX)", args.windows_hrx_result),
+        ("Linux (models from source)", args.linux_models_from_source_result),
     ]
     if any(result for _, result in overall):
         out += ["| Platform | Overall |", "| --- | --- |"]
