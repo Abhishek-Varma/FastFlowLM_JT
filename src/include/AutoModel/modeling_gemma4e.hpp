@@ -53,7 +53,6 @@ private:
     static constexpr int think_start_id = 100;
     static constexpr int think_end_id = 101;
 
-    static constexpr int tool_start_token_id = 48;
 
     bool enable_think = false;
     bool enable_tool = false;
@@ -101,7 +100,6 @@ private:
         int pooling_kernel_size
     );
 
-    StreamResult parse_stream_content_impl(const std::string content, bool is_final);
 
 
 
@@ -126,9 +124,6 @@ public:
     std::string generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; }) override;
     std::string generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os = std::cout) override;
     std::string apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools = nlohmann::ordered_json::object()) override;
-    NonStreamResult parse_nstream_content(const std::string response_text);
-    StreamResult parse_stream_content(const std::string content);
-    StreamResult parse_stream_content_final(const std::string content) override;
     chat_template_type_t get_chat_template_type() {
         return chat_template_type_t::gemma4;
     }
@@ -136,9 +131,6 @@ public:
 		return this->enable_think;
 	}
 
-    int get_tool_start_token_id() const override {
-        return this->enable_tool ? tool_start_token_id : -1;
-    }
 
     /// \brief Configure a parameter with type-erased value
 	/// \param parameter_name the name of the parameter
