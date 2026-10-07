@@ -283,6 +283,23 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../third_party/tokenizers-cpp
                  EXCLUDE_FROM_ALL)
 
 # ———————————————————————————————————————————————
+# xgrammar: the grammar engine behind constrained decoding (tool_choice,
+# response_format). Built from its sources as a plain static library rather than
+# through its own CMakeLists, which would add install rules and -Werror.
+# ———————————————————————————————————————————————
+set(XGRAMMAR_DIR ${CMAKE_SOURCE_DIR}/../third_party/xgrammar)
+file(GLOB_RECURSE XGRAMMAR_SOURCES ${XGRAMMAR_DIR}/cpp/*.cc)
+list(FILTER XGRAMMAR_SOURCES EXCLUDE REGEX "/cpp/tvm_ffi/.*\\.cc$")
+add_library(flm_xgrammar STATIC ${XGRAMMAR_SOURCES})
+target_compile_features(flm_xgrammar PUBLIC cxx_std_17)
+target_include_directories(flm_xgrammar PUBLIC ${XGRAMMAR_DIR}/include)
+target_include_directories(flm_xgrammar SYSTEM PUBLIC
+    ${XGRAMMAR_DIR}/3rdparty/picojson
+    ${XGRAMMAR_DIR}/3rdparty/dlpack/include)
+target_compile_definitions(flm_xgrammar PUBLIC XGRAMMAR_ENABLE_CPPTRACE=0)
+set_target_properties(flm_xgrammar PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# ———————————————————————————————————————————————
 # Gather your sources
 # ———————————————————————————————————————————————
 file(GLOB SOURCES "src/*.cpp" "runner/*.cpp" "common/*.cpp" "common/*/*.cpp" "server/*.cpp" "pull/*.cpp" )
@@ -522,6 +539,8 @@ list(APPEND FLM_ENGINE_LINK_LIBS
 )
 
 # Link your custom libraries (these may still be DLLs if no static versions available)
+target_link_libraries(flm PRIVATE flm_xgrammar)
+
 target_link_libraries(flm PUBLIC
     ${FLM_ENGINE_LINK_LIBS}
     # flm's own code calls nothing in the four shared-runtime libs below -- the
