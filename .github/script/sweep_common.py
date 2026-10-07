@@ -108,6 +108,7 @@ def build_parser(description: str) -> argparse.ArgumentParser:
             "linux-hrx",
             "windows-hrx",
             "linux-models-from-source",
+            "windows-models-from-source",
         ],
         help="Label recorded in the output filename (default: autodetected).",
     )
