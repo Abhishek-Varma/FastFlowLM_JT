@@ -36,5 +36,17 @@ HRX release>`.
 ## Run / validate
 
 See `repro/REPRODUCE.md` in FastFlowLM_IRON for bundle assembly, the xclbin swap
-(the real 270m fix), the exact test prompts, expected coherent outputs, the three
+(the real 270m fix), the exact test prompts, expected coherent outputs, the
 A/B validations, and the NPU-safety protocol.
+
+### Dispatch mode (individual vs chained)
+
+With the swapped xclbins, 270m runs coherently in **both** dispatch modes on both
+backends — see §9.1 of the IRON `REPRODUCE.md`. Mode is selected by the
+`FLM_FORCE_INDIVIDUAL` env var, which is **presence-checked** (`getenv != nullptr`):
+
+- Individual: `FLM_FORCE_INDIVIDUAL=1` (any value, even `0`).
+- Chained: the var **fully unset** (`Remove-Item Env:\FLM_FORCE_INDIVIDUAL`).
+
+Individual is the safe default; sync-removal's decode speedup is visible there,
+while in chained the runlist already amortizes per-op cost (baseline ≈ sync_removed).
