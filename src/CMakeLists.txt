@@ -251,6 +251,10 @@ if(FLM_USE_HRX)
     list(FILTER SOURCES EXCLUDE REGEX ".*modeling_.*_pure_xrt\\.cpp$")
 else()
     list(FILTER SOURCES EXCLUDE REGEX ".*modeling_.*_pure_hrx\\.cpp$")
+    # Targeted pure-XRT build: compile only the gemma_text pure-XRT wrapper (drop the
+    # rest so we don't need every per-model pure-XRT engine lib for Windows).
+    list(FILTER SOURCES EXCLUDE REGEX ".*modeling_.*_pure_xrt\\.cpp$")
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/common/AutoModel/modeling_gemma3_text_pure_xrt.cpp")
 endif()
 
 # Exclude files that depend on missing libraries for Linux
@@ -368,6 +372,10 @@ target_compile_definitions(flm PUBLIC
 # Select the NPU runtime backend seen by the sources (device_runtime.hpp et al.).
 if(FLM_USE_HRX)
     target_compile_definitions(flm PUBLIC FLM_USE_HRX=1)
+else()
+    # Targeted pure-XRT build: only the gemma_text pure-XRT engine is compiled/linked
+    # here, so compile out the other pure-XRT factory cases in all_models.hpp.
+    target_compile_definitions(flm PUBLIC FLM_XRT_GEMMA_TEXT_ONLY=1)
 endif()
 
 if(WIN32)
@@ -500,6 +508,9 @@ if(FLM_USE_HRX)
     list(FILTER FLM_ENGINE_LINK_LIBS EXCLUDE REGEX "_pure_xrt$")
 else()
     list(FILTER FLM_ENGINE_LINK_LIBS EXCLUDE REGEX "_pure_hrx$")
+    # Targeted pure-XRT build: only gemma_text_npu_pure_xrt is built here.
+    list(FILTER FLM_ENGINE_LINK_LIBS EXCLUDE REGEX "_pure_xrt$")
+    list(APPEND FLM_ENGINE_LINK_LIBS gemma_text_npu_pure_xrt)
 endif()
 
 # Link your custom libraries (these may still be DLLs if no static versions available)

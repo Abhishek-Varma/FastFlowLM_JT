@@ -273,9 +273,11 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             auto_chat_engine = std::make_unique<Gemma3PureHrx>(npu_device_inst);
             break;
 #else
+#ifndef FLM_XRT_GEMMA_TEXT_ONLY
         case SupportedModelFamily::gemma3_pure_xrt:
             auto_chat_engine = std::make_unique<Gemma3PureXrt>(npu_device_inst);
             break;
+#endif
 #endif
         case SupportedModelFamily::gemma3_text:
             auto_chat_engine = std::make_unique<Gemma3_Text_Only>(npu_device_inst);
@@ -319,9 +321,11 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             auto_chat_engine = std::make_unique<GptOssPureHrx>(npu_device_inst);
             break;
 #else
+#ifndef FLM_XRT_GEMMA_TEXT_ONLY
         case SupportedModelFamily::gpt_oss_pure_xrt:
             auto_chat_engine = std::make_unique<GptOssPureXrt>(npu_device_inst);
             break;
+#endif
 #endif
         case SupportedModelFamily::qwen3vl:
             auto_chat_engine = std::make_unique<Qwen3VL>(npu_device_inst);
@@ -391,7 +395,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             auto_chat_engine = std::make_unique<Phi4PureHrx>(npu_device_inst);
             break;
 #endif
-#ifndef FLM_USE_HRX
+#if !defined(FLM_USE_HRX) && !defined(FLM_XRT_GEMMA_TEXT_ONLY)
         case SupportedModelFamily::llama3_pure_xrt:
             auto_chat_engine = std::make_unique<Llama3PureXrt>(npu_device_inst);
             break;
