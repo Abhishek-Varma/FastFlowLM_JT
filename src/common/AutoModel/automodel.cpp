@@ -282,7 +282,8 @@ void AutoModel::_shared_load_backend(std::string model_path, json model_info,
         this->is_model_loaded = false;
         throw;
     }
-    header_print("FLM", "Backend: " << id << " (from " << source << ")");
+    // Hide the log now.
+    // header_print("FLM", "Backend: " << id << " (from " << source << ")");
 }
 
 void AutoModel::_shared_after_inference_failure(bool poisoned) {

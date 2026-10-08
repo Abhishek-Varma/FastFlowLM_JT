@@ -28,7 +28,7 @@
 
   <Package Name="FLM"
            Manufacturer="FastFlowLM"
-           Version="1.0.7"
+           Version="8"
            UpgradeCode="5A5B2872-1E63-4934-9F57-088554CF4959"
            Language="1033"
            Scope="perMachine"
@@ -163,6 +163,9 @@
       </Component>
       <Component Id="Comp_qwen3_5vl_npu.dll" Guid="*">
         <File Id="File_qwen3_5vl_npu.dll" Source="$(SourceDir)\qwen3_5vl_npu.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="Comp_minicpm_v_4_7_npu.dll" Guid="*">
+        <File Id="File_minicpm_v_4_7_npu.dll" Source="$(SourceDir)\minicpm_v_4_7_npu.dll" KeyPath="yes" />
       </Component>
       <Component Id="Comp_qwen3_5_omni_npu.dll" Guid="*">
         <File Id="File_qwen3_5_omni_npu.dll" Source="$(SourceDir)\qwen3_5_omni_npu.dll" KeyPath="yes" />
