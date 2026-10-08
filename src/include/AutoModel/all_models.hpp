@@ -74,7 +74,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"qwen3vl", SupportedModelFamily::qwen3vl},
         {"qwen3vl-flash", SupportedModelFamily::qwen3vl_flash},
         {"qwen3.5", SupportedModelFamily::qwen3_5},
-        {"minicpm-v", SupportedModelFamily::minicpm_v},
+        {"minicpm-v-4.7", SupportedModelFamily::minicpm_v},
         {"qwen3.5-omni", SupportedModelFamily::qwen3_5_omni},
         {"qwen3.6-moe", SupportedModelFamily::qwen3_6_moe},
         {"qwen3.8-mtp", SupportedModelFamily::qwen3_8mtp},

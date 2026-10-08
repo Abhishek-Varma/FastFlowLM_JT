@@ -9,7 +9,7 @@
 ///       and the engine checks that the prompt's image rows match its views
 ///       exactly -- a wrong rule fails loudly there rather than quietly here.
 ///
-///       Layout handed to the engine (minicpm_v_npu.cpp, _prefill_with_mm): one
+///       Layout handed to the engine (minicpm_v_4_7_npu.cpp, _prefill_with_mm): one
 ///       minicpm_v_image_t per VIEW, and `_data__processed` holding every view's
 ///       patches back to back -- raster order within a view, each patch flattened
 ///       (c, kh, kw) as 3*14*14 bf16. That is the NaViT `[3, 14, T*14]` tensor the
@@ -225,7 +225,7 @@ bool MiniCPM_V::load_image(const std::string& source, bool base64, image_data_t&
 
 MiniCPM_V::image_layout MiniCPM_V::preprocess_image(const image_data_t& chw,
                                                     minicpm_v_image_payload_t& payload) {
-    auto* eng = reinterpret_cast<minicpm_v_npu*>(this->lm_engine);
+    auto* eng = reinterpret_cast<minicpm_v_4_7_npu*>(this->lm_engine);
     const int patch = (int)eng->MINICPM_V_PATCH_SIZE;                      // 14
     const int max_slices = (int)eng->MINICPM_V_MAX_SLICE_NUMS;             // 9
     const int divisor = (int)eng->MINICPM_V_DOWNSAMPLE_FACTOR;             // 16 (or 4)

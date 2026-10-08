@@ -4,7 +4,7 @@
 /// \date 2026-10-02
 /// \version 0.9.28
 /// \note This is a header file for the MiniCPM_V class
-/// \note MiniCPM-V4-1B's text tower is config-identical to Qwen3.5-0.8B and
+/// \note MiniCPM-V-4.7-1B's text tower is config-identical to Qwen3.5-0.8B and
 ///       shares its tokenizer ids, so the chat flow follows Qwen3_5VL.
 /// \note Images (S7b): each picture is sliced the way MiniCPMV4ImageProcessorPil
 ///       slices it -- a source view plus up to max_slice_nums slices -- and each

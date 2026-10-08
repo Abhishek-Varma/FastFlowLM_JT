@@ -454,13 +454,13 @@
             }
         },
 
-        "minicpm-v": {
+        "minicpm-v-4.7": {
             "1b": {
                 "supported_platforms": ["aie2p"],
-                "name": "MiniCPM-V4-1B-NPU2",
-                "url": "https://huggingface.co/FastFlowLM/MiniCPM-V4-1B-NPU2/resolve/main",
-                "file_url": "https://huggingface.co/api/models/FastFlowLM/MiniCPM-V4-1B-NPU2/tree/main",
-                "ms_url": "https://modelscope.cn/models/amd/MiniCPM-V4-1B-NPU2",
+                "name": "MiniCPM-V-4.7-1B-NPU2",
+                "url": "https://huggingface.co/FastFlowLM/MiniCPM-V-4.7-1B-NPU2/resolve/main",
+                "file_url": "https://huggingface.co/api/models/FastFlowLM/MiniCPM-V-4.7-1B-NPU2/tree/main",
+                "ms_url": "https://modelscope.cn/models/amd/MiniCPM-V-4.7-1B-NPU2",
                 "size": 1000000000,
                 "flm_min_version": "1.0.8",
                 "files": [
@@ -476,7 +476,7 @@
                 "max_prefill_len": 4096,
                 "details": {
                     "format": "NPU2",
-                    "family": "minicpm-v",
+                    "family": "minicpm-v-4.7",
                     "think": true,
                     "parameter_size": "1B",
                     "quantization_level": "Q4_K"

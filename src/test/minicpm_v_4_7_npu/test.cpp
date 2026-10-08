@@ -21,7 +21,7 @@ flm_rt::device npu_device_global;
 ///       library; this harness registers just the one it drives.
 namespace flm::backend {
 void register_builtin_backends(BackendRegistry& registry) {
-    registry.register_backend("minicpm-v", kFlmBackendId, flm_factory<minicpm_v_npu>());
+    registry.register_backend("minicpm-v-4.7", kFlmBackendId, flm_factory<minicpm_v_4_7_npu>());
 }
 }  // namespace flm::backend
 
@@ -79,7 +79,7 @@ static void report_turn(AutoModel& chat, const chat_meta_info_t& meta_info) {
 int main(int argc, char* argv[]) {
     arg_utils::po::options_description desc("Allowed options");
     arg_utils::po::variables_map vm;
-    desc.add_options()("model,m", arg_utils::po::value<std::string>()->default_value("minicpm-v:1b"), "Model tag");
+    desc.add_options()("model,m", arg_utils::po::value<std::string>()->default_value("minicpm-v-4.7:1b"), "Model tag");
     desc.add_options()("Length,l", arg_utils::po::value<int>()->default_value(256), "Max generated tokens per turn");
     desc.add_options()("Preemption,p", arg_utils::po::value<bool>()->default_value(false), "Preemption");
     // Default is the repo's own test image, found relative to the executable the

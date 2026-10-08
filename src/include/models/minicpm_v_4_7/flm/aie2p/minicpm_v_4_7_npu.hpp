@@ -1,5 +1,5 @@
-/// \file minicpm_v_npu.hpp
-/// \brief minicpm_v_npu class -- MiniCPM-V4-1B engine (text tower + SigLIP vision tower)
+/// \file minicpm_v_4_7_npu.hpp
+/// \brief minicpm_v_4_7_npu class -- MiniCPM-V-4.7-1B engine (text tower + SigLIP vision tower)
 /// \author FastFlowLM Team
 /// \date 2026-10-02
 /// \version 0.9.28
@@ -8,7 +8,7 @@
 ///       wrapper) and S7 (vision) compile against it. Do not edit without the brain's
 ///       agreement -- see /scratch/michyu/minicpm-1b/CONTRACTS.md.
 ///
-/// MiniCPM-V4-1B's text tower is config-identical to Qwen3.5-0.8B (hidden 1024,
+/// MiniCPM-V-4.7-1B's text tower is config-identical to Qwen3.5-0.8B (hidden 1024,
 /// 8/2 heads, head_dim 256, FFN 3584, 24 layers, 16x128 GatedDeltaNet heads, conv 4,
 /// full_attention_interval 4, rope_theta 1e7, mrope_section [11,11,10]), so the text
 /// path reuses the Qwen3.5-0.8B xclbins unchanged. The vision tower is SigLIP and
@@ -57,15 +57,15 @@ typedef struct {
     unsigned int num_images;
 } minicpm_v_image_payload_t;
 
-class minicpm_v_npu : public causal_lm {
+class minicpm_v_4_7_npu : public causal_lm {
 public:
-    /// \brief  initialize the minicpm_v_npu
+    /// \brief  initialize the minicpm_v_4_7_npu
     /// \param config the configuration
     /// \param npu_instance the npu instance
-    minicpm_v_npu(LM_Config config, npu_xclbin_manager *npu_instance, int MAX_L = 4096);
-    ~minicpm_v_npu();
+    minicpm_v_4_7_npu(LM_Config config, npu_xclbin_manager *npu_instance, int MAX_L = 4096);
+    ~minicpm_v_4_7_npu();
 
-    /// \brief forward the minicpm_v_npu -- decode one token against the cached KV
+    /// \brief forward the minicpm_v_4_7_npu -- decode one token against the cached KV
     /// \param ids the token id
     /// \return the logits
     buffer<bf16> forward(int ids) override;
@@ -138,7 +138,7 @@ public:
     /// config whose `vision_config` block carries ENGINE-named keys
     /// (`MINICPM_V_PATCH_SIZE`, ...), not the upstream HuggingFace names. Each field
     /// falls back to the upstream HF name, then to the literal from the shipping
-    /// MiniCPM-V4-1B checkpoint, so a checkpoint packaged either way works and
+    /// MiniCPM-V-4.7-1B checkpoint, so a checkpoint packaged either way works and
     /// nothing throws.
     inline void load_vision_preprocess_parameters(LM_Config& config) {
         const nlohmann::json& vc = config.sub("vision_config");

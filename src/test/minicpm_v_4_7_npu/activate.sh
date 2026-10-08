@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up the environment for the MiniCPM-V4-1B test harness.
+# Set up the environment for the MiniCPM-V-4.7-1B test harness.
 #
 #   source activate.sh           # stage whatever engine is already built
 #   source activate.sh host      # rebuild the all-host engine first (no NPU)
@@ -9,11 +9,11 @@
 #   make test                    # or: make test LENGTH=64
 #                                # (the thinking turn generates 4x LENGTH)
 #
-# Why this is needed: the harness links -lminicpm_v_npu out of src/lib/xrt/, but
+# Why this is needed: the harness links -lminicpm_v_4_7_npu out of src/lib/xrt/, but
 # that engine is built in the *other* repo (FastFlowLM_IRON) and is deliberately
 # not committed here -- it is a build artifact whose host/NPU flavour changes.
 # Without staging it you get:
-#     /usr/bin/ld: cannot find -lminicpm_v_npu: No such file or directory
+#     /usr/bin/ld: cannot find -lminicpm_v_4_7_npu: No such file or directory
 #
 # It also exports FLM_MODEL_PATH so the harness finds the model in /scratch
 # rather than ~/.config/flm. model_list.json's "model_path" is "models", and
@@ -23,7 +23,7 @@
 # --- settings, override by exporting before sourcing -------------------------
 IRON_REPO="${IRON_REPO:-/scratch/michyu/Projects/FastFlowLM_IRON}"
 FLM_MODEL_PATH="${FLM_MODEL_PATH:-/scratch/michyu}"
-MODEL_NAME="${MODEL_NAME:-MiniCPM-V4-1B-NPU2}"
+MODEL_NAME="${MODEL_NAME:-MiniCPM-V-4.7-1B-NPU2}"
 
 # Host build: every stage on the CPU. Correct but slow (~20 tok/s decode).
 # The polarity is opt-OUT -- a plain `make` is all-NPU.
@@ -36,8 +36,8 @@ _sourced=1
 
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _libdir="$(cd "$_here/../../lib/xrt" && pwd)"
-_engdir="$IRON_REPO/FLM_DLL/detail/minicpm_v_npu"
-_built="$IRON_REPO/FLM_DLL/build/lib/libminicpm_v_npu.so"
+_engdir="$IRON_REPO/FLM_DLL/detail/minicpm_v_4_7_npu"
+_built="$IRON_REPO/FLM_DLL/build/lib/libminicpm_v_4_7_npu.so"
 
 _fail() { echo "[activate] ERROR: $*" >&2; return 1; }
 
@@ -69,7 +69,7 @@ _main() {
         echo "[activate]          rebuild with: source activate.sh host|npu"
     fi
 
-    install -m 755 "$_built" "$_libdir/libminicpm_v_npu.so" || { _fail "could not stage into $_libdir"; return 1; }
+    install -m 755 "$_built" "$_libdir/libminicpm_v_4_7_npu.so" || { _fail "could not stage into $_libdir"; return 1; }
     echo "[activate] staged $(basename "$_built") -> src/lib/xrt/  ($(date -r "$_built" '+%H:%M'))"
 
     # Report which flavour was staged, so a surprising tok/s is explained before
@@ -78,7 +78,7 @@ _main() {
     # #if MINICPM_V_DECODE_ON_NPU, so the host build does not contain it.
     # (Do not test lm_head.xclbin -- that string appears in both, from the
     # shared detail/lm_head objects linked into every engine.)
-    if strings "$_libdir/libminicpm_v_npu.so" | grep -q 'layer\.xclbin'; then
+    if strings "$_libdir/libminicpm_v_4_7_npu.so" | grep -q 'layer\.xclbin'; then
         echo "[activate] flavour: NPU (expect ~44-47 tok/s decode in make test)"
         # The harness is built with -DDEV_BUILD, which hardwires LM_Config's
         # exec_path to "../../../" relative to its cwd -- i.e. src/ -- so it reads

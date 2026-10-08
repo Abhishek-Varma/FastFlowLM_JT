@@ -4,7 +4,7 @@
 #
 # Usage:
 #   make        - Build the test
-#   make test   - Build and run minicpm-v:1b (prompt, prompt-cache follow-up,
+#   make test   - Build and run minicpm-v-4.7:1b (prompt, prompt-cache follow-up,
 #                 fresh prompt with thinking)
 #   make clean  - Remove all built files
 #
@@ -34,13 +34,13 @@ SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
-HEADERS += ../../include/models/minicpm_v/flm/aie2p/minicpm_v_npu.hpp
+HEADERS += ../../include/models/minicpm_v_4_7/flm/aie2p/minicpm_v_4_7_npu.hpp
 HEADERS += ../../include/AutoModel/modeling_minicpm_v.hpp
 
 
 ifeq ($(WSL), 0)
 
-LDFLAGS += -lminicpm_v_npu
+LDFLAGS += -lminicpm_v_4_7_npu
 # image_reader.cpp decodes through ffmpeg, same as every other VLM harness
 LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
 
@@ -49,7 +49,7 @@ OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))
 DEPS := $(OBJECTS:.o=.d)
 VPATH := $(sort $(dir $(CPP_SOURCES)))
 
-all: $(BUILD_DIR)/test_minicpm_v_npu
+all: $(BUILD_DIR)/test_minicpm_v_4_7_npu
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -57,15 +57,15 @@ $(BUILD_DIR):
 $(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
 	$(CXX) $(CXX_FLAGS) -c $< -o $@
 
-$(BUILD_DIR)/test_minicpm_v_npu: $(OBJECTS)
+$(BUILD_DIR)/test_minicpm_v_4_7_npu: $(OBJECTS)
 	$(CXX) $(CXX_FLAGS) -o $@ $^ $(LDFLAGS) $(DEPENDENCY_LDFLAGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
 
-test: $(BUILD_DIR)/test_minicpm_v_npu
+test: $(BUILD_DIR)/test_minicpm_v_4_7_npu
 	cp ../../model_list.json $(BUILD_DIR)/model_list.json
-	cd $(BUILD_DIR) && ./test_minicpm_v_npu --model minicpm-v:1b --Length $(LENGTH)
+	cd $(BUILD_DIR) && ./test_minicpm_v_4_7_npu --model minicpm-v-4.7:1b --Length $(LENGTH)
 
 -include $(DEPS)
 .PHONY: all clean test
@@ -81,17 +81,17 @@ all: directories test
 directories:
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/test_minicpm_v_npu.exe: $(SOURCES)
-	cd $(BUILD_DIR) && $(PWSH) -Command "cmake ../../../test/minicpm_v_npu"
-	cd $(BUILD_DIR) && $(PWSH) -Command "cmake --build . --config Release --target test_minicpm_v_npu"
+$(BUILD_DIR)/test_minicpm_v_4_7_npu.exe: $(SOURCES)
+	cd $(BUILD_DIR) && $(PWSH) -Command "cmake ../../../test/minicpm_v_4_7_npu"
+	cd $(BUILD_DIR) && $(PWSH) -Command "cmake --build . --config Release --target test_minicpm_v_4_7_npu"
 
 clean:
 	rm -rf $(BUILD_DIR)
 
 
-test: directories $(BUILD_DIR)/test_minicpm_v_npu.exe
+test: directories $(BUILD_DIR)/test_minicpm_v_4_7_npu.exe
 	cp ../../model_list.json $(BUILD_DIR)/model_list.json
-	cd $(BUILD_DIR) && ${PWSH} -Command "\$$env:PATH = '..\..\..\lib;' + \$$env:PATH; .\test_minicpm_v_npu.exe -m minicpm-v:1b -l $(LENGTH)"
+	cd $(BUILD_DIR) && ${PWSH} -Command "\$$env:PATH = '..\..\..\lib;' + \$$env:PATH; .\test_minicpm_v_4_7_npu.exe -m minicpm-v-4.7:1b -l $(LENGTH)"
 
 .PHONY: all clean test directories
 

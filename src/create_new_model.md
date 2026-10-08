@@ -412,7 +412,7 @@ executable looks for it next to itself.
 `automodel.cpp` reaches the engine through the backend registry, so the harness
 must also compile `model_backend.cpp` and define `register_builtin_backends`
 itself, registering only its own engine (`builtin_backends.cpp` would pull in
-every engine library). See `test/minicpm_v_npu/test.cpp`:
+every engine library). See `test/minicpm_v_4_7_npu/test.cpp`:
 
 ```cpp
 #include "AutoModel/flm_backend.hpp"
