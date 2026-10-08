@@ -97,6 +97,52 @@ jobs:
         retention-days: 7
         if-no-files-found: error
 
+    - name: Build models from source
+      run: |
+        cd src
+        cmake --preset linux-portable \
+          -B build-models-from-source \
+          -DFLM_BUILD_GEMMA4E=ON
+        cmake --build build-models-from-source --parallel 2
+
+    - name: Create models-from-source package
+      env:
+        VERSION: ${{ steps.get_version.outputs.version }}
+      run: |
+        cd src/build-models-from-source
+        rm -rf install-models-from-source
+        DESTDIR=$PWD/install-models-from-source cmake --install .
+
+        package_root=install-models-from-source/opt/fastflowlm
+        mv "${package_root}/flm" "${package_root}/flm-real"
+        mv "${package_root}/flm-wrapper.sh" "${package_root}/flm"
+        chmod +x "${package_root}/flm"
+        strip --strip-debug "${package_root}/flm-real"
+
+        staged_engine="${package_root}/lib/libgemma4e_npu.so"
+        test -f "${staged_engine}"
+        if cmp -s "$GITHUB_WORKSPACE/src/lib/xrt/libgemma4e_npu.so" "${staged_engine}"; then
+          echo "The staged Gemma 4 engine matches the prebuilt library." >&2
+          exit 1
+        fi
+        readelf -n "${staged_engine}" | grep -A1 'Build ID'
+        tar czf "$GITHUB_WORKSPACE/models-from-source_fastflowlm_${VERSION}_linux.tar.gz" \
+          -C "${package_root}" \
+          flm \
+          flm-real \
+          lib/ \
+          xclbins/ \
+          model_list.json \
+          model_info.json
+
+    - name: Upload models-from-source build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: models-from-source-portable
+        path: models-from-source_fastflowlm_${{ steps.get_version.outputs.version }}_linux.tar.gz
+        retention-days: 7
+        if-no-files-found: error
+
     - name: Collect FFmpeg logs
       if: always()
       shell: bash

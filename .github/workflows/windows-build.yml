@@ -67,6 +67,54 @@ jobs:
           path: src/dist/
           if-no-files-found: error
 
+      - name: Configure models-from-source build
+        shell: powershell
+        run: |
+          cmake --preset windows-vs18 `
+            -B build-models-from-source `
+            -DFLM_BUILD_GEMMA4E=ON
+
+      - name: Build models from source
+        shell: powershell
+        run: |
+          cmake --build build-models-from-source --config Release --parallel 2
+
+      - name: Prepare models-from-source package files
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dist = "dist-models-from-source"
+
+          if (Test-Path $dist) {
+            Remove-Item $dist -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item -Path .\build-models-from-source\flm.exe -Destination $dist\ -Force
+          Copy-Item -Path .\xclbins -Destination $dist\ -Recurse -Force
+          Copy-Item -Path .\model_list.json -Destination $dist\ -Force
+          Copy-Item -Path .\model_info.json -Destination $dist\ -Force
+          Copy-Item -Path .\lib\xrt\*.dll -Destination $dist\ -Force
+          Copy-Item -Path .\lib\*.dll -Destination $dist\ -Force
+          Copy-Item -Path .\build-models-from-source\engines\*.dll -Destination $dist\ -Force
+
+          $sourceEngine = Get-FileHash .\build-models-from-source\engines\gemma4e_npu.dll -Algorithm SHA256
+          $prebuiltEngine = Get-FileHash .\lib\xrt\gemma4e_npu.dll -Algorithm SHA256
+          $stagedEngine = Get-FileHash $dist\gemma4e_npu.dll -Algorithm SHA256
+          if ($sourceEngine.Hash -eq $prebuiltEngine.Hash) {
+            throw "The source-built Gemma 4 DLL matches the prebuilt DLL."
+          }
+          if ($sourceEngine.Hash -ne $stagedEngine.Hash) {
+            throw "The staged Gemma 4 DLL does not match the source-built DLL."
+          }
+
+      - name: Upload models-from-source build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-from-source-fastflowlm-windows-${{ github.sha }}
+          path: src/dist-models-from-source/
+          if-no-files-found: error
+
   build-windows-msi:
     runs-on: [self-hosted, windows, x64, msi]
 
