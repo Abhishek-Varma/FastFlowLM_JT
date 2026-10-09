@@ -22,6 +22,7 @@ exclude:
   - dev.py
   - templates
   - sync-layout.js
+  - setup.ps1
   - docs/_config.yml
 
 defaults:
