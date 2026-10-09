@@ -139,8 +139,13 @@ bool DeepSeek_r1_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& inp
     llama_npu *llama_engine = dynamic_cast<llama_npu*>(this->lm_engine);
     if (meta_info.restore_allowed) {
         restore_idx = llama_engine->restore();
-        this->total_tokens = restore_idx;
-        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+        // restore() returns -1 when there is no valid checkpoint; total_tokens is
+        // uint32_t so storing -1 wraps to ~4.29e9 and _shared_insert then fires a
+        // bogus "Max length reached!". Mirrors modeling_qwen3.cpp.
+        if (restore_idx >= 0) {
+            this->total_tokens = restore_idx;
+            this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+        }
     }
     bool success = this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 

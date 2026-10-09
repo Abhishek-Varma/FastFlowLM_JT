@@ -468,8 +468,13 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
     // Restore KV cache from checkpoint if caller allows it
     if (meta_info.restore_allowed) {
         int restore_idx = this->engine->restore();
-        this->total_tokens = restore_idx;
-        this->token_history = this->checkpoint_his;
+        // restore() returns -1 when there is no valid checkpoint; total_tokens is
+        // uint32_t so storing -1 wraps to ~4.29e9 and _shared_insert then fires a
+        // bogus "Max length reached!". Mirrors modeling_qwen3.cpp.
+        if (restore_idx >= 0) {
+            this->total_tokens = restore_idx;
+            this->token_history = this->checkpoint_his;
+        }
     }
 
     size_t n = tokens.size();
