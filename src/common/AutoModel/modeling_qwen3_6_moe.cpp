@@ -284,8 +284,17 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
 
     if (meta_info.restore_allowed) {
         restore_idx = qwen3_6_moe_engine->restore();
-        this->total_tokens = restore_idx;
-        this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+        // restore() returns -1 when there is no valid checkpoint (e.g. the
+        // previous turn failed to prefill, so it never checkpointed). Guard
+        // the assignment: total_tokens is uint32_t, so storing -1 wraps to
+        // ~4.29e9 and _shared_insert's `total_tokens + tokens.size() >= MAX_L`
+        // then fires a bogus "Max length reached!" on an otherwise tiny prompt.
+        // Leaving it at 0 (and skipping the history restore) makes the next
+        // insert prefill from scratch instead. Mirrors modeling_qwen3.cpp.
+        if (restore_idx >= 0) {
+            this->total_tokens = restore_idx;
+            this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
+        }
     }
 
     size_t n = tokens.size();
