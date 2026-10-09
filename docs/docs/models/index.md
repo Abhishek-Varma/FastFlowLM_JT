@@ -29,3 +29,4 @@ has_children: true
 - [EmbeddingGemma](embeddinggemma/)
 - [SmolVLA](smolvla/)
 - [Hy-MT2](hy-mt2/)
+- [MiniCPM](minicpm/)

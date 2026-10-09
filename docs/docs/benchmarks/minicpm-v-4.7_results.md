@@ -1,0 +1,65 @@
+---
+layout: docs
+title: MiniCPM-V 4.7
+parent: Benchmarks
+nav_order: 15
+---
+
+## ⚡ Performance and Efficiency Benchmarks
+
+This section reports the performance of MiniCPM-V 4.7 on NPU with FastFlowLM (FLM).
+
+> **Note:** 
+> - Results are based on FastFlowLM v1.0.8.  
+> - Under FLM's default NPU power mode (Performance)    
+> - Newer versions may deliver improved performance.
+> - Fine-tuned models show performance comparable to their base models.   
+
+---
+
+### **Test System 1:** 
+
+AMD Ryzen™ AI 5 340 (Kraken Point) with 64 GB DRAM; performance is comparable to other Kraken Point systems.
+
+<div style="display:flex; flex-wrap:wrap;">
+  <img src="/assets/bench/minicpm_v47_decoding.png" style="width:15%; min-width:300px; margin:4px;">
+  <img src="/assets/bench/minicpm_v47_prefill.png" style="width:15%; min-width:300px; margin:4px;">
+</div>
+
+---
+
+### 🚀 Decoding Speed (TPS, or Tokens per Second, starting @ different context lengths)
+
+| **Model**        | **HW**       | **1k** | **2k** | **4k** | **8k** | **16k** | **32k** |
+|------------------|--------------------|--------:|--------:|--------:|--------:|---------:|---------:|
+| **MiniCPM-V-4.7-1B**    | NPU (FLM)    | 47.7 | 45.9 | 43.0 | 32.7 | 31.6 | 23.8 | 
+
+---
+
+### 🚀 Prefill Speed (TPS, or Tokens per Second, with different prompt lengths)
+
+| **Model**        | **HW**       | **1k** | **2k** | **4k** | **8k** | **16k** | **32k** |
+|------------------|--------------------|--------:|--------:|--------:|--------:|---------:|---------:|
+| **MiniCPM-V-4.7-1B**    | NPU (FLM)    | 1504.7 | 1624.0 | 1648.2 | 1808.8 | 1941.1 | 1666.3 |
+
+---
+
+### 🚀 Prefill TTFT with Image Input (Seconds)
+
+Prefill time-to-first-token (TTFT) for MiniCPM-V-4.7-1B on NPU (FastFlowLM) with different image resolutions.
+
+**Mid Resolution Images:**
+
+| Model        | HW  | 720p (1280×720) | 1080p (1920×1080) | 
+|--------------|-----------|----------------:|------------------:|
+| MiniCPM-V-4.7-1B  | NPU (FLM) | 2.1 | 2.5 |
+
+**High Resolution Images:**
+
+| Model        | HW  | 2K (2560×1440) | 4K (3840×2160) |
+|--------------|-----------|---------------:|---------------:|
+| MiniCPM-V-4.7-1B  | NPU (FLM) | 2.5 | 2.5 |
+
+> This test uses a short prompt: “Describe this image.”
+
+> TTFT stays flat from 1080p up: MiniCPM-V splits large images into at most 9 tiles, so higher resolutions add no extra image tokens.
