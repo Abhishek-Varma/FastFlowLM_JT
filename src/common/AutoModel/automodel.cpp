@@ -55,6 +55,16 @@ AutoModel::AutoModel(flm_rt::device* npu_device_inst, std::string current_model)
     this->token_history.reserve(MAX_L);
 }
 
+AutoModel::~AutoModel() {
+    // Members go in reverse declaration order, which would free npu -- the
+    // xclbins and their hardware contexts -- before backend_, whose engine
+    // holds apps pointing into those contexts. Tear down in the order
+    // _shared_load_backend does: the engine first.
+    this->lm_engine = nullptr;
+    this->backend_.reset();
+    this->npu.reset();
+}
+
 
 std::string AutoModel::get_current_model() {
     return this->current_model;

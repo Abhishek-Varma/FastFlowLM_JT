@@ -132,7 +132,10 @@ private:
     bool modelscope;
     bool asr;
     bool embed;
+    /// \brief the prefill chunk length of the loaded model
     int prefill_chunk_len;
+    /// \brief the --prefill-chunk-len value, -1 when each model's own is used
+    int prefill_chunk_len_arg;
     int generate_context_id;
     int chat_context_id;
     int ctx_length;
