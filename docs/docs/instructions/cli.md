@@ -254,7 +254,7 @@ flm serve phi4-mini-it-rai:4b --backend rai
 
 | # | Source | |
 |---|---|---|
-| 1 | `--backend <id>` | the flag above, or a `"backend"` field on an `/api/chat` or `/api/generate` request |
+| 1 | `--backend <id>` | the flag above, or a `"backend"` field on a `/v1/chat/completions` or `/v1/completions` request |
 | 2 | `FLM_BACKEND=<id>` | environment variable, for a whole shell session |
 | 3 | the model's catalog entry | `rai` for a tag whose family ends in `-rai`, `flm` otherwise |
 
