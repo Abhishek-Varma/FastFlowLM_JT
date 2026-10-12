@@ -483,9 +483,10 @@
                 },
                 "label": [
                     "vision",
-                    "reasoning"
+                    "reasoning",
+                    "tool-calling"
                 ],
-                "footprint": 1.3
+                "footprint": 2.2
             }
         },
 
