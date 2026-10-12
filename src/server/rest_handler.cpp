@@ -219,6 +219,17 @@ static json try_parse_json_value(const std::string& s) {
     }
 }
 
+///@brief Whether a streaming OpenAI request asked for usage through stream_options.include_usage.
+/// Following OpenAI, a stream reports no usage unless asked; a malformed option counts as not asked.
+static bool stream_include_usage(const json& request) {
+    auto options = request.find("stream_options");
+    if (options == request.end() || !options->is_object()) {
+        return false;
+    }
+    auto include_usage = options->find("include_usage");
+    return include_usage != options->end() && include_usage->is_boolean() && include_usage->get<bool>();
+}
+
 ///@brief Convert OpenAI-style assistant tool_calls + following tool messages into the
 /// Gemma4 chat-template format, which expects a single assistant message containing
 /// both `tool_calls` and `tool_responses` (with `{name, response}` entries).
@@ -1247,7 +1258,8 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 json data_json = data;
                 send_streaming_response(data_json, is_final);
                 };
-            streaming_ostream_openai_chat ostream(model, auto_chat_engine.get(), openai_stream_callback, parse_options);  // streaming in chat completion format
+            streaming_ostream_openai_chat ostream(model, auto_chat_engine.get(), openai_stream_callback, parse_options,
+                                                  stream_include_usage(request));  // streaming in chat completion format
 
             header_print("FLM", "Start prefill...");
             try {
@@ -1508,7 +1520,7 @@ void RestHandler::handle_openai_completion(const json& request,
                 json data_json = data;
                 send_streaming_response(data_json, is_final);
                 };
-            streaming_ostream_openai ostream(model, openai_stream_callback);  // streaming in completion format
+            streaming_ostream_openai ostream(model, openai_stream_callback, stream_include_usage(request));  // streaming in completion format
             uniformed_input.prompt = prompt;
             try {
                 bool success = auto_chat_engine->insert(meta_info, uniformed_input, [&] { return cancellation_token && cancellation_token->cancelled(); });

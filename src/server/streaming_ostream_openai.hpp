@@ -37,8 +37,11 @@ public:
     ///@brief StreamCallback
     using StreamCallback = std::function<void(const std::string&, bool)>;
     
-    streaming_buf_openai(const std::string& model, StreamCallback callback)
-        : model_name(model), stream_callback(callback), first_chunk(true) {
+    ///@param model the model name reported to the client
+    ///@param callback receives each server-sent event
+    ///@param include_usage stream_options.include_usage: send usage in its own chunk before [DONE]
+    streaming_buf_openai(const std::string& model, StreamCallback callback, bool include_usage)
+        : model_name(model), stream_callback(callback), include_usage(include_usage), first_chunk(true) {
         // Generate a unique ID for this stream
         generate_stream_id();
         generate_created();
@@ -186,6 +189,9 @@ private:
                 }
             })}
         };
+        if (include_usage) {
+            response["usage"] = nullptr;
+        }
         
         stream_callback("data: " + response.dump() + "\n\n", is_final);
       
@@ -204,15 +210,31 @@ private:
                 {
                     {"finish_reason", stop_reason_to_string(meta_info.stop_reason)},
                 }
-            })},
-            {"usage", {
-                {"prompt_tokens", meta_info.prompt_tokens},
-                {"prompt_tokens_details", {{"cached_tokens", meta_info.cached_prompt_tokens}}},
-                {"completion_tokens", meta_info.generated_tokens},
-                {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens}
-            }}
+            })}
         };
+        if (include_usage) {
+            // OpenAI: every chunk carries a null usage, then one extra chunk
+            // with no choices carries the usage of the whole request
+            final_response["usage"] = nullptr;
+        }
         stream_callback("data: " + final_response.dump() + "\n\n", false);
+        if (include_usage) {
+            json usage_response = {
+                {"id", stream_id},
+                {"object", "text_completion"},
+                {"created", created},
+                {"system_fingerprint", system_fingerprint},
+                {"model", model_name},
+                {"choices", json::array()},
+                {"usage", {
+                    {"prompt_tokens", meta_info.prompt_tokens},
+                    {"prompt_tokens_details", {{"cached_tokens", meta_info.cached_prompt_tokens}}},
+                    {"completion_tokens", meta_info.generated_tokens},
+                    {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens}
+                }}
+            };
+            stream_callback("data: " + usage_response.dump() + "\n\n", false);
+        }
         // Send the [DONE] message
         stream_callback("data: [DONE]\n\n", true);
     }
@@ -224,6 +246,8 @@ private:
     std::string model_name;
     ///@brief Stream callback
     StreamCallback stream_callback;
+    ///@brief Whether the client asked for usage, see stream_options.include_usage
+    bool include_usage;
     ///@brief Stream ID
     std::string stream_id;
     long created;
@@ -239,8 +263,8 @@ private:
 ///@return the streaming ostream
 class streaming_ostream_openai : public std::ostream {
 public:
-    streaming_ostream_openai(const std::string& model, streaming_buf_openai::StreamCallback callback)
-        : std::ostream(&buf), buf(model, callback) {}
+    streaming_ostream_openai(const std::string& model, streaming_buf_openai::StreamCallback callback, bool include_usage)
+        : std::ostream(&buf), buf(model, callback, include_usage) {}
     
     ///@brief Finalize the chat
     void finalize(chat_meta_info_t& meta_info) {
@@ -268,10 +292,11 @@ public:
     ///@param auto_chat_engine the engine generating the text
     ///@param callback receives each server-sent event
     ///@param options per request parsing options; the tools must outlive the stream
+    ///@param include_usage stream_options.include_usage: send usage in its own chunk before [DONE]
     streaming_buf_openai_chat(const std::string& model, AutoModel* auto_chat_engine, StreamCallback callback,
-                              chat_parse_options options)
+                              chat_parse_options options, bool include_usage)
         : model_name(model), auto_chat_engine(auto_chat_engine), stream_callback(callback),
-          parse_options(options) {
+          include_usage(include_usage), parse_options(options) {
         // Generate a unique ID for this stream
         generate_stream_id();
         generate_created();
@@ -458,6 +483,9 @@ private:
                     }
                 })}
             };
+            if (include_usage) {
+                response["usage"] = nullptr;
+            }
             stream_callback("data: " + response.dump() + "\n\n", false);
         }
     }
@@ -479,24 +507,43 @@ private:
                     //{"logprobs", nullptr},
                     {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
                 }
-            })},
-            {"usage", {
-                {"prompt_tokens", meta_info.prompt_tokens},
-                {"prompt_tokens_details", {{"cached_tokens", meta_info.cached_prompt_tokens}}},
-                {"completion_tokens", meta_info.generated_tokens},
-                {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens},
-                {"active_kv_tokens", this->auto_chat_engine->get_current_context_length()},
-                {"max_kv_token_capacity", this->auto_chat_engine->get_max_length()},
-                {"kv_token_occupancy_rate_percentage", (float)this->auto_chat_engine->get_current_context_length() / (float)this->auto_chat_engine->get_max_length() * 100},
-                {"load_duration", static_cast<double>(meta_info.load_duration) / 1'000'000'000},
-                {"prefill_duration_ttft", static_cast<double>(meta_info.prefill_duration) / 1'000'000'000},
-                {"decoding_duration", static_cast<double>(meta_info.decoding_duration) / 1'000'000'000},
-                {"prefill_speed_tps", static_cast<double>(meta_info.prompt_tokens - meta_info.cached_prompt_tokens) / static_cast<double>(meta_info.prefill_duration) * 1'000'000'000},
-                {"decoding_speed_tps", static_cast<double>(meta_info.generated_tokens) / static_cast<double>(meta_info.decoding_duration) * 1'000'000'000},
-            }}
+            })}
         };
+        json usage = {
+            {"prompt_tokens", meta_info.prompt_tokens},
+            {"prompt_tokens_details", {{"cached_tokens", meta_info.cached_prompt_tokens}}},
+            {"completion_tokens", meta_info.generated_tokens},
+            {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens},
+            {"active_kv_tokens", this->auto_chat_engine->get_current_context_length()},
+            {"max_kv_token_capacity", this->auto_chat_engine->get_max_length()},
+            {"kv_token_occupancy_rate_percentage", (float)this->auto_chat_engine->get_current_context_length() / (float)this->auto_chat_engine->get_max_length() * 100},
+            {"load_duration", static_cast<double>(meta_info.load_duration) / 1'000'000'000},
+            {"prefill_duration_ttft", static_cast<double>(meta_info.prefill_duration) / 1'000'000'000},
+            {"decoding_duration", static_cast<double>(meta_info.decoding_duration) / 1'000'000'000},
+            {"prefill_speed_tps", static_cast<double>(meta_info.prompt_tokens - meta_info.cached_prompt_tokens) / static_cast<double>(meta_info.prefill_duration) * 1'000'000'000},
+            {"decoding_speed_tps", static_cast<double>(meta_info.generated_tokens) / static_cast<double>(meta_info.decoding_duration) * 1'000'000'000},
+        };
+        if (include_usage) {
+            // OpenAI: every chunk carries a null usage, then one extra chunk
+            // with no choices carries the usage of the whole request
+            final_response["usage"] = nullptr;
+        }
         stream_callback("data: " + final_response.dump() + "\n\n", false);
+        if (include_usage) {
+            json usage_response = {
+                {"id", stream_id},
+                {"object", "chat.completion.chunk"},
+                {"created", created},
+                {"model", model_name},
+                {"system_fingerprint", system_fingerprint},
+                {"choices", json::array()},
+                {"usage", usage}
+            };
+            stream_callback("data: " + usage_response.dump() + "\n\n", false);
+        }
+        // the server log shows the usage whether or not the client asked for it
         std::cout << "ChatCompletionChunk: " << final_response << std::endl;
+        std::cout << "Usage: " << usage << std::endl;
         // Send the [DONE] message
         stream_callback("data: [DONE]\n\n", true);
     }
@@ -510,6 +557,8 @@ private:
     AutoModel* auto_chat_engine;
     ///@brief Stream callback
     StreamCallback stream_callback;
+    ///@brief Whether the client asked for usage, see stream_options.include_usage
+    bool include_usage;
     ///@brief Stream ID
     std::string stream_id;
     long created;
@@ -524,8 +573,8 @@ private:
 class streaming_ostream_openai_chat : public std::ostream {
 public:
     streaming_ostream_openai_chat(const std::string& model, AutoModel* auto_chat_engine, streaming_buf_openai_chat::StreamCallback callback,
-                                  chat_parse_options options)
-        : std::ostream(&buf), buf(model, auto_chat_engine, callback, options) {}
+                                  chat_parse_options options, bool include_usage)
+        : std::ostream(&buf), buf(model, auto_chat_engine, callback, options, include_usage) {}
 
     ///@brief Call once the prompt is inserted, before generating
     void start(const chat_meta_info_t& meta_info) {
