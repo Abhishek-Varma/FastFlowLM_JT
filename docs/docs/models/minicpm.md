@@ -5,12 +5,12 @@ nav_order: 15
 parent: Models
 ---
 
-## 🧩 Model Card: [MiniCPM-V-4.7-1B](https://huggingface.co/openbmb/MiniCPM-V-4.7)
+## 🧩 Model Card: [MiniCPM-V-4.7-1B](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B)
 
 - **Type:** Image-Text-to-Text
 - **Think:** Toggleable
 - **Tool Calling Support:** Yes
-- **Base Model:** [openbmb/MiniCPM-V-4.7](https://huggingface.co/openbmb/MiniCPM-V-4.7)
+- **Base Model:** [openbmb/MiniCPM-V-4.7-1B](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B)
 - **Quantization:** Q4_K
 - **Max Context Length:** 256k tokens
 - **Default Context Length:** 32k tokens ([change default](https://fastflowlm.com/docs/instructions/cli/#-change-default-context-length-max))  
