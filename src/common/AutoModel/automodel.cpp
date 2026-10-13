@@ -597,7 +597,14 @@ std::shared_ptr<decode_constraint> AutoModel::make_constraint(const chat_constra
         }
         return *this->grammar_engine_;
     };
-    return chat_make_constraint(this->chat_format, request, vocab, engine);
+    // thinking turned off on the model, not just in the request: the grammar must
+    // not offer a reasoning block either, or a model kept from its first choice of
+    // token (Gemma4 before a JSON answer) escapes into one
+    chat_constraint_request effective = request;
+    if (!this->thinking_enabled()) {
+        effective.allow_reasoning = false;
+    }
+    return chat_make_constraint(this->chat_format, effective, vocab, engine);
 }
 
 std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled) {

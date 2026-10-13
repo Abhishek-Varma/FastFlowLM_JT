@@ -130,6 +130,9 @@ public:
     bool check_using_checkpint() {
 		return this->enable_think;
 	}
+    bool thinking_enabled() const override {
+        return this->enable_think;
+    }
 
 
     /// \brief Configure a parameter with type-erased value

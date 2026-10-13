@@ -107,6 +107,9 @@ public:
     chat_template_type_t get_chat_template_type() override {
         return chat_template_type_t::gemma4;
     }
+    bool thinking_enabled() const override {
+        return this->enable_think;
+    }
 
 
     /// \brief Configure a parameter with type-erased value

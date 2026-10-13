@@ -190,6 +190,10 @@ private:
 
 public:
 
+    bool thinking_enabled() const override {
+        return this->enable_think;
+    }
+
     /// \brief Configure a parameter with type-erased value
     /// \param parameter_name the name of the parameter
     /// \param value the value to set (can be any type)

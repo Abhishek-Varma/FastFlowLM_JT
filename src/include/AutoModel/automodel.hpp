@@ -497,6 +497,12 @@ public:
 	virtual bool check_using_checkpint() {
 		return true;
 	}
+	/// \brief Whether the chat template is rendered with thinking on
+	/// \note Only models with a thinking switch override this; the rest reason or
+	///       not as their template decides, which the constraint leaves alone.
+	virtual bool thinking_enabled() const {
+		return true;
+	}
 
 	/// \brief Build the sampling constraint a request asks for
 	/// \return null when the request needs no constraint
