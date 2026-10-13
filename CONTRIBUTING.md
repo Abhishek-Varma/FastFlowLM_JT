@@ -52,6 +52,6 @@ driver than the binary enforces, so report the version you actually have.
 ## Licensing
 
 Source code is MIT ([LICENSE_RUNTIME.txt](LICENSE_RUNTIME.txt)). The NPU kernel binaries in
-`src/xclbins/` and `src/lib/` are **not** open source — see [TERMS.md](TERMS.md). They're
+`src/xclbins/` and `src/lib/` are **not** open source — see [License](README.md#-license). They're
 built from a separate toolchain and refreshed by maintainers, so if your change needs new
 kernels, open an issue first; a source-only PR won't be enough.
