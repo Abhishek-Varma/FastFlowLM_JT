@@ -298,6 +298,13 @@ target_include_directories(flm_xgrammar SYSTEM PUBLIC
     ${XGRAMMAR_DIR}/3rdparty/dlpack/include)
 target_compile_definitions(flm_xgrammar PUBLIC XGRAMMAR_ENABLE_CPPTRACE=0)
 set_target_properties(flm_xgrammar PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    # Its sources hold UTF-8 literals (the SentencePiece "▁" that tokenizer
+    # metadata detection compares against, DeepSeek's "｜" markers). MSVC reads
+    # source in the system code page unless told otherwise, so without this the
+    # bytes survive only on machines whose code page happens to pass them through.
+    target_compile_options(flm_xgrammar PRIVATE /utf-8)
+endif()
 
 # ———————————————————————————————————————————————
 # Gather your sources
