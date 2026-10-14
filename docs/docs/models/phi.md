@@ -95,7 +95,7 @@ Backend selection follows the tag, never a filename or a quantization level. The
 
 ### Naming the backend yourself
 
-The two engines are registered under the kernel provider they use, `flm` and `rai`, and you can name one with `--backend`, with `FLM_BACKEND`, or with a `"backend"` field on an `/api/chat` or `/api/generate` request. The [CLI reference](../instructions/cli.md) has the full precedence table.
+The two engines are registered under the kernel provider they use, `flm` and `rai`, and you can name one with `--backend`, with `FLM_BACKEND`, or with a `"backend"` field on a `/v1/chat/completions` or `/v1/completions` request. The [CLI reference](../instructions/cli.md) has the full precedence table.
 
 This does not widen what the hardware can run. A given release is built for one NPU generation, so only that generation's backend is compiled in; asking for the other one fails immediately, naming what this build actually has, instead of failing deep inside an engine that was never going to work. If what you meant was the other package, ask for its tag — and if the tag is not listed, that is a different build of FLM, not a different flag.
 

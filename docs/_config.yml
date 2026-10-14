@@ -22,6 +22,7 @@ exclude:
   - dev.py
   - templates
   - sync-layout.js
+  - setup.ps1
   - docs/_config.yml
 
 defaults:
@@ -126,6 +127,8 @@ docs_nav:
         url: "/docs/models/smolvla/"
       - label: Hy-MT2
         url: "/docs/models/hy-mt2/"
+      - label: MiniCPM
+        url: "/docs/models/minicpm/"
   - label: Benchmarks
     children:
       - label: Overview
@@ -158,3 +161,5 @@ docs_nav:
         url: "/docs/benchmarks/smolvla_results/"
       - label: Hy-MT2
         url: "/docs/benchmarks/hy-mt2_results/"
+      - label: MiniCPM-V 4.7
+        url: "/docs/benchmarks/minicpm-v-4.7_results/"

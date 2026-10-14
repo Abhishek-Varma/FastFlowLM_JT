@@ -97,6 +97,52 @@ jobs:
         retention-days: 7
         if-no-files-found: error
 
+    - name: Build models from source
+      run: |
+        cd src
+        cmake --preset linux-portable \
+          -B build-models-from-source \
+          -DFLM_BUILD_GEMMA4E=ON
+        cmake --build build-models-from-source --parallel 2
+
+    - name: Create models-from-source package
+      env:
+        VERSION: ${{ steps.get_version.outputs.version }}
+      run: |
+        cd src/build-models-from-source
+        rm -rf install-models-from-source
+        DESTDIR=$PWD/install-models-from-source cmake --install .
+
+        package_root=install-models-from-source/opt/fastflowlm
+        mv "${package_root}/flm" "${package_root}/flm-real"
+        mv "${package_root}/flm-wrapper.sh" "${package_root}/flm"
+        chmod +x "${package_root}/flm"
+        strip --strip-debug "${package_root}/flm-real"
+
+        staged_engine="${package_root}/lib/libgemma4e_npu.so"
+        test -f "${staged_engine}"
+        if cmp -s "$GITHUB_WORKSPACE/src/lib/xrt/libgemma4e_npu.so" "${staged_engine}"; then
+          echo "The staged Gemma 4 engine matches the prebuilt library." >&2
+          exit 1
+        fi
+        readelf -n "${staged_engine}" | grep -A1 'Build ID'
+        tar czf "$GITHUB_WORKSPACE/models-from-source_fastflowlm_${VERSION}_linux.tar.gz" \
+          -C "${package_root}" \
+          flm \
+          flm-real \
+          lib/ \
+          xclbins/ \
+          model_list.json \
+          model_info.json
+
+    - name: Upload models-from-source build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: models-from-source-portable
+        path: models-from-source_fastflowlm_${{ steps.get_version.outputs.version }}_linux.tar.gz
+        retention-days: 7
+        if-no-files-found: error
+
     - name: Collect FFmpeg logs
       if: always()
       shell: bash
@@ -271,9 +317,12 @@ jobs:
           VERSION=$(git describe --tags --always | sed 's/^v//')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Download all portable artifacts
+      # By name: this run also publishes the models-from-source and HRX
+      # tarballs, and neither belongs in the default release asset set.
+      - name: Download portable artifact
         uses: actions/download-artifact@v4
         with:
+          name: portable
           path: portable
 
       - name: Upload Binaries to Release
@@ -282,4 +331,28 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref }}
           file_glob: true
-          file: portable/**/*.gz
+          file: portable/fastflowlm_*_linux.tar.gz
+
+  # The HRX build ships as a preview, so it gets its own release job: a failed
+  # HRX build leaves the release without the HRX asset instead of holding back
+  # the default one.
+  release-hrx:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: build-HRX-portable
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Download HRX portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: HRX-portable
+          path: portable
+
+      - name: Upload HRX Binaries to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          file_glob: true
+          file: portable/HRX_fastflowlm_*_linux.tar.gz
