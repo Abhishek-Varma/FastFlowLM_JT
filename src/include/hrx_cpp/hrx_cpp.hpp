@@ -84,6 +84,9 @@ public:
         }
     }
 
+    // Reclaims libhrx's free-buffer cache/arena; fires at static destruction, after every engine is gone.
+    ~Runtime();
+
 private:
     Runtime() = default;
 };
@@ -251,6 +254,21 @@ inline void release_executable(const std::string& key) {
     }
 }
 
+// ~Runtime() only: frees every cached executable, refcount or not (refs==0 entries never get erased otherwise).
+inline void purge_executable_cache() {
+    std::vector<hrx_executable_t> to_free;
+    {
+        std::lock_guard<std::mutex> lk(exe_cache_mu());
+        auto& cache = exe_cache();
+        to_free.reserve(cache.size());
+        for (auto& entry : cache) {
+            if (entry.second.exe) to_free.push_back(entry.second.exe);
+        }
+        cache.clear();
+    }
+    for (hrx_executable_t exe : to_free) hrx_executable_release(exe);
+}
+
 // Backward-compatible entry point (no ownership tracking). Retained for any
 // caller that does not manage executable lifetime; prefer the
 // lookup_or_build/retain/release trio used by npu_app.
@@ -380,6 +398,25 @@ inline std::mutex& buf_coh_mu() {
 inline std::unordered_map<hrx_buffer_t, BufCoh>& buf_coh() {
     static std::unordered_map<hrx_buffer_t, BufCoh> m;
     return m;
+}
+
+inline Runtime::~Runtime() {
+    if (!dev && !stream) return;
+    purge_executable_cache();
+    // Allocator reuses addresses; stale entries would mislabel new buffers' dirty bits.
+    {
+        std::lock_guard<std::mutex> lk(buf_coh_mu());
+        buf_coh().clear();
+    }
+    if (stream) hrx_stream_release(stream);
+    // No hrx_device_release(): hrx_gpu_shutdown() already owns that reference.
+    hrx_report(hrx_gpu_shutdown(), "hrx_gpu_shutdown");
+    dev = nullptr;
+    stream = nullptr;
+    ok = false;
+    if (std::getenv("HRX_DEBUG"))
+        std::fprintf(stderr, "[hrx] device+stream released (Runtime@%p)\n",
+                     (void*)this);
 }
 
 // ---------------------------------------------------------------------------
