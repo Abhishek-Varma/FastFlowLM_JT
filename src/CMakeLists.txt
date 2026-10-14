@@ -1024,6 +1024,13 @@ endif()
 install(FILES model_list.json DESTINATION "${FLM_SHARE_DESTINATION}")
 install(FILES model_info.json DESTINATION "${FLM_SHARE_DESTINATION}")
 
+# Ship both licenses with the binaries; LICENSE_BINARY.txt must accompany any
+# redistribution of the NPU kernels and engine libraries.
+install(FILES
+    ${CMAKE_SOURCE_DIR}/../LICENSE_RUNTIME.txt
+    ${CMAKE_SOURCE_DIR}/../LICENSE_BINARY.txt
+    DESTINATION "${FLM_SHARE_DESTINATION}")
+
 # xclbins, which are loaded by shared libraries need to be in location
 # relative to the executable, so we install them relative to the binary.
 install(DIRECTORY xclbins DESTINATION "${FLM_SHARE_DESTINATION}")
