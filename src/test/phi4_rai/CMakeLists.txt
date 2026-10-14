@@ -121,10 +121,14 @@ target_link_libraries(test_phi4_engine PRIVATE xrt_coreutil)
 # The backend registry is part of the frontend now; builtin_backends.cpp is not,
 # because it names every prebuilt engine library. test_phi4_frontend.cpp supplies
 # its own empty register_builtin_backends and registers stubs instead.
+# automodel.cpp parses output and constrains decoding with the chat library;
+# every target built from these sources also links flm_xgrammar.
+include("${FLM_SOURCE_DIR}/common/chat/chat_sources.cmake")
 set(PHI4_FRONTEND_SOURCES
     "${FLM_SOURCE_DIR}/common/AutoModel/automodel.cpp"
     "${FLM_SOURCE_DIR}/common/AutoModel/model_backend.cpp"
-    "${FLM_SOURCE_DIR}/common/AutoModel/modeling_phi4.cpp")
+    "${FLM_SOURCE_DIR}/common/AutoModel/modeling_phi4.cpp"
+    ${FLM_CHAT_SOURCES})
 
 add_executable(test_phi4_frontend
     test_phi4_frontend.cpp fake_corelib.cpp
@@ -149,7 +153,7 @@ target_compile_definitions(test_phi4_frontend PRIVATE
 target_compile_options(test_phi4_frontend PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/wd4005 /wd4244>)
 target_link_directories(test_phi4_frontend PRIVATE "${XRT_INCLUDE_DIR}/../lib")
-target_link_libraries(test_phi4_frontend PRIVATE xrt_coreutil)
+target_link_libraries(test_phi4_frontend PRIVATE xrt_coreutil flm_xgrammar)
 
 add_executable(test_model_downloader
     test_model_downloader.cpp
@@ -193,7 +197,7 @@ target_compile_definitions(test_phi4_frontend_off PRIVATE
 target_compile_options(test_phi4_frontend_off PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/wd4005 /wd4244>)
 target_link_directories(test_phi4_frontend_off PRIVATE "${XRT_INCLUDE_DIR}/../lib")
-target_link_libraries(test_phi4_frontend_off PRIVATE xrt_coreutil)
+target_link_libraries(test_phi4_frontend_off PRIVATE xrt_coreutil flm_xgrammar)
 
 # Compile the actual production frontend translation units in both feature modes.
 # Empty declaration-only FFmpeg headers isolate this compile check from an
@@ -237,6 +241,8 @@ function(add_frontend_compile_guard TARGET_NAME ENABLE_CORELIB)
       CMAKE_XCLBIN_PREFIX="${FLM_SOURCE_DIR}/xclbins")
   target_compile_options(${TARGET_NAME} PRIVATE
       $<$<CXX_COMPILER_ID:MSVC>:/wd4005 /wd4244>)
+  # for xgrammar's headers, which chat_grammar.cpp includes
+  target_link_libraries(${TARGET_NAME} PRIVATE flm_xgrammar)
   if(ENABLE_CORELIB)
     target_sources(${TARGET_NAME} PRIVATE
         "${FLM_SOURCE_DIR}/common/models/phi4/rai/aie_next/phi4_rai_backend.cpp")
