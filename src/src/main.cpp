@@ -295,6 +295,11 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
         if (fd < 0) {
             if (errno == ENOENT)
                 break;
+            if (errno == EBUSY) {
+                validation_json["devices"].push_back({{"device", dev_name}, {"busy", true}});
+                if (print_human)
+                    header_print_r("ERROR", "NPU " + dev_name + " could not be opened: device busy");
+            }
             continue;
         }
 
@@ -653,6 +658,13 @@ int main(int argc, char* argv[]) {
         }
     }
 #else
+    // validate probes /dev/accel/* itself, and amdxdna refuses a second open of
+    // the same device from one process: run it before this process takes the
+    // device, or every probe gets EBUSY and the check reports "No NPU device found".
+    if (parsed_args.command == "validate") {
+        return sanity_check_npu_stack(false, parsed_args.json_output) ? 0 : 1;
+    }
+
     std::string npu_open_error;
     std::string corelib_note;
     flm_rt::device* npu_device = open_npu_device(&npu_open_error);
