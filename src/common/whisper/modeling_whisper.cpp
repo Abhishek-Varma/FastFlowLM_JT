@@ -135,6 +135,10 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         }
     }
     const int prefix_length = prompt_tokens.empty() ? 0 : 1 + (int)prompt_tokens.size();
+    auto emit = [&](const std::string& text) {
+        os << text << std::flush;
+        result += text;
+    };
     while (current_idx < length){
         // std::cout << "Chunk " << _S2T_(current_idx) << "s to " << _S2T_(current_idx + l_this_round) << "s" << std::endl;
         float time_offset = _S2T_(current_idx);
@@ -199,6 +203,12 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             os << token_str << std::flush;
         }
         
+        // A full window is followed by one that starts at its last timestamp,
+        // so text after that timestamp would be decoded twice. Hold it until a
+        // timestamp closes it, and drop it if none does.
+        const bool full_window = enable_time_stamp && l_this_round == WINDOW_SAMPLES;
+        std::string pending;
+        last_time_stamp = this->token_time_map_offset;
         int prev_idx = -1;
         int window_time_stamp = enable_time_stamp ? last_idx : -1;
         for (int i = 0; i < MAX_L - 4 - prefix_length; i++){
@@ -211,16 +221,20 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             std::string token_str = this->tokenizer->run_time_decoder(last_idx);
             
             if (_is_normal_token(last_idx)){
-                os << token_str << std::flush;
-                result += token_str;
-            }
-            else if (return_time_stamp && _is_time_stemp(last_idx)){
-                std::string offset_time_stamp = this->_offset_time_stamp(token_str, time_offset);
-                os << offset_time_stamp << std::flush;
-                result += offset_time_stamp;
+                if (full_window){
+                    pending += token_str;
+                }
+                else{
+                    emit(token_str);
+                }
             }
 
             if (enable_time_stamp && _is_time_stemp(last_idx)){
+                emit(pending);
+                pending.clear();
+                if (return_time_stamp){
+                    emit(this->_offset_time_stamp(token_str, time_offset));
+                }
                 last_time_stamp = last_idx;
                 window_time_stamp = last_idx;
             }
@@ -238,6 +252,8 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         if (enable_time_stamp){
             float end_time = _get_time(last_time_stamp);
             if (end_time == 0){
+                // No timestamp to resume from: keep the text, skip the window.
+                emit(pending);
                 end_time = 30;
             }
             l_this_round = end_time * FS;
