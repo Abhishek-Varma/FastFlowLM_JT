@@ -31,7 +31,7 @@ extern "C" {
 #include <stdexcept>
 #include <iostream>
 #include <unordered_map>
-#include "fftw3.h"
+#include "audio_process_utils/rfft.hpp"
 #include <immintrin.h>  // For AVX intrinsics
 #include "metrices.hpp"
 #include "tokenizer/tokenizer.hpp"
@@ -42,32 +42,9 @@ class FFT400 {
 public:
     static constexpr int N = 400;
 
-    FFT400() {
-        // Allocate input and output arrays for FFTW
-        in = (float*)fftwf_malloc(N * sizeof(float));
-        out = (fftwf_complex*)fftwf_malloc((N/2 + 1) * sizeof(fftwf_complex));
-        
-        // Create FFTW plan for real-to-complex FFT
-        plan = fftwf_plan_dft_r2c_1d(N, in, out, FFTW_ESTIMATE);
-        
-        if (!plan) {
-            throw std::runtime_error("Failed to create FFTW plan");
-        }
-    }
+    FFT400() : out((N / 2 + 1) * 2) {}
 
-    ~FFT400() {
-        if (plan) {
-            fftwf_destroy_plan(plan);
-        }
-        if (in) {
-            fftwf_free(in);
-        }
-        if (out) {
-            fftwf_free(out);
-        }
-    }
-
-    // Delete copy constructor and assignment operator to prevent issues with FFTW plans
+    // Not copyable: compute_power() reuses the output buffer
     FFT400(const FFT400&) = delete;
     FFT400& operator=(const FFT400&) = delete;
 
@@ -76,19 +53,14 @@ public:
             throw std::runtime_error("FFT400 input must have 400 samples, got " + std::to_string(input.size()));
         }
 
-        // Copy input data to FFTW input array
-        for (int i = 0; i < N; ++i) {
-            in[i] = input[i];
-        }
-
-        // Execute FFT
-        fftwf_execute(plan);
+        // Execute FFT (interleaved re, im output)
+        audioproc::rfft_many(input.data(), out.data(), 1, N);
 
         // Extract power spectrum (magnitude squared)
         std::vector<float> power(N / 2 + 1);
         for (int k = 0; k <= N / 2; ++k) {
-            float real = out[k][0];
-            float imag = out[k][1];
+            float real = out[2 * k];
+            float imag = out[2 * k + 1];
             power[k] = real * real + imag * imag;
         }
 
@@ -96,9 +68,7 @@ public:
     }
 
 private:
-    float* in;
-    fftwf_complex* out;
-    fftwf_plan plan;
+    mutable std::vector<float> out;
 };
 
 /************              Whisper            **************/

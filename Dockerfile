@@ -38,7 +38,6 @@ RUN apt update && apt install -y \
     libboost-program-options-dev \
     libcurl4-openssl-dev \
     libdrm-dev \
-    libfftw3-dev \
     libreadline-dev \
     libswresample-dev \
     libswscale-dev \

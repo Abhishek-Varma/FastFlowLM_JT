@@ -21,53 +21,25 @@ namespace avx512 {
             return;
         }
 
-        const int n_bins = fft_length / 2 + 1;
         const int pad_len = fft_length - frame_length;
 
         // Allocate contiguous padded input buffer for batch FFT
-        float* padded_in = (float*)fftwf_malloc(
-            static_cast<size_t>(num_frames) * fft_length * sizeof(float));
-        fftwf_complex* fft_out = (fftwf_complex*)fftwf_malloc(
-            static_cast<size_t>(num_frames) * n_bins * sizeof(fftwf_complex));
+        std::vector<float> padded_in(static_cast<size_t>(num_frames) * fft_length);
 
         // AVX512 accelerated copy + zero-pad for each frame
         for (int f = 0; f < num_frames; ++f) {
-            float* dst = padded_in + f * fft_length;
+            float* dst = padded_in.data() + f * fft_length;
             copy_float_avx512(frames + f * frame_length, dst, frame_length);
             if (pad_len > 0) {
                 zero_fill_avx512(dst + frame_length, pad_len);
             }
         }
 
-        // Use FFTW plan_many for efficient batch real-to-complex FFT
-        int n[] = { fft_length };
-        fftwf_plan plan = fftwf_plan_many_dft_r2c(
-            1,              // rank (1D FFT)
-            n,              // FFT dimension
-            num_frames,     // number of transforms
-            padded_in,      // input
-            nullptr,        // inembed (default: same as n)
-            1,              // istride
-            fft_length,     // idist (distance between consecutive inputs)
-            fft_out,        // output
-            nullptr,        // onembed
-            1,              // ostride
-            n_bins,         // odist (distance between consecutive outputs)
-            FFTW_ESTIMATE);
-
-        fftwf_execute(plan);
-
-        // Copy interleaved complex output — FFTW's fftwf_complex is float[2],
-        // which is already the interleaved format we want.  Just memcpy.
-        std::memcpy(out_complex, fft_out,
-                     static_cast<size_t>(num_frames) * n_bins * 2 * sizeof(float));
-
-        fftwf_destroy_plan(plan);
-        fftwf_free(padded_in);
-        fftwf_free(fft_out);
+        // Batched real-to-complex FFT; output is already interleaved (re, im)
+        rfft_many(padded_in.data(), out_complex, num_frames, fft_length);
     }
 
-    // Internal helper: plan_many batch FFT + per-bin AVX512 reduction.
+    // Internal helper: batched FFT + per-bin AVX512 reduction.
     // DoSqrt=true  -> magnitude sqrt(re²+im²)
     // DoSqrt=false -> power   re²+im²
     template<bool DoSqrt>
@@ -81,26 +53,17 @@ namespace avx512 {
         const int n_bins = fft_length / 2 + 1;
         const int pad_len = fft_length - frame_length;
 
-        float* padded_in = (float*)fftwf_malloc(
-            static_cast<size_t>(num_frames) * fft_length * sizeof(float));
-        fftwf_complex* fft_out = (fftwf_complex*)fftwf_malloc(
-            static_cast<size_t>(num_frames) * n_bins * sizeof(fftwf_complex));
+        std::vector<float> padded_in(static_cast<size_t>(num_frames) * fft_length);
+        std::vector<float> fft_out(static_cast<size_t>(num_frames) * n_bins * 2);
 
         for (int f = 0; f < num_frames; ++f) {
-            float* dst = padded_in + f * fft_length;
+            float* dst = padded_in.data() + f * fft_length;
             copy_float_avx512(frames + f * frame_length, dst, frame_length);
             if (pad_len > 0)
                 zero_fill_avx512(dst + frame_length, pad_len);
         }
 
-        int n[] = { fft_length };
-        fftwf_plan plan = fftwf_plan_many_dft_r2c(
-            1, n, num_frames,
-            padded_in, nullptr, 1, fft_length,
-            fft_out,   nullptr, 1, n_bins,
-            FFTW_ESTIMATE);
-
-        fftwf_execute(plan);
+        rfft_many(padded_in.data(), fft_out.data(), num_frames, fft_length);
 
         const __m512i idx_re = _mm512_set_epi32(30, 28, 26, 24, 22, 20, 18, 16,
                                                  14, 12, 10,  8,  6,  4,  2,  0);
@@ -109,7 +72,7 @@ namespace avx512 {
 
         #pragma omp parallel for schedule(static) if(num_frames > 32)
         for (int f = 0; f < num_frames; ++f) {
-            const float* src = reinterpret_cast<const float*>(fft_out + f * n_bins);
+            const float* src = fft_out.data() + static_cast<size_t>(f) * n_bins * 2;
             float* dst = out + f * n_bins;
 
             int k = 0;
@@ -129,10 +92,6 @@ namespace avx512 {
                 dst[k] = DoSqrt ? std::sqrt(sq) : sq;
             }
         }
-
-        fftwf_destroy_plan(plan);
-        fftwf_free(padded_in);
-        fftwf_free(fft_out);
     }
 
     void rfft_magnitude_batch_avx512(

@@ -7,7 +7,7 @@
 #include <cstring>
 #include <string>
 #include <stdexcept>
-#include "fftw3.h"
+#include "audio_process_utils/rfft.hpp"
 
 namespace audioproc {
 

@@ -93,9 +93,6 @@ Source: "libprotoc.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "swresample-5.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "swscale-8.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "zlib1.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "libfftw3-3.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "libfftw3f-3.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "libfftw3l-3.dll"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Application icon (used for shortcuts)
 
@@ -103,6 +100,9 @@ Source: "logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 Source: "model_list.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "model_info.json"; DestDir: "{app}"; Flags: ignoreversion
+
+; Third-party license notices
+Source: "THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; xclbins directory - recursively include all files
 Source: "..\xclbins\*"; DestDir: "{app}\xclbins"; Flags: ignoreversion recursesubdirs createallsubdirs
