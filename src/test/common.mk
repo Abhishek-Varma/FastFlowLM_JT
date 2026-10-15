@@ -39,12 +39,12 @@ CXX_FLAGS += -DDISABLE_ABI_CHECK=1
 
 ifeq ($(FLM_USE_HRX),1)
 # --- HRX backend ---
-# Consumed from the HRX dev package built from the public FastFlow SDK by
-# hrx-integration/provision-hrx-from-fastflow-sdk.sh (pin:
-# hrx-integration/fastflow-sdk.env). The package layout is the public one:
+# Consumed from the HRX dev package downloaded from the public FastFlow SDK
+# release by hrx-integration/fetch-hrx-release.sh (pin:
+# hrx-integration/hrx-release.env). The package layout is the public one:
 # include/hrx/*.h, a single lib/libhrx.so, and lib/cmake/hrx. Source the
 # package's env.sh (exports HRX_HOME) or pass HRX_HOME=<package-prefix> on the
-# make command line; otherwise this auto-locates the staged package.
+# make command line; otherwise this auto-locates the extracted package.
 LIB_DIR := ../../lib/hrx
 HRX_MK_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 REPO_ROOT  := $(abspath $(HRX_MK_DIR)/../..)
@@ -58,7 +58,7 @@ HRX_HOME := $(patsubst %/lib/libhrx.so,%,$(firstword $(wildcard \
               $(HRX_RELEASE_DIR)/*/lib/libhrx.so)))
 endif
 ifeq ($(wildcard $(HRX_HOME)/lib/libhrx.so),)
-$(error HRX public package not found (HRX_HOME="$(HRX_HOME)"). Run hrx-integration/provision-hrx-from-fastflow-sdk.sh (or `source <package>/env.sh`, or pass HRX_HOME=<package-prefix>) before building.)
+$(error HRX public package not found (HRX_HOME="$(HRX_HOME)"). Run hrx-integration/fetch-hrx-release.sh (or `source <package>/env.sh`, or pass HRX_HOME=<package-prefix>) before building.)
 endif
 # Public headers install under include/hrx (hrx_amdxdna.h, ...); include/ is
 # added too so both spellings resolve.

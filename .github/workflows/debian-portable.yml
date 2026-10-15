@@ -204,12 +204,6 @@ jobs:
           sh -s -- -y --profile minimal --default-toolchain stable
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-    # TODO(hrx-via-fastflow-sdk): this still runs the deleted
-    # hrx-integration/fetch-hrx-release.sh (private jtuyls fork). Migrate CI to
-    # build HRX from the public FastFlow SDK via
-    # hrx-integration/provision-hrx-from-fastflow-sdk.sh (which prints
-    # HRX_CMAKE_PREFIX= and writes prefix= to $GITHUB_OUTPUT). Handled
-    # separately from the Linux local-build migration.
     - name: Fetch pinned HRX release
       id: hrx
       run: ./hrx-integration/fetch-hrx-release.sh

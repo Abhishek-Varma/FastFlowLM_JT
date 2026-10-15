@@ -199,11 +199,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # TODO(hrx-via-fastflow-sdk): this still runs the deleted
-      # hrx-integration/fetch-hrx-release.ps1 (private jtuyls fork). A Windows
-      # FastFlow SDK provisioner (hrx-integration/provision-hrx-from-fastflow-sdk.ps1)
-      # does not exist yet; create it and repoint this step. Handled separately
-      # from the Linux migration.
       - name: Configure CMake (HRX)
         shell: powershell
         run: |

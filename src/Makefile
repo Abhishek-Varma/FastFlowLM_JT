@@ -15,11 +15,6 @@ all:
 hrx:
 	@$(PWSH) "if (!(Test-Path '$(BUILD_DIR)')) { New-Item -ItemType Directory -Path '$(BUILD_DIR)' }"
 	@$(PWSH) "if (!(Test-Path '$(OUT_DIR)'))   { New-Item -ItemType Directory -Path '$(OUT_DIR)' }"
-	# TODO(hrx-via-fastflow-sdk): this still invokes the deleted
-	# fetch-hrx-release.ps1 (private jtuyls fork). The Windows FastFlow SDK
-	# provisioner (hrx-integration/provision-hrx-from-fastflow-sdk.ps1) has not
-	# been written yet; create it and repoint this target. Handled separately
-	# from the Linux migration.
 	@$(PWSH) "$$lines = & '..\\hrx-integration\\fetch-hrx-release.ps1' 6>&1 | ForEach-Object { $$_.ToString() }; $$lines | ForEach-Object { Write-Host $$_ }; $$prefix = ($$lines | Where-Object { $$_ -like 'HRX_CMAKE_PREFIX=*' } | Select-Object -First 1) -replace 'HRX_CMAKE_PREFIX=', ''; if (!$$prefix) { throw 'failed to determine HRX_CMAKE_PREFIX from fetch-hrx-release.ps1 output' }; $$prefixArg = '-DCMAKE_PREFIX_PATH=' + $$prefix; cmake --preset windows-vs18 -DFLM_USE_HRX=ON $$prefixArg; cmake --build build --preset windows-default"
 
 run:
@@ -63,10 +58,10 @@ all:
 
 hrx:
 	@mkdir -p $(OUT_DIR)
-	@out="$$(../hrx-integration/provision-hrx-from-fastflow-sdk.sh)"; \
+	@out="$$(../hrx-integration/fetch-hrx-release.sh)"; \
 	echo "$$out"; \
 	prefix="$$(echo "$$out" | sed -n 's/^HRX_CMAKE_PREFIX=//p')"; \
-	if [ -z "$$prefix" ]; then echo "failed to determine HRX_CMAKE_PREFIX from provision-hrx-from-fastflow-sdk.sh output" >&2; exit 1; fi; \
+	if [ -z "$$prefix" ]; then echo "failed to determine HRX_CMAKE_PREFIX from fetch-hrx-release.sh output" >&2; exit 1; fi; \
 	cmake --preset linux-default -DFLM_USE_HRX=ON -DCMAKE_PREFIX_PATH="$$prefix"
 	@cmake --build build
 	@cp build/flm $(OUT_DIR)
