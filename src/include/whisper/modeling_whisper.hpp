@@ -154,49 +154,6 @@ private:
 
     int _sample_in_time_stamp(buffer<bf16>& logits);
 
-    inline bool _is_valid_utf8(const std::string& input) {
-        size_t i = 0;
-        while (i < input.size()) {
-            unsigned char c = input[i];
-            size_t width;
-    
-            // --- Validate UTF-8 codepoint ---
-            if (c < 0x80) {
-                // Single byte ASCII character
-                width = 1;
-            }
-            else if ((c & 0xE0) == 0xC0) {
-                // 2-byte character
-                if (i + 1 >= input.size()) return false;
-                // Check that second byte is a valid continuation byte
-                if ((input[i+1] & 0xC0) != 0x80) return false;
-                width = 2;
-            }
-            else if ((c & 0xF0) == 0xE0) {
-                // 3-byte character
-                if (i + 2 >= input.size()) return false;
-                // Check that second and third bytes are valid continuation bytes
-                if ((input[i+1] & 0xC0) != 0x80 || (input[i+2] & 0xC0) != 0x80) return false;
-                width = 3;
-            }
-            else if ((c & 0xF8) == 0xF0) {
-                // 4-byte character
-                if (i + 3 >= input.size()) return false;
-                // Check that second, third, and fourth bytes are valid continuation bytes
-                if ((input[i+1] & 0xC0) != 0x80 || (input[i+2] & 0xC0) != 0x80 || (input[i+3] & 0xC0) != 0x80) return false;
-                width = 4;
-            }
-            else {
-                // Invalid UTF-8 byte
-                return false;
-            }
-    
-            i += width;
-        }
-        return true;
-    }
-
-
     std::string _offset_time_stamp(std::string& time_stamp, float offset){
         float time;
         sscanf(time_stamp.c_str(), "<|%f|>", &time);

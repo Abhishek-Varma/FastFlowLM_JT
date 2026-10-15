@@ -123,7 +123,6 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         return std::make_pair("", "");
     }
     while (current_idx < length){
-        bool allow_force_time_stamp = true;
         // std::cout << "Chunk " << _S2T_(current_idx) << "s to " << _S2T_(current_idx + l_this_round) << "s" << std::endl;
         float time_offset = _S2T_(current_idx);
         
@@ -182,19 +181,9 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             os << token_str << std::flush;
         }
         
-        int watching_dog = 16;
         for (int i = 0; i < 448 - 3; i++){
             buffer<bf16> logits = this->whisper_engine->decode_audio(last_idx);
-            if (watching_dog == 0 && allow_force_time_stamp){
-                last_idx = this->_sample_in_time_stamp(logits);
-                watching_dog = 16;
-            }
-            else{
-                last_idx = this->sampler->sample(logits);
-                if (watching_dog > 0){
-                    watching_dog--;
-                }
-            }
+            last_idx = this->sampler->sample(logits);
             std::string token_str = this->tokenizer->run_time_decoder(last_idx);
             
             if (_is_normal_token(last_idx)){
@@ -209,18 +198,10 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
 
             if (enable_time_stamp && _is_time_stemp(last_idx)){
                 last_time_stamp = last_idx;
-                watching_dog = 16;
             }
          
             if (last_idx == 50257){
                 break;
-            }
-
-            if (!_is_valid_utf8(token_str)){
-                allow_force_time_stamp = false;
-            }
-            else {
-                allow_force_time_stamp = true;
             }
         }
 
