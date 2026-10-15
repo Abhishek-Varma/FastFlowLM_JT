@@ -136,7 +136,7 @@ bool DeepSeek_r1_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& inp
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
     int restore_idx = -1;
-    llama_npu *llama_engine = dynamic_cast<llama_npu*>(this->lm_engine);
+    causal_lm *llama_engine = this->lm_engine;  // base-dispatch: sibling (pure) engines are not llama_npu
     if (meta_info.restore_allowed) {
         restore_idx = llama_engine->restore();
         this->total_tokens = restore_idx;

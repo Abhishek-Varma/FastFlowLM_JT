@@ -147,7 +147,7 @@ bool LFM2_5_TK::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
 
     // hardware
     int restore_idx = -1;
-    lfm2_npu *lfm2_engine = dynamic_cast<lfm2_npu*>(this->lm_engine);
+    causal_lm *lfm2_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
 
     if (meta_info.restore_allowed) {
         restore_idx = lfm2_engine->restore();

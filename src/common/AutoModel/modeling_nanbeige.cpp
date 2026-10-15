@@ -77,7 +77,7 @@ bool Nanbeige::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, st
 
     // hardware
     int restore_idx = -1;
-    nanbeige_npu *nanbeige_engine = dynamic_cast<nanbeige_npu*>(this->lm_engine);
+    causal_lm *nanbeige_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
 
     if (meta_info.restore_allowed) {
         restore_idx = nanbeige_engine->restore();

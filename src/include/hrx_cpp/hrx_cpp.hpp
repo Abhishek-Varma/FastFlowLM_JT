@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -114,6 +115,70 @@ inline Runtime& rt() {
     return r;
 }
 
+// ---------------------------------------------------------------------------
+// Phase-tagged device-wait accounting (host<->device profiling).
+//
+// Every NPU device wait funnels through hrx_stream_wait on the single runtime
+// stream (rt().stream). timed_stream_wait() wraps it, measures the host-blocked
+// wall time, and accumulates it into the currently-active phase (prefill vs
+// decode) so the device (NPU) time of each phase can be separated from host
+// work. Shared process-wide via the same inline-singleton (vague linkage)
+// mechanism as rt()/exe_cache(); the bench harness sets the phase and reads the
+// totals. Near-zero overhead (one steady_clock pair per device wait).
+// ---------------------------------------------------------------------------
+enum hrx_phase { HRX_PHASE_OTHER = 0, HRX_PHASE_PREFILL = 1, HRX_PHASE_DECODE = 2 };
+struct PhaseAccum {
+    int phase = HRX_PHASE_OTHER;
+    double prefill_ms = 0.0, decode_ms = 0.0, other_ms = 0.0;
+    long long prefill_n = 0, decode_n = 0, other_n = 0;
+    void reset() {
+        prefill_ms = decode_ms = other_ms = 0.0;
+        prefill_n = decode_n = other_n = 0;
+    }
+    void note(double ms) {
+        if (phase == HRX_PHASE_PREFILL) { prefill_ms += ms; ++prefill_n; }
+        else if (phase == HRX_PHASE_DECODE) { decode_ms += ms; ++decode_n; }
+        else { other_ms += ms; ++other_n; }
+    }
+};
+#if defined(_WIN32)
+// Windows/PE does not merge inline function-local statics across DLL boundaries
+// the way ELF vague linkage does: flm.exe and every engine DLL would otherwise
+// each get a *separate* PhaseAccum, so the engine accumulates device time into
+// its own copy while the harness reads an all-zero copy (NPU% would show 0).
+// Publish the single instance's pointer through the OS process environment
+// (shared by all modules in the process regardless of which CRT they link) so
+// every module resolves the same accumulator. The two kernel32 entry points are
+// forward-declared to avoid pulling <windows.h> into this widely-included header.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+    GetEnvironmentVariableA(const char*, char*, unsigned long);
+extern "C" __declspec(dllimport) int __stdcall
+    SetEnvironmentVariableA(const char*, const char*);
+inline PhaseAccum& ph_accum() {
+    static PhaseAccum& inst = *[]() -> PhaseAccum* {
+        char buf[32];
+        unsigned long n = GetEnvironmentVariableA(
+            "__HRX_PH_ACCUM_PTR", buf, (unsigned long)sizeof(buf));
+        if (n > 0 && n < sizeof(buf)) {
+            unsigned long long v = std::strtoull(buf, nullptr, 16);
+            if (v) return reinterpret_cast<PhaseAccum*>((std::uintptr_t)v);
+        }
+        PhaseAccum* np = new PhaseAccum();
+        std::snprintf(buf, sizeof(buf), "%llx",
+                      (unsigned long long)(std::uintptr_t)np);
+        SetEnvironmentVariableA("__HRX_PH_ACCUM_PTR", buf);
+        return np;
+    }();
+    return inst;
+}
+#else
+inline PhaseAccum& ph_accum() {
+    static PhaseAccum a;
+    return a;
+}
+#endif
+inline void set_phase(int p) { ph_accum().phase = p; }
+
 // Report (do not swallow) an HRX error. Returns true if status was an error.
 // FLM dispatch silently ignored synchronize/dispatch failures, which turns a
 // failed ERT_CMD_CHAIN (e.g. a missing host patch table) into silent no-op
@@ -127,6 +192,19 @@ inline bool hrx_report(hrx_status_t s, const char* where) {
     hrx_status_free_message(m);
     hrx_status_ignore(s);
     return true;
+}
+
+// Time hrx_stream_wait and attribute the host-blocked device time to the active
+// phase. All device-wait sites (hrx::run::wait, hrx::runlist::wait and the
+// pure_hrx dispatch helpers) call through here so prefill/decode NPU time is
+// captured uniformly regardless of the dispatch wrapper.
+inline hrx_status_t timed_stream_wait() {
+    auto t0 = std::chrono::steady_clock::now();
+    hrx_status_t s = hrx_stream_wait(rt().stream);
+    double ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+    ph_accum().note(ms);
+    return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -666,7 +744,7 @@ public:
         if (!flushed_) {
             return submitted_ ? ERT_CMD_STATE_ERROR : ERT_CMD_STATE_COMPLETED;
         }
-        hrx_status_t s = hrx_stream_wait(rt().stream);
+        hrx_status_t s = timed_stream_wait();
         bool err = hrx_report(s, "run::wait hrx_stream_wait");
         if (!err && submitted_) hrx_mark_dispatched(binds_);
         return err ? ERT_CMD_STATE_ERROR : ERT_CMD_STATE_COMPLETED;
@@ -713,7 +791,7 @@ public:
         if (!flushed_) {
             return submit_error_ ? ERT_CMD_STATE_ERROR : ERT_CMD_STATE_COMPLETED;
         }
-        hrx_status_t s = hrx_stream_wait(rt().stream);
+        hrx_status_t s = timed_stream_wait();
         bool err = hrx_report(s, "runlist::wait hrx_stream_wait");
         if (!err) {
             for (auto& r : runs_) {

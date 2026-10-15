@@ -537,6 +537,59 @@ if(EXISTS "${_d3_npu_lib}")
     target_compile_definitions(flm PRIVATE FLM_HAS_D3_NPU=1)
 endif()
 
+# Pure/native-dispatch engine variants (--backend purehrx / purexrt).
+# Linux only: we ship prebuilt pure .so in src/lib/{hrx,xrt}, not the Windows
+# .dll/.lib (those must be rebuilt on Windows against the current causal_lm
+# vtable). A build is HRX or XRT, so link only the matching set from
+# FLM_ENGINE_LIB_DIR. FLM_HAVE_PURE_ENGINES then compiles the registrations in
+# builtin_backends.cpp; without it the pure backends are simply absent.
+if(UNIX)
+    target_compile_definitions(flm PUBLIC FLM_HAVE_PURE_ENGINES=1)
+    if(FLM_USE_HRX)
+        list(APPEND FLM_ENGINE_LINK_LIBS
+            llama_npu_pure_hrx
+            qwen2_npu_pure_hrx
+            qwen2vl_npu_pure_hrx
+            qwen3_npu_pure_hrx
+            qwen3vl_npu_pure_hrx
+            qwen3vl_flash_pure_hrx
+            qwen3_5vl_npu_pure_hrx
+            qwen3_6_moe_npu_pure_hrx
+            gemma_npu_pure_hrx
+            gemma_text_npu_pure_hrx
+            gemma4e_npu_pure_hrx
+            gemma4e_flash_pure_hrx
+            gemma4_12b_npu_pure_hrx
+            hunyuan_npu_pure_hrx
+            gpt_oss_npu_pure_hrx
+            lfm2_npu_pure_hrx
+            nanbeige_npu_pure_hrx
+            phi4_npu_pure_hrx
+        )
+    else()
+        list(APPEND FLM_ENGINE_LINK_LIBS
+            llama_npu_pure_xrt
+            qwen2_npu_pure_xrt
+            qwen2vl_npu_pure_xrt
+            qwen3_npu_pure_xrt
+            qwen3vl_npu_pure_xrt
+            qwen3vl_flash_pure_xrt
+            qwen3_5vl_npu_pure_xrt
+            qwen3_6_moe_npu_pure_xrt
+            gemma_npu_pure_xrt
+            gemma_text_npu_pure_xrt
+            gemma4e_npu_pure_xrt
+            gemma4e_flash_pure_xrt
+            gemma4_12b_npu_pure_xrt
+            hunyuan_npu_pure_xrt
+            gpt_oss_npu_pure_xrt
+            lfm2_npu_pure_xrt
+            nanbeige_npu_pure_xrt
+            phi4_npu_pure_xrt
+        )
+    endif()
+endif()
+
 # Link your custom libraries (these may still be DLLs if no static versions available)
 target_link_libraries(flm PRIVATE flm_xgrammar)
 
