@@ -78,7 +78,10 @@ private:
     static constexpr int FS = 16000;
     static constexpr int WINDOW_LENGTH = 30; // seconds
     static constexpr int WINDOW_SAMPLES = FS * WINDOW_LENGTH;
+    static constexpr int MAX_L = 448;
     static constexpr int start_of_transcript = 50258;
+    static constexpr int first_language_token = 50259;
+    static constexpr int last_language_token = 50358;
     static constexpr int start_of_prev_token = 50362;
     static constexpr int no_time_stamp_token = 50364;
     static constexpr int translate_token = 50359;
@@ -151,6 +154,7 @@ private:
     }
 
     int _sample_in_language(buffer<bf16>& logits);
+    int _language_token(const std::string& language);
 
     int _sample_in_time_stamp(buffer<bf16>& logits);
 
@@ -174,6 +178,9 @@ public:
     //void toggle_enable_think() override;
     bool load_audio(std::string& audio_path);
     bool load_audio(std::vector<uint8_t>& audio_data);
-    std::pair<std::string, std::string> generate(whisper_task_type_t task, bool enable_time_stamp, bool return_time_stamp, std::ostream& os);
+    /// \param language ISO 639-1 code (e.g. "en"); empty to detect it per window
+    /// \param prompt text to condition the decoder on, as OpenAI's `prompt`
+    std::pair<std::string, std::string> generate(whisper_task_type_t task, bool enable_time_stamp, bool return_time_stamp, std::ostream& os,
+                                                 const std::string& language = "", const std::string& prompt = "");
     void setup_tokenizer(std::string model_path);
 };

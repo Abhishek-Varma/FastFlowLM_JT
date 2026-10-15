@@ -1426,6 +1426,8 @@ void RestHandler::handle_openai_audio_transcriptions(const json& request,
         std::string model = request["model"];
         std::string file_content = request["file"].get<std::string>();
         std::vector<uint8_t> audio_raw(file_content.begin(), file_content.end());
+        std::string language = request.value("language", "");
+        std::string prompt = request.value("prompt", "");
         bool stream = request.value("stream", false);
         json response;
         if (this->asr) {
@@ -1434,7 +1436,7 @@ void RestHandler::handle_openai_audio_transcriptions(const json& request,
             header_print("FLM", "Transforming audio to text...");
             // Show text
             std::cout << "Audio content: " << std::flush;
-            std::pair<std::string, std::string> audio_result = this->whisper_engine->generate(Whisper::whisper_task_type_t::e_transcribe, true, false, std::cout);
+            std::pair<std::string, std::string> audio_result = this->whisper_engine->generate(Whisper::whisper_task_type_t::e_transcribe, true, false, std::cout, language, prompt);
             std::string audio_context = audio_result.first;
             std::cout << std::endl;
 #else

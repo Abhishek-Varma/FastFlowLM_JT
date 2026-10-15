@@ -108,7 +108,8 @@ bool Whisper::load_audio(std::vector<uint8_t>& audio_data) {
     return true;
 }
 
-std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, bool enable_time_stamp, bool return_time_stamp, std::ostream& os) {
+std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, bool enable_time_stamp, bool return_time_stamp, std::ostream& os,
+                                                      const std::string& language, const std::string& prompt) {
     int length = this->audio_buffer.size();
     int current_idx = 0;
     int overlapping_samples = 5 * FS; // 
@@ -122,6 +123,18 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         header_print("Error", "Return_time_stamp is true but timestamp is not enabled!");
         return std::make_pair("", "");
     }
+    const int requested_language = language.empty() ? -1 : this->_language_token(language);
+    std::vector<int> prompt_tokens;
+    if (!prompt.empty()) {
+        // As openai-whisper: leading space, and at most half the context.
+        prompt_tokens = this->tokenizer->encode(" " + prompt);
+        std::erase_if(prompt_tokens, [](int token) { return token >= 50257; });  // text only
+        const size_t max_prompt_tokens = MAX_L / 2 - 1;
+        if (prompt_tokens.size() > max_prompt_tokens) {
+            prompt_tokens.erase(prompt_tokens.begin(), prompt_tokens.end() - max_prompt_tokens);
+        }
+    }
+    const int prefix_length = prompt_tokens.empty() ? 0 : 1 + (int)prompt_tokens.size();
     while (current_idx < length){
         // std::cout << "Chunk " << _S2T_(current_idx) << "s to " << _S2T_(current_idx + l_this_round) << "s" << std::endl;
         float time_offset = _S2T_(current_idx);
@@ -143,9 +156,15 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         this->whisper_engine->clear_context();
         this->sampler->reset_penalties();
 
-        last_idx = start_of_transcript; // the first token is fixed
+        if (!prompt_tokens.empty()) {
+            this->whisper_engine->decode_audio(start_of_prev_token);
+            for (int token : prompt_tokens) {
+                this->whisper_engine->decode_audio(token);
+            }
+        }
+        last_idx = start_of_transcript;
         buffer<bf16> logits = this->whisper_engine->decode_audio(last_idx);
-        last_idx = this->_sample_in_language(logits);
+        last_idx = requested_language >= 0 ? requested_language : this->_sample_in_language(logits);
       
         // std::cout << "Language detected: " << this->tokenizer->run_time_decoder(last_idx) << "(" << langmap::to_language_name(this->tokenizer->run_time_decoder(last_idx)) << ")" << std::endl;
         language_detected = this->tokenizer->run_time_decoder(last_idx);
@@ -180,7 +199,7 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             os << token_str << std::flush;
         }
         
-        for (int i = 0; i < 448 - 4; i++){
+        for (int i = 0; i < MAX_L - 4 - prefix_length; i++){
             buffer<bf16> logits = this->whisper_engine->decode_audio(last_idx);
             last_idx = this->sampler->sample(logits);
             std::string token_str = this->tokenizer->run_time_decoder(last_idx);
@@ -249,6 +268,14 @@ int Whisper::_sample_in_language(buffer<bf16>& logits){
     }
     return this->sampler->sample(logits);
 
+}
+
+int Whisper::_language_token(const std::string& language){
+    std::vector<int> ids = this->tokenizer->encode("<|" + language + "|>");
+    if (ids.size() != 1 || ids[0] < first_language_token || ids[0] > last_language_token){
+        throw std::invalid_argument("unsupported language: " + language);
+    }
+    return ids[0];
 }
 
 int Whisper::_sample_in_time_stamp(buffer<bf16>& logits){
