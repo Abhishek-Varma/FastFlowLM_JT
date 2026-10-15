@@ -4,17 +4,16 @@
 #
 # Provision the HRX dev package (public headers + CMake package config +
 # libhrx.so) by BUILDING it from the public FastFlow SDK (ROCm/FastFlow-SDK)
-# via `dev.py build hrx`, instead of downloading the private jtuyls/hrx prebuilt
-# tarball (fetch-hrx-release.sh / hrx-release.env).
+# via `dev.py build hrx`. This is the sole HRX source for FLM -- HRX is supplied
+# via the public FastFlow SDK, with no dependency on any private HRX fork.
 #
 # The SDK builds HRX from its projects/hrx submodule (github.com/ROCm/hrx-system)
 # at the commit pinned in the SDK's manifests/versions.toml [hrx].commit. This
 # script pins the SDK snapshot + the expected HRX commit in ./fastflow-sdk.env,
 # builds HRX, and stages the resulting build/hrx-install prefix into
-# ./.hrx-release/<prefix> so the existing find_package(hrx CONFIG REQUIRED) /
-# hrx.mk flow consumes it UNCHANGED (same prefix contract as
-# fetch-hrx-release.sh): it prints HRX_CMAKE_PREFIX and the -DCMAKE_PREFIX_PATH
-# hint, and writes `prefix=<prefix>` to $GITHUB_OUTPUT when set.
+# ./.hrx-release/<prefix> so the find_package(hrx CONFIG REQUIRED) flow
+# consumes it: it prints HRX_CMAKE_PREFIX and the -DCMAKE_PREFIX_PATH hint, and
+# writes `prefix=<prefix>` to $GITHUB_OUTPUT when set.
 #
 # Env knobs:
 #   FASTFLOW_SDK_DIR        reuse an existing FastFlow-SDK checkout (skip clone)
@@ -111,8 +110,9 @@ for h in hrx_runtime.h hrx_amdxdna.h; do
 done
 compgen -G "$hrx_install/lib/libhrx.so*" >/dev/null || die "libhrx.so missing under $hrx_install/lib"
 
-# 5. Stage into .hrx-release/<prefix> (one dir deep so hrx.mk auto-locate finds
-#    it) with a fresh copy. Normalize mtimes to "now": HRX build artifacts can
+# 5. Stage into .hrx-release/<prefix> (one dir deep so the Makefile/CMake
+#    auto-locate finds it) with a fresh copy. Normalize mtimes to "now": HRX
+#    build artifacts can
 #    carry future-dated entries, and CMake records imported package configs as
 #    regeneration inputs, which otherwise makes Ninja re-run CMake until it
 #    aborts with "build.ninja still dirty after 100 tries".
@@ -124,10 +124,10 @@ mkdir -p "$prefix"
 cp -a "$hrx_install/." "$prefix/"
 find "$prefix" -exec touch -h -c {} + 2>/dev/null || find "$prefix" -exec touch {} +
 
-# Warn on collision: hrx.mk's auto-locate globs .hrx-release/*/lib/libhrx.so and
-# takes the first match, so a leftover private fetch-hrx-release.sh extraction
-# (hrx-amdxdna-*) can shadow this one. Feed the HRX_HOME printed below explicitly
-# to be unambiguous.
+# Warn on collision: the Makefile/CMake auto-locate globs .hrx-release/*/ and
+# takes the first match, so a leftover HRX package dir on disk (e.g. an old
+# hrx-amdxdna-* extraction) can shadow this one. Feed the HRX_HOME printed below
+# explicitly to be unambiguous.
 siblings="$(find "$out_dir" -maxdepth 2 -path '*/lib/libhrx.so' 2>/dev/null \
               | grep -v "/$(basename "$prefix")/lib/libhrx.so$" || true)"
 if [[ -n "$siblings" ]]; then

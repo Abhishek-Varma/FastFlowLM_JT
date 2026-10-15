@@ -1,2 +1,3 @@
-# Fetched HRX release artifact (populated by fetch-hrx-release.sh).
+# HRX dev package + FastFlow SDK checkout (populated by
+# provision-hrx-from-fastflow-sdk.sh).
 .hrx-release/

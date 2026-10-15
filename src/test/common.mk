@@ -39,24 +39,32 @@ CXX_FLAGS += -DDISABLE_ABI_CHECK=1
 
 ifeq ($(FLM_USE_HRX),1)
 # --- HRX backend ---
-# Consumed from the pinned release artifact fetched by
-# hrx-integration/fetch-hrx-release.sh (pin: hrx-integration/hrx-release.env).
-# The artifact's env.sh exports HRX_DIR / HRX_BUILD; source it before building
-# or override HRX_DIR / HRX_BUILD on the make command line.
+# Consumed from the HRX dev package built from the public FastFlow SDK by
+# hrx-integration/provision-hrx-from-fastflow-sdk.sh (pin:
+# hrx-integration/fastflow-sdk.env). The package layout is the public one:
+# include/hrx/*.h, a single lib/libhrx.so, and lib/cmake/hrx. Source the
+# package's env.sh (exports HRX_HOME) or pass HRX_HOME=<package-prefix> on the
+# make command line; otherwise this auto-locates the staged package.
 LIB_DIR := ../../lib/hrx
 HRX_MK_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 REPO_ROOT  := $(abspath $(HRX_MK_DIR)/../..)
-HRX_RELEASE_DIR   ?= $(REPO_ROOT)/hrx-integration/.hrx-release
-HRX_ARTIFACT_ROOT ?= $(firstword $(wildcard $(HRX_RELEASE_DIR)/hrx-amdxdna-*/))
-HRX_DIR   ?= $(HRX_ARTIFACT_ROOT)HRX_DIR
-HRX_BUILD ?= $(HRX_ARTIFACT_ROOT)HRX_BUILD
-ifeq ($(wildcard $(HRX_BUILD)/libhrx/src/libhrx/libhrx.so),)
-$(error HRX artifact not found at "$(HRX_BUILD)". Run hrx-integration/fetch-hrx-release.sh (or `source <artifact>/env.sh`) before building, or override HRX_DIR/HRX_BUILD on the make command line.)
+HRX_RELEASE_DIR ?= $(REPO_ROOT)/hrx-integration/.hrx-release
+# Package prefix (contains include/, lib/, lib/cmake/hrx). Prefer HRX_HOME (set
+# by the package env.sh / command line); otherwise auto-locate the staged
+# package by its libhrx.so (top-level or one directory deep).
+ifeq ($(origin HRX_HOME),undefined)
+HRX_HOME := $(patsubst %/lib/libhrx.so,%,$(firstword $(wildcard \
+              $(HRX_RELEASE_DIR)/lib/libhrx.so \
+              $(HRX_RELEASE_DIR)/*/lib/libhrx.so)))
 endif
-HRX_INC := -I$(HRX_DIR)/libhrx/include -I$(HRX_DIR)/runtime/src \
-           -I$(HRX_BUILD)/runtime/src -I$(HRX_BUILD)/_deps/flatcc-src/include
-HRX_LIBS := $(HRX_BUILD)/libhrx/src/libhrx/libhrx.so $(HRX_BUILD)/libflatcc_runtime.a
-HRX_RPATH := -Wl,-rpath,$(HRX_BUILD)/libhrx/src/libhrx
+ifeq ($(wildcard $(HRX_HOME)/lib/libhrx.so),)
+$(error HRX public package not found (HRX_HOME="$(HRX_HOME)"). Run hrx-integration/provision-hrx-from-fastflow-sdk.sh (or `source <package>/env.sh`, or pass HRX_HOME=<package-prefix>) before building.)
+endif
+# Public headers install under include/hrx (hrx_amdxdna.h, ...); include/ is
+# added too so both spellings resolve.
+HRX_INC := -I$(HRX_HOME)/include/hrx -I$(HRX_HOME)/include
+HRX_LIBS := -L$(HRX_HOME)/lib -lhrx
+HRX_RPATH := -Wl,-rpath,$(HRX_HOME)/lib -Wl,-rpath,$(HRX_HOME)/lib/rocm_sysdeps/lib
 CXX_FLAGS += -DFLM_USE_HRX=1 $(HRX_INC)
 RUNTIME_LDFLAGS := $(HRX_RPATH) $(HRX_LIBS)
 else
