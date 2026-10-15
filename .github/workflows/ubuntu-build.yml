@@ -127,3 +127,4 @@ jobs:
           tag: ${{ github.ref }}
           file_glob: true
           file: debs/*/*.deb
+          overwrite: true

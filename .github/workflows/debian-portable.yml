@@ -332,6 +332,7 @@ jobs:
           tag: ${{ github.ref }}
           file_glob: true
           file: portable/fastflowlm_*_linux.tar.gz
+          overwrite: true
 
   # The HRX build ships as a preview, so it gets its own release job: a failed
   # HRX build leaves the release without the HRX asset instead of holding back
@@ -356,3 +357,4 @@ jobs:
           tag: ${{ github.ref }}
           file_glob: true
           file: portable/HRX_fastflowlm_*_linux.tar.gz
+          overwrite: true
