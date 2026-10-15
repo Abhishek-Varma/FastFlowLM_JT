@@ -149,13 +149,12 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
       
         // std::cout << "Language detected: " << this->tokenizer->run_time_decoder(last_idx) << "(" << langmap::to_language_name(this->tokenizer->run_time_decoder(last_idx)) << ")" << std::endl;
         language_detected = this->tokenizer->run_time_decoder(last_idx);
+        // The prompt is <|startoftranscript|><|lang|><|task|>.
+        this->whisper_engine->decode_audio(last_idx);
 
         if (task == e_translate) {
-            //header_print("info", "translate is not supported! Do transcribe instead!");
-            //task = e_transcribe;
-            //buffer<bf16> logits = this->whisper_engine->decode_audio(50259); // en
-            //logits = this->whisper_engine->decode_audio(translate_token);
-            //last_idx = this->_sample_in_time_stamp(logits);
+            buffer<bf16> logits = this->whisper_engine->decode_audio(translate_token);
+            last_idx = this->_sample_in_time_stamp(logits);
         }
         else if (task == e_transcribe) {
             buffer<bf16> logits = this->whisper_engine->decode_audio(transcribe_token);
@@ -181,7 +180,7 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             os << token_str << std::flush;
         }
         
-        for (int i = 0; i < 448 - 3; i++){
+        for (int i = 0; i < 448 - 4; i++){
             buffer<bf16> logits = this->whisper_engine->decode_audio(last_idx);
             last_idx = this->sampler->sample(logits);
             std::string token_str = this->tokenizer->run_time_decoder(last_idx);
