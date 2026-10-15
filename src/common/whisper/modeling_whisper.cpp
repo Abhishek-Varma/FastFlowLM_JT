@@ -199,8 +199,14 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             os << token_str << std::flush;
         }
         
+        int prev_idx = -1;
+        int window_time_stamp = enable_time_stamp ? last_idx : -1;
         for (int i = 0; i < MAX_L - 4 - prefix_length; i++){
             buffer<bf16> logits = this->whisper_engine->decode_audio(last_idx);
+            if (enable_time_stamp){
+                this->_apply_time_stamp_rules(logits, prev_idx, last_idx, window_time_stamp);
+            }
+            prev_idx = last_idx;
             last_idx = this->sampler->sample(logits);
             std::string token_str = this->tokenizer->run_time_decoder(last_idx);
             
@@ -216,6 +222,7 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
 
             if (enable_time_stamp && _is_time_stemp(last_idx)){
                 last_time_stamp = last_idx;
+                window_time_stamp = last_idx;
             }
          
             if (last_idx == 50257){
@@ -251,8 +258,9 @@ void Whisper::_build_time_map(){
     this->token_time_map.clear();
     auto ids = this->tokenizer->encode("<|0.00|>");
     this->token_time_map_offset = ids[0];
-    for (float time = 0; time <= 30.00; time += 0.02){
-        this->token_time_map.push_back(time);
+    // <|0.00|> to <|30.00|>: 1501 tokens. Summing 0.02f drifts and stops at 29.98.
+    for (int i = 0; i <= WINDOW_LENGTH * 50; i++){
+        this->token_time_map.push_back(i / 50.0f);
     }
 
     this->total_time_stamps = this->token_time_map.size();
@@ -279,11 +287,29 @@ int Whisper::_language_token(const std::string& language){
 }
 
 int Whisper::_sample_in_time_stamp(buffer<bf16>& logits){
-    for (int i = 0; i < this->token_time_map_offset; i++){
-        logits[i] = -0x1.FEp127f;
-    }
-    for (int i = this->total_time_stamps + this->token_time_map_offset; i < logits.size(); i++){
-        logits[i] = -0x1.FEp127f;
-    }
+    // The first timestamp of a window, no later than <|1.00|>.
+    this->_mask(logits, 0, this->token_time_map_offset);
+    this->_mask(logits, this->token_time_map_offset + max_initial_time_stamp + 1, logits.size());
     return this->sampler->sample(logits);
+}
+
+// openai-whisper's ApplyTimestampRules: timestamps come in pairs around
+// text, a segment is not empty, and time never goes back.
+void Whisper::_apply_time_stamp_rules(buffer<bf16>& logits, int prev_idx, int last_idx, int last_time_stamp_idx){
+    const int begin = this->token_time_map_offset;
+    const int end = begin + this->total_time_stamps;
+    const bool last_was_time_stamp = _is_time_stemp(last_idx);
+    const bool penultimate_was_time_stamp = prev_idx < 0 || _is_time_stemp(prev_idx);
+    if (last_was_time_stamp){
+        if (penultimate_was_time_stamp){
+            this->_mask(logits, begin, end);  // a segment needs text
+        }
+        else{
+            this->_mask(logits, 0, eot_token);  // a closed segment: timestamp or EOT
+        }
+    }
+    if (last_time_stamp_idx >= 0){
+        int lowest = (last_was_time_stamp && !penultimate_was_time_stamp) ? last_time_stamp_idx : last_time_stamp_idx + 1;
+        this->_mask(logits, begin, std::min(lowest, end));
+    }
 }

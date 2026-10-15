@@ -86,6 +86,8 @@ private:
     static constexpr int no_time_stamp_token = 50364;
     static constexpr int translate_token = 50359;
     static constexpr int transcribe_token = 50360;
+    static constexpr int eot_token = 50257;
+    static constexpr int max_initial_time_stamp = 50;  // <|1.00|>, as openai-whisper
     typedef enum {
         PREFILL_TIME,
         DECODING_TIME,
@@ -157,6 +159,12 @@ private:
     int _language_token(const std::string& language);
 
     int _sample_in_time_stamp(buffer<bf16>& logits);
+    void _apply_time_stamp_rules(buffer<bf16>& logits, int prev_idx, int last_idx, int last_time_stamp_idx);
+    inline void _mask(buffer<bf16>& logits, int begin, int end){
+        for (int i = begin; i < end; i++){
+            logits[i] = -0x1.FEp127f;
+        }
+    }
 
     std::string _offset_time_stamp(std::string& time_stamp, float offset){
         float time;
