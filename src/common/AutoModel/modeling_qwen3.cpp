@@ -532,7 +532,7 @@ bool Qwen3_TK::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, st
 
     // hardware
     int restore_idx = -1;
-    qwen3_npu *qwen3_engine = dynamic_cast<qwen3_npu*>(this->lm_engine);
+    causal_lm *qwen3_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
 
     if (meta_info.restore_allowed) {
         restore_idx = qwen3_engine->restore();
@@ -744,7 +744,7 @@ bool DeepSeek_r1_0528_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t
 
     // hardware
     int restore_idx = -1;
-    qwen3_npu *qwen3_engine = dynamic_cast<qwen3_npu*>(this->lm_engine);
+    causal_lm *qwen3_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
     if (meta_info.restore_allowed) {
         restore_idx = qwen3_engine->restore();
         this->total_tokens = restore_idx;

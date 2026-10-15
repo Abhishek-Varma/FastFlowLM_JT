@@ -279,7 +279,7 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
 
     // hardware
     int restore_idx = -1;
-    qwen3_6_moe_npu *qwen3_6_moe_engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine);
+    causal_lm *qwen3_6_moe_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
     const bool has_images = image_payload.num_images > 0;
 
     if (meta_info.restore_allowed) {
@@ -437,7 +437,7 @@ std::string Qwen3_6_MOE::generate_with_prompt(chat_meta_info_t& meta_info, lm_un
         return "";
     }
     header_print("FLM", "Prompt inserted, starting generation...");
-    qwen3_6_moe_npu* qwen36_engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine);
+    causal_lm *qwen36_engine = this->lm_engine;  // base-dispatch for sibling (pure) engines
     int checkpoint_idx = qwen36_engine->checkpoint();
     int restore_idx = qwen36_engine->restore();
     header_print_r("FLM", "Checkpoint before generation: " << checkpoint_idx << ", restore point: " << restore_idx << ", user context length: " << this->token_history.size());

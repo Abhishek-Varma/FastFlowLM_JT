@@ -76,7 +76,11 @@ bool GPT_OSS::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     
     // hardware
     int restore_idx = -1;
-    gpt_oss_npu *gpt_oss_engine = dynamic_cast<gpt_oss_npu*>(this->lm_engine);
+    // checkpoint()/restore() are causal_lm virtuals; dispatch through the base
+    // engine pointer so sibling engines (e.g. the --backend purehrx/purexrt
+    // variants, which are not gpt_oss_npu) work too -- a dynamic_cast to the
+    // concrete type would be null for them and crash.
+    causal_lm *gpt_oss_engine = this->lm_engine;
     if (meta_info.restore_allowed) {
         restore_idx = gpt_oss_engine->restore();
         this->total_tokens = restore_idx;
