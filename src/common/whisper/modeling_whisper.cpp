@@ -204,8 +204,9 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
         }
         
         // A full window is followed by one that starts at its last timestamp,
-        // so text after that timestamp would be decoded twice. Hold it until a
-        // timestamp closes it, and drop it if none does.
+        // so text after that timestamp would be decoded twice. Hold it, with
+        // the timestamp that opens it, until a timestamp closes it, and drop
+        // both if none does.
         const bool full_window = enable_time_stamp && l_this_round == WINDOW_SAMPLES;
         std::string pending;
         last_time_stamp = this->token_time_map_offset;
@@ -230,10 +231,14 @@ std::pair<std::string, std::string> Whisper::generate(whisper_task_type_t task, 
             }
 
             if (enable_time_stamp && _is_time_stemp(last_idx)){
-                emit(pending);
-                pending.clear();
-                if (return_time_stamp){
-                    emit(this->_offset_time_stamp(token_str, time_offset));
+                std::string ts = return_time_stamp ? this->_offset_time_stamp(token_str, time_offset) : "";
+                if (full_window && _is_time_stemp(prev_idx)){
+                    pending = ts;
+                }
+                else{
+                    emit(pending);
+                    pending.clear();
+                    emit(ts);
                 }
                 last_time_stamp = last_idx;
                 window_time_stamp = last_idx;
