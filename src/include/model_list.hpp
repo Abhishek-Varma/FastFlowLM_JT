@@ -6,6 +6,7 @@
 /// \note This class is used to manage the model list.
 #pragma once
 #include "nlohmann/json.hpp"
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -13,6 +14,8 @@
 #include <any>
 #include <unordered_set>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <stdexcept>
 // Only the header_print* macros are needed here. Including utils/utils.hpp
 // instead would drag in the NPU runtime headers and make this class impossible
@@ -127,7 +130,7 @@ class model_list {
                 for (const auto& [key, model] : this->config["models"][model_type].items()) {
                     if (key == model_size) { // if the size is found, return the model
                         model_found = true;
-                        return std::make_pair(new_tag, model);
+                        return std::make_pair(new_tag, this->resolve_source(new_tag, model));
                     }
                 } 
                 if (!model_found) {
@@ -277,12 +280,36 @@ class model_list {
         bool is_model_supported(const std::string& tag) {
             return all_tags.find(tag) != all_tags.end();
         }
+
+        /// \brief pin which source get_model_info resolves a tag to
+        /// \param tag the tag of the model
+        /// \param preferred true for the preferred source, false for the entry's
+        ///        own, nullopt to go back to deciding by what is on disk
+        /// \note A pull has to settle the source before it looks at anything,
+        ///       since the source decides which files the model has; outside a
+        ///       pull the files on disk are what say which source was pulled.
+        void choose_source(const std::string& tag, std::optional<bool> preferred) {
+            const std::string new_tag = this->rectify_model_tag(tag);
+            if (preferred) this->source_choice_[new_tag] = *preferred;
+            else this->source_choice_.erase(new_tag);
+        }
+
+        /// \brief the files the preferred source has and the entry's own does not
+        /// \param tag the tag of the model
+        /// \return empty when the entry names no preferred source
+        std::vector<std::string> preferred_source_files(const std::string& tag) const {
+            const auto entry = this->find_entry(this->rectify_model_tag(tag));
+            if (!entry || !entry->contains("preferred_source")) return {};
+            return files_only_in(entry->at("preferred_source"), *entry);
+        }
         
     private:
         std::string list_path;
         nlohmann::json config;
         std::string model_root_path;
         std::string platform_;
+        /// \brief the source a pull has settled on, by tag
+        std::map<std::string, bool> source_choice_;
         /// \brief the backend ids this build links
         /// \note Spelled as plain strings rather than reached through
         ///       flm::backend: AutoModel/model_backend.hpp pulls in causal_lm
@@ -299,6 +326,61 @@ class model_list {
                 joined += id;
             }
             return joined.empty() ? std::string("none") : joined;
+        }
+
+        /// \brief the raw catalog entry for a rectified "family:size" tag
+        const nlohmann::json* find_entry(const std::string& tag) const {
+            const auto colon = tag.find(':');
+            if (colon == std::string::npos) return nullptr;
+            const auto& models = this->config["models"];
+            const auto family = models.find(tag.substr(0, colon));
+            if (family == models.end()) return nullptr;
+            const auto entry = family->find(tag.substr(colon + 1));
+            return entry == family->end() ? nullptr : &*entry;
+        }
+
+        static std::vector<std::string> files_only_in(const nlohmann::json& overlay,
+                                                      const nlohmann::json& entry) {
+            std::vector<std::string> own;
+            if (!overlay.contains("files")) return own;
+            const auto& base = entry.value("files", nlohmann::json::array());
+            for (const auto& file : overlay.at("files")) {
+                if (std::find(base.begin(), base.end(), file) == base.end()) {
+                    own.push_back(file.get<std::string>());
+                }
+            }
+            return own;
+        }
+
+        /// \brief an entry as the source it resolves to
+        /// \param tag the rectified tag
+        /// \param entry the raw catalog entry
+        /// \note "preferred_source" is a JSON merge patch over the entry. It
+        ///       applies when a pull chose it, or else when every file only it
+        ///       has is on disk: downloads land under their final name only once
+        ///       verified, so a present file is a pulled one.
+        nlohmann::json resolve_source(const std::string& tag, nlohmann::json entry) const {
+            const auto preferred = entry.find("preferred_source");
+            if (preferred == entry.end()) return entry;
+            const nlohmann::json overlay = *preferred;
+            entry.erase(preferred);
+
+            bool use_preferred;
+            if (const auto chosen = this->source_choice_.find(tag);
+                chosen != this->source_choice_.end()) {
+                use_preferred = chosen->second;
+            } else {
+                const auto own = files_only_in(overlay, entry);
+                const auto root = std::filesystem::path(this->model_root_path) /
+                                  entry.at("name").get<std::string>();
+                use_preferred = !own.empty() &&
+                    std::all_of(own.begin(), own.end(), [&](const std::string& file) {
+                        std::error_code error;
+                        return std::filesystem::is_regular_file(root / file, error);
+                    });
+            }
+            if (use_preferred) entry.merge_patch(overlay);
+            return entry;
         }
 
         /// \brief the kernel flow that runs a tag, read off the tag itself
@@ -397,11 +479,13 @@ class model_list {
             const auto& models = this->config["models"];
             if (models.contains("llama3.2") &&
                 models["llama3.2"].contains("1b")) {
-                return std::make_pair("llama3.2:1b", models["llama3.2"]["1b"]);
+                return std::make_pair("llama3.2:1b",
+                                      this->resolve_source("llama3.2:1b", models["llama3.2"]["1b"]));
             }
             for (const auto& [model_type, model_subset] : models.items()) {
                 for (const auto& [size, model_info] : model_subset.items()) {
-                    return std::make_pair(model_type + ":" + size, model_info);
+                    const std::string tag = model_type + ":" + size;
+                    return std::make_pair(tag, this->resolve_source(tag, model_info));
                 }
             }
             throw std::runtime_error("No models available for NPU platform " +

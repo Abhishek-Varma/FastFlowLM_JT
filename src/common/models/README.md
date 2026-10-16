@@ -362,6 +362,16 @@ Points that are easy to get wrong:
   directly, which is also the tag a user types.
 - `file_sources` pins a per-file origin + revision when the weights and the
   tokenizer come from different repos (very common with GGUF mirrors).
+- `preferred_source` is a JSON merge patch over the entry naming a source
+  `flm pull` tries first — today the AMD Q4 GGUFs under `huggingface.co/amd/`,
+  over the public Q8_0 mirror the entry itself names. It carries its own `url`,
+  `files`, `size` and `model_info_key` (records keyed `<tag>@amd`), and
+  `"use_hf_token": true` sends the user's Hugging Face token (`HF_TOKEN`, or
+  the file `hf auth login` writes) with the files that `url` serves, and with
+  nothing else. A pull uses it when its files are already on disk or the
+  first of them answers a HEAD request, and falls back to the entry otherwise;
+  outside a pull, the entry resolves to the preferred source exactly when every
+  file only it has is on disk.
 - The two keys are checked independently, and **the platform is checked first
   and for everyone**. On today's `dev04` default that means a corelib build
   offers the `-core` tags and nothing else, and a build *without* corelib

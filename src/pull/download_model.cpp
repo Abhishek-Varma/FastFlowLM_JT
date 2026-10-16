@@ -155,7 +155,86 @@ bool request_hash_matches(const DownloadRequest& request,
     return actual == request.expected_hash;
 }
 
+std::string trimmed(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+std::string read_token_file(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) return {};
+    return trimmed({std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()});
+}
+
+/// \brief authorize a request to Hugging Face with the user's token, if any
+/// \return the header list the caller frees once the transfer is done, or nullptr
+/// \note Only https://huggingface.co/ gets the token, and with TLS verification
+///       on. libcurl drops a custom Authorization header when a redirect leaves
+///       the host, so the signed storage URL a file download is sent on to
+///       never sees it. Callers ask for it only for sources that need it: the
+///       Hub answers 401 to an expired token even on a public repo.
+curl_slist* apply_huggingface_auth(CURL* curl, const std::string& url) {
+    if (url.rfind("https://huggingface.co/", 0) != 0) return nullptr;
+    const std::string token = huggingface_token();
+    if (token.empty()) return nullptr;
+    curl_slist* headers = curl_slist_append(nullptr, ("Authorization: Bearer " + token).c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+#ifdef _WIN32
+    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, static_cast<long>(CURLSSLOPT_NATIVE_CA));
+#endif
+    return headers;
+}
+
 }  // namespace
+
+std::string huggingface_token() {
+    for (const char* name : {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"}) {
+        if (const char* value = std::getenv(name)) {
+            if (auto token = trimmed(value); !token.empty()) return token;
+        }
+    }
+    if (const char* path = std::getenv("HF_TOKEN_PATH")) {
+        return read_token_file(path);
+    }
+    if (const char* home = std::getenv("HF_HOME")) {
+        return read_token_file(std::filesystem::path(home) / "token");
+    }
+#ifdef _WIN32
+    const char* user_home = std::getenv("USERPROFILE");
+#else
+    const char* user_home = std::getenv("HOME");
+#endif
+    if (!user_home) return {};
+    return read_token_file(std::filesystem::path(user_home) / ".cache" / "huggingface" / "token");
+}
+
+bool url_accessible(const std::string& url, bool use_hf_token) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return false;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "FastFlowLM/1.0");
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_slist* headers = use_hf_token ? apply_huggingface_auth(curl, url) : nullptr;
+
+    long status = 0;
+    const CURLcode result = curl_easy_perform(curl);
+    if (result == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    }
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    // A transfer that is not HTTP, such as file://, has no response code.
+    return result == CURLE_OK && (status == 0 || (status >= 200 && status < 400));
+}
 
 bool download_file_atomic(const DownloadRequest& request,
                           std::function<void(double)> progress_cb) {
@@ -210,6 +289,8 @@ bool download_file_atomic(const DownloadRequest& request,
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "FastFlowLM/1.0");
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3600L);
+        curl_slist* headers = request.use_hf_token
+            ? apply_huggingface_auth(curl, request.url) : nullptr;
         if (offset != 0) {
             curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
                              static_cast<curl_off_t>(offset));
@@ -221,6 +302,7 @@ bool download_file_atomic(const DownloadRequest& request,
 
         const CURLcode result = curl_easy_perform(curl);
         fclose(fp);
+        curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
         show_cursor();
         if (g_progress_bar_shown) {
@@ -417,7 +499,8 @@ bool download_multiple_files(const nlohmann::json downloads,
             file.value("hash_algorithm", std::string()) == "sha256"
                 ? HashAlgorithm::Sha256
                 : HashAlgorithm::GitBlobSha1,
-            remote_oid};
+            remote_oid,
+            file.value("use_hf_token", false)};
 
         // cut "?download=true"
         if (filename.find("?download=true") != std::string::npos) {

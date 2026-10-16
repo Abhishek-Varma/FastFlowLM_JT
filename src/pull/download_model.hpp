@@ -25,6 +25,7 @@ struct DownloadRequest {
     std::uint64_t expected_size;
     HashAlgorithm hash_algorithm;
     std::string expected_hash;
+    bool use_hf_token = false;
 };
 
 std::string calculate_file_sha256(const std::string& file_path);
@@ -54,6 +55,14 @@ bool download_file_atomic(
 
 // Download content from URL to a string
 std::string download_string(const std::string& url);
+
+// The Hugging Face access token from HF_TOKEN, HUGGING_FACE_HUB_TOKEN or the
+// token file `hf auth login` writes; empty when there is none.
+std::string huggingface_token();
+
+// Whether the server would serve url: a 2xx or 3xx answer to a HEAD request,
+// or for a non-HTTP URL, a transfer that succeeds.
+bool url_accessible(const std::string& url, bool use_hf_token = false);
 
 // Download multiple files with progress tracking
 bool download_multiple_files(const nlohmann::json downloads,

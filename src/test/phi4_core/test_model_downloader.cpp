@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -348,6 +349,190 @@ void TestStartupStatusDoesNotRehashButCheckStillDoes() {
     TEST_REQUIRE(CountOccurrences(full.str(), "Checking file:") == 4);
 }
 
+constexpr const char* kPreferredTag = "pref-model:1b";
+constexpr const char* kPhi3Config = R"({"architectures":["Phi3ForCausalLM"],"model_type":"phi3"})";
+
+void UseModelInfo(const fs::path& path) {
+#ifdef _WIN32
+    _putenv_s("FLM_MODELINFO_PATH", path.string().c_str());
+#else
+    setenv("FLM_MODELINFO_PATH", path.string().c_str(), 1);
+#endif
+}
+
+/// \brief an entry whose preferred source and own source are local directories
+struct PreferredSourceFixture {
+    fs::path root;
+    fs::path base_source;
+    fs::path preferred_source;
+    std::string catalog_string;
+    std::string root_string;
+    model_list models;
+
+    explicit PreferredSourceFixture(std::string_view name)
+        : root(TempDirectory(name)),
+          base_source(root / "base" / "resolve"),
+          preferred_source(root / "amd" / "resolve") {
+        Write(base_source / "config.json", kPhi3Config);
+        Write(base_source / "base.gguf", "q8-weights");
+        Write(preferred_source / "config.json", kPhi3Config);
+        Write(preferred_source / "amd.gguf", "q4");
+        const auto record = [](const fs::path& file) {
+            return nlohmann::json{{"path", file.filename().string()},
+                                  {"size", fs::file_size(file)},
+                                  {"sha256", download_utils::calculate_file_sha256(file.string())}};
+        };
+        const nlohmann::json catalog = {
+            {"model_path", "models"},
+            {"models", {{"pref-model", {{"1b", {
+                {"name", "pref-model"},
+                {"url", FileUrl(base_source)},
+                {"file_url", "https://example.invalid/api"},
+                {"flm_min_version", "1.0.3"},
+                {"details", {{"family", "qwen3"}, {"quantization_level", "Q8_0"}}},
+                {"file_sources", nlohmann::json::object()},
+                {"files", {"config.json", "base.gguf"}},
+                {"preferred_source", {
+                    {"url", FileUrl(preferred_source)},
+                    {"use_hf_token", true},
+                    {"details", {{"quantization_level", "Q4_G128"}}},
+                    {"files", {"config.json", "amd.gguf"}},
+                    {"model_info_key", "pref-model:1b@amd"}}}
+            }}}}}}};
+        const nlohmann::json info = {
+            {"pref-model:1b", {record(base_source / "config.json"),
+                               record(base_source / "base.gguf")}},
+            {"pref-model:1b@amd", {record(preferred_source / "config.json"),
+                                   record(preferred_source / "amd.gguf")}}};
+        Write(root / "model_list.json", catalog.dump());
+        Write(root / "model_info.json", info.dump());
+        UseModelInfo(root / "model_info.json");
+        catalog_string = (root / "model_list.json").string();
+        root_string = root.string();
+        models = model_list(catalog_string, root_string);
+    }
+
+    fs::path model_path() const { return root / "models" / "pref-model"; }
+
+    std::vector<std::string> resolved_files() const {
+        return models.get_model_info(kPreferredTag).second.at("files").get<std::vector<std::string>>();
+    }
+};
+
+void TestShippedPreferredSourcesArePinnedAmdGgufs() {
+    const auto catalog = ReadJson(FLM_SOURCE_DIR "/model_list.json");
+    const auto all_info = ReadJson(FLM_SOURCE_DIR "/model_info.json");
+    std::set<std::string> tags;
+    for (const auto& [family, sizes] : catalog.at("models").items()) {
+        for (const auto& [size, entry] : sizes.items()) {
+            if (!entry.contains("preferred_source")) continue;
+            const std::string tag = family + ":" + size;
+            tags.insert(tag);
+            const auto& preferred = entry.at("preferred_source");
+            TEST_REQUIRE(preferred.at("url").get<std::string>().rfind("https://huggingface.co/amd/", 0) == 0);
+            TEST_REQUIRE(preferred.at("use_hf_token") == true);
+
+            const auto& files = preferred.at("files");
+            const auto& records = all_info.at(preferred.at("model_info_key").get<std::string>());
+            TEST_REQUIRE(records.size() == files.size());
+            std::uint64_t total = 0;
+            std::size_t replaced = 0;
+            for (const auto& file : files) {
+                const auto record = std::find_if(records.begin(), records.end(), [&](const auto& value) {
+                    return value.at("path") == file;
+                });
+                TEST_REQUIRE(record != records.end());
+                TEST_REQUIRE(record->at("sha256").get<std::string>().size() == 64);
+                total += record->at("size").get<std::uint64_t>();
+                const auto& own = entry.at("files");
+                if (std::find(own.begin(), own.end(), file) == own.end()) {
+                    TEST_REQUIRE(file.get<std::string>().ends_with(".gguf"));
+                    ++replaced;
+                }
+            }
+            TEST_REQUIRE(replaced == 1);
+            TEST_REQUIRE(total == preferred.at("size").get<std::uint64_t>());
+        }
+    }
+    TEST_REQUIRE(tags == std::set<std::string>({
+        "phi4-mini-it-core:4b", "qwen3-core:1.7b", "qwen3-core:4b", "qwen3-core:8b",
+        "qwen3.5-core:4b", "qwen3.5-core:9b", "gemma4-it-core:e2b", "gemma4-it-core:e4b"}));
+}
+
+const std::vector<std::string> kBaseFiles = {"config.json", "base.gguf"};
+const std::vector<std::string> kPreferredFiles = {"config.json", "amd.gguf"};
+
+void TestPreferredSourceResolvesByWhatIsOnDisk() {
+    PreferredSourceFixture fixture("preferred-resolve");
+    auto info = fixture.models.get_model_info(kPreferredTag).second;
+    TEST_REQUIRE(fixture.resolved_files() == kBaseFiles);
+    TEST_REQUIRE(!info.contains("preferred_source"));
+    TEST_REQUIRE(!resolve_file_source(info, "base.gguf", false).use_hf_token);
+    TEST_REQUIRE(fixture.models.preferred_source_files(kPreferredTag) ==
+                 std::vector<std::string>{"amd.gguf"});
+
+    Write(fixture.model_path() / "amd.gguf.part", "q");
+    TEST_REQUIRE(fixture.resolved_files() == kBaseFiles);
+
+    Write(fixture.model_path() / "amd.gguf", "q4");
+    info = fixture.models.get_model_info(kPreferredTag).second;
+    TEST_REQUIRE(fixture.resolved_files() == kPreferredFiles);
+    TEST_REQUIRE(info.at("details").at("family") == "qwen3");
+    TEST_REQUIRE(info.at("details").at("quantization_level") == "Q4_G128");
+    TEST_REQUIRE(info.at("model_info_key") == "pref-model:1b@amd");
+    const auto source = resolve_file_source(info, "amd.gguf", false);
+    TEST_REQUIRE(source.use_hf_token);
+    TEST_REQUIRE(source.url == FileUrl(fixture.preferred_source) + "/amd.gguf?download=true");
+
+    fixture.models.choose_source(kPreferredTag, false);
+    TEST_REQUIRE(fixture.resolved_files() == kBaseFiles);
+    fixture.models.choose_source("pref-model", std::nullopt);
+    TEST_REQUIRE(fixture.resolved_files() == kPreferredFiles);
+}
+
+void TestPullUsesReachablePreferredSourceAndKeepsItOncePulled() {
+    PreferredSourceFixture fixture("preferred-pull");
+    ModelDownloader downloader(fixture.models);
+    std::ostringstream output;
+    auto* previous = std::cout.rdbuf(output.rdbuf());
+    const bool pulled = downloader.pull_model(kPreferredTag);
+    std::cout.rdbuf(previous);
+
+    TEST_REQUIRE(pulled);
+    TEST_REQUIRE(CountOccurrences(output.str(), "Using preferred source") == 1);
+    TEST_REQUIRE(Read(fixture.model_path() / "amd.gguf") == "q4");
+    TEST_REQUIRE(!fs::exists(fixture.model_path() / "base.gguf"));
+    TEST_REQUIRE(fixture.resolved_files() == kPreferredFiles);
+
+    // Pulled already, so an unreachable preferred source changes nothing.
+    fs::remove_all(fixture.preferred_source);
+    std::ostringstream again;
+    previous = std::cout.rdbuf(again.rdbuf());
+    const bool repulled = downloader.pull_model(kPreferredTag);
+    std::cout.rdbuf(previous);
+    TEST_REQUIRE(repulled);
+    TEST_REQUIRE(CountOccurrences(again.str(), "Model already downloaded") == 1);
+    TEST_REQUIRE(CountOccurrences(again.str(), "Falling back") == 0);
+    TEST_REQUIRE(!fs::exists(fixture.model_path() / "base.gguf"));
+}
+
+void TestPullFallsBackWhenPreferredSourceIsUnreachable() {
+    PreferredSourceFixture fixture("preferred-fallback");
+    fs::remove_all(fixture.preferred_source);
+    ModelDownloader downloader(fixture.models);
+    std::ostringstream output;
+    auto* previous = std::cout.rdbuf(output.rdbuf());
+    const bool pulled = downloader.pull_model(kPreferredTag);
+    std::cout.rdbuf(previous);
+
+    TEST_REQUIRE(pulled);
+    TEST_REQUIRE(CountOccurrences(output.str(), "Preferred source is not accessible") == 1);
+    TEST_REQUIRE(CountOccurrences(output.str(), "Falling back to: " + FileUrl(fixture.base_source)) == 1);
+    TEST_REQUIRE(Read(fixture.model_path() / "base.gguf") == "q8-weights");
+    TEST_REQUIRE(!fs::exists(fixture.model_path() / "amd.gguf"));
+    TEST_REQUIRE(fixture.resolved_files() == kBaseFiles);
+}
+
 download_utils::DownloadRequest Request(const fs::path& source, const fs::path& destination,
                                         std::uint64_t size, std::string hash) {
     return {FileUrl(source), destination, size, download_utils::HashAlgorithm::Sha256, std::move(hash)};
@@ -417,6 +602,10 @@ int main() {
             "modelscope rejection");
     RunTest(TestCheckHashesPinnedFilesExactlyOnce, "single check verification");
     RunTest(TestStartupStatusDoesNotRehashButCheckStillDoes, "startup status skips rehash");
+    RunTest(TestShippedPreferredSourcesArePinnedAmdGgufs, "shipped preferred sources");
+    RunTest(TestPreferredSourceResolvesByWhatIsOnDisk, "preferred source resolution");
+    RunTest(TestPullUsesReachablePreferredSourceAndKeepsItOncePulled, "preferred source pull");
+    RunTest(TestPullFallsBackWhenPreferredSourceIsUnreachable, "preferred source fallback");
     RunTest(TestResumeAppendsToPartThenAtomicallyPromotes, "resume and promote");
     RunTest(TestWrongSizeOrHashNeverReplacesAValidFinalFile, "invalid transfer isolation");
     RunTest(TestInterruptedTransferKeepsPartForNextResume, "interrupted transfer");

@@ -132,10 +132,11 @@ ModelFileSource resolve_file_source(const nlohmann::json& model_info,
     const std::string base_url = use_modelscope
         ? model_info.at("ms_url").get<std::string>()
         : model_info.at("url").get<std::string>();
+    const bool use_hf_token = !use_modelscope && model_info.value("use_hf_token", false);
     if (base_url.find("resolve") != std::string::npos) {
-        return {base_url + "/" + std::string(filename) + "?download=true", {}};
+        return {base_url + "/" + std::string(filename) + "?download=true", {}, use_hf_token};
     }
-    return {base_url + "/resolve/main/" + std::string(filename) + "?download=true", {}};
+    return {base_url + "/resolve/main/" + std::string(filename) + "?download=true", {}, use_hf_token};
 }
 
 namespace {
@@ -244,6 +245,14 @@ ModelDownloader::ModelStatus ModelDownloader::check_model_compatibility(const st
 /// \return true if the model is downloaded, false otherwise
 bool ModelDownloader::pull_model(const std::string& model_tag, bool use_modelscope, bool force_redownload) {
     try {
+        // Once the pull is over, the files on disk say again which source it got.
+        struct SourceChoiceReset {
+            model_list& models;
+            const std::string& tag;
+            ~SourceChoiceReset() { models.choose_source(tag, std::nullopt); }
+        } reset_source_choice{supported_models, model_tag};
+        choose_pull_source(model_tag, use_modelscope, force_redownload);
+
         // Get model info
         auto [new_model_tag, model_info] = supported_models.get_model_info(model_tag);
         std::string model_name = model_info["name"];
@@ -350,6 +359,40 @@ bool ModelDownloader::pull_model(const std::string& model_tag, bool use_modelsco
         header_print("ERROR", "Exception during download: " + std::string(e.what()));
         return false;
     }
+}
+
+/// \brief Settle which source a pull uses
+/// \param model_tag the model tag
+/// \param use_modelscope true when pulling from ModelScope, which mirrors no
+///        preferred source
+/// \param force_redownload true if the files are to be fetched again
+/// \note The preferred source is used when it already supplied the files on
+///       disk or answers now; otherwise the entry's own source is.
+void ModelDownloader::choose_pull_source(const std::string& model_tag, bool use_modelscope,
+                                         bool force_redownload) {
+    const auto own_files = supported_models.preferred_source_files(model_tag);
+    if (own_files.empty()) return;
+
+    supported_models.choose_source(model_tag, true);
+    const auto [new_model_tag, preferred] = supported_models.get_model_info(model_tag);
+    const std::string preferred_url = preferred.at("url");
+    const std::string model_path = supported_models.get_model_path(new_model_tag);
+    const bool pulled = std::all_of(own_files.begin(), own_files.end(), [&](const std::string& file) {
+        return file_exists(get_model_file_path(model_path, file));
+    });
+    if (pulled && !force_redownload) return;
+
+    if (!use_modelscope) {
+        const auto probe = resolve_file_source(preferred, own_files.front(), false);
+        if (download_utils::url_accessible(probe.url, probe.use_hf_token)) {
+            header_print("FLM", "Using preferred source: " + preferred_url);
+            return;
+        }
+        header_print("FLM", "Preferred source is not accessible: " + preferred_url);
+    }
+    supported_models.choose_source(model_tag, false);
+    const std::string fallback_url = supported_models.get_model_info(model_tag).second.at("url");
+    header_print("FLM", "Falling back to: " + fallback_url);
 }
 
 /// \brief Model not found
@@ -483,6 +526,7 @@ std::pair<nlohmann::json, float> ModelDownloader::build_download_list(
             {"is_lfs", file.is_lfs},
             {"hash_algorithm", file.hash_algorithm == download_utils::HashAlgorithm::Sha256
                                    ? "sha256" : "git_blob_sha1"},
+            {"use_hf_token", file.source.use_hf_token},
         });
     }
     return {downloads, sum_file_size};
