@@ -12,7 +12,9 @@ evaluation set in assets/asr_eval/ (see build_asr_eval.py) and measures:
                   what a decoder stuck in a repetition loop produces
     speed         seconds of processing per second of audio
     formats       json, no response_format and verbose_json agree
-    chat audio    WER of chat models that transcribe audio, such as Gemma 4
+    chat audio    WER of chat models that transcribe audio: Gemma 4 E2B, whose
+                  audio front end E4B and the flash variants share, and 12B,
+                  which has its own
 
 and checks these feature groups:
 
@@ -37,7 +39,9 @@ many transcripts changed. Even a numerically equivalent change, such as a
 different FFT, flips a few borderline decodes, so a few changed files and
 small per-set moves are expected; --max-drift is for builds that should
 reproduce the baseline exactly. Without a baseline, --expected gives fixed
-error rates to stay under.
+error rates to stay under, with the same --tolerance on the pooled rate and
+--set-tolerance per set; the workflow passes --tolerance 2 there, since those
+rates come from one machine per platform.
 
 Every response body, and a results JSON that --baseline can read back, are
 written to --output-dir.
@@ -48,12 +52,14 @@ from __future__ import annotations
 import base64
 import json
 import re
+import socket
 import sys
 import time
 import unicodedata
 from collections import Counter
 from pathlib import Path
 
+from asr_summary import label as platform_label, render
 from sweep_common import ASSETS_DIR, SweepTask, run_task
 
 FEATURE_GROUPS = [
@@ -160,9 +166,10 @@ class AsrTest(SweepTask):
                             help="Fail a set whose transcripts differ from the baseline's "
                                  "by more than this fraction, for builds meant to change "
                                  "nothing. Unset: drift is only reported.")
-        parser.add_argument("--chat-models", nargs="*", default=["gemma4-it:e2b"],
-                            metavar="TAG", help="Chat models to transcribe with (default: "
-                                                "gemma4-it:e2b). Pass none to skip.")
+        parser.add_argument("--chat-models", nargs="*",
+                            default=["gemma4-it:e2b", "gemma4-it:12b"], metavar="TAG",
+                            help="Chat models to transcribe with (default: gemma4-it:e2b "
+                                 "gemma4-it:12b). Pass none to skip.")
         parser.add_argument("--chat-clips", type=int, default=5,
                             help="en-short clips sent to each chat model (default: 5).")
         parser.add_argument("--chat-tolerance", type=float, default=3.0,
@@ -171,6 +178,7 @@ class AsrTest(SweepTask):
     def __init__(self, args):
         super().__init__(args)
         self.rows: list[list[str]] = []
+        self.check_failures: set[str] = set()
         self.results: dict = {"sets": {}, "items": {}, "chat": {}, "features": {},
                               "repeats": {}, "language": {}}
         self.baseline = (json.loads(Path(args.baseline).read_text(encoding="utf-8"))
@@ -184,6 +192,23 @@ class AsrTest(SweepTask):
                       f"{args.platform}; accuracy is reported but not checked.")
         self.responses_dir = self.output_dir / "responses"
         self.responses_dir.mkdir(exist_ok=True)
+
+    def start_server(self, append_log: bool = False) -> None:
+        """Refuses to start when another server already holds the port.
+
+        flm exits at once when it cannot bind, but the other server answers
+        /v1/version, so the run would carry on against a server without ASR,
+        or one that is running someone else's job.
+        """
+        if not self.args.no_server:
+            try:
+                socket.create_connection((self.args.host, self.args.port), timeout=2).close()
+            except OSError:
+                pass
+            else:
+                raise RuntimeError(f"Port {self.args.port} on {self.args.host} is already in "
+                                   "use by another server; pass --port to use a free one.")
+        super().start_server(append_log)
 
     def select_models(self, catalog: list[dict]) -> list[str]:
         models = [e["id"] for e in catalog if e["id"].startswith("whisper-v3")]
@@ -200,8 +225,10 @@ class AsrTest(SweepTask):
         status = "ok" if ok else ("FAIL" if required else "warn")
         row = [model, area, group, name, status, detail]
         self.rows.append(row)
-        self.record(writer, row, model=model,
-                    error=None if ok or not required else f"{area}: {name} ({detail})")
+        error = None if ok or not required else f"{area}: {name} ({detail})"
+        if error:
+            self.check_failures.add(f"{model}: {error}")
+        self.record(writer, row, model=model, error=error)
         feature = self.results["features"].setdefault(group, {"passed": 0, "total": 0})
         feature["total"] += 1
         feature["passed"] += ok
@@ -598,67 +625,46 @@ class AsrTest(SweepTask):
     def results_path(self) -> Path:
         return self.output_dir / f"{self.name}_{self.args.platform}_v{self.version}_results.json"
 
+    def baseline_snapshot(self) -> dict | None:
+        """What this run was compared against, in one shape for asr_summary.py."""
+        if self.baseline:
+            return {
+                "kind": "build",
+                "version": self.baseline.get("version"),
+                "overall": self.baseline_overall(),
+                "sets": {name: self.baseline["sets"][name] for name in self.results["sets"]
+                         if name in self.baseline.get("sets", {})},
+                "chat": self.baseline.get("chat", {}),
+            }
+        if self.expected:
+            return {
+                "kind": "expected",
+                "overall": {"error_rate": self.expected.get("overall")},
+                "sets": {name: {"error_rate": rate}
+                         for name, rate in self.expected.get("sets", {}).items()},
+            }
+        return None
+
+    def finish_results(self) -> None:
+        checks = [dict(zip(("model", "area", "group", "check", "status", "detail"), row))
+                  for row in self.rows]
+        # Failures that are not a check, such as the server crashing, still
+        # belong in the report.
+        checks += [{"model": "server", "area": "run", "group": "core", "check": failure,
+                    "status": "FAIL", "detail": ""}
+                   for failure in self.failures if failure not in self.check_failures]
+        self.results.update({
+            "platform": self.args.platform,
+            "version": self.version,
+            "required": list(self.args.require),
+            "checks": checks,
+            "baseline": self.baseline_snapshot(),
+        })
+
     def write_report(self) -> None:
-        failed = sum(row[4] == "FAIL" for row in self.rows)
-        warned = sum(row[4] == "warn" for row in self.rows)
-        base = self.baseline
-        title = f"### ASR test: {self.args.platform}, flm {self.version}"
-        if base:
-            title += f" (baseline: flm {base.get('version')})"
-        lines = [title, "",
-                 f"{len(self.rows) - failed - warned} checks passed, {failed} failed, "
-                 f"{warned} warnings (feature groups not required: "
-                 f"{', '.join(g for g in FEATURE_GROUPS if g not in self.args.require) or 'none'})",
-                 "", "| Set | Metric | Files | Error rate | Baseline | Change | Runaways | "
-                 "Changed files | Drift | Time per audio s | Language detected |",
-                 "|---|---|---|---|---|---|---|---|---|---|---|"]
-        rows = list(self.results["sets"].items())
-        if "overall" in self.results:
-            rows.append(("**pooled**", dict(self.results["overall"], metric="all", rtf=None,
-                                            language_detected=None)))
-        for set_name, s in rows:
-            b = ((self.baseline_overall() or {}) if set_name == "**pooled**"
-                 else (base or {}).get("sets", {}).get(set_name, {}))
-            change = (f"{(s['error_rate'] - b['error_rate']) * 100:+.2f}"
-                      if b else "-")
-            runaways = str(s.get("runaways", "-"))
-            if "runaways" in b:
-                runaways += f" (base {b['runaways']})"
-            changed = f"{s['changed']}/{s['files']}" if "changed" in s else "-"
-            rtf = f"{s['rtf']:.3f}" if s.get("rtf") else "-"
-            if b.get("rtf"):
-                rtf += f" (base {b['rtf']:.3f})"
-            detected = ("-" if s["language_detected"] is None
-                        else f"{s['language_detected']}/{s['files']}")
-            lines.append(f"| {set_name} | {s['metric'].upper()} | {s['files']} | "
-                         f"{pct(s['error_rate'])} | {pct(b.get('error_rate'))} | {change} | "
-                         f"{runaways} | {changed} | {pct(s.get('drift'))} | {rtf} | {detected} |")
-        if self.results["chat"]:
-            lines += ["", "| Chat model | Clips | WER | Baseline |", "|---|---|---|---|"]
-            for chat_model, c in self.results["chat"].items():
-                b = (base or {}).get("chat", {}).get(chat_model, {})
-                lines.append(f"| {chat_model} | {c['files']} | {pct(c['error_rate'])} | "
-                             f"{pct(b.get('error_rate'))} |")
-        lines += ["", "| Group | Required | Passed | Baseline passed |", "|---|---|---|---|"]
-        for group in ["core"] + FEATURE_GROUPS:
-            f = self.results["features"].get(group)
-            if not f:
-                continue
-            b = (base or {}).get("features", {}).get(group)
-            required = "yes" if group == "core" or group in self.args.require else "no"
-            base_passed = f"{b['passed']}/{b['total']}" if b else "-"
-            lines.append(f"| {group} | {required} | {f['passed']}/{f['total']} | {base_passed} |")
-        problems = [row for row in self.rows if row[4] != "ok"]
-        if problems:
-            lines += ["", "| Model | Area | Group | Check | Status | Detail |",
-                      "|---|---|---|---|---|---|"]
-            for row in problems:
-                cells = [str(cell).replace("|", "\\|") for cell in row]
-                lines.append("| " + " | ".join(cells) + " |")
-        for failure in self.failures:
-            if not any(failure.startswith(row[0]) for row in self.rows):
-                lines.append(f"\n- {failure}")
-        self.report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.report_path.write_text(
+            render([self.results], title=f"ASR test: {platform_label(self.args.platform)}")
+            + "\n", encoding="utf-8")
 
     # -- entry point -------------------------------------------------------
 
@@ -688,6 +694,7 @@ class AsrTest(SweepTask):
             self.run_chat(writer, items, eval_dir)
         finally:
             handle.close()
+            self.finish_results()
             self.results_path.write_text(json.dumps(self.results, indent=1, ensure_ascii=False),
                                          encoding="utf-8")
             self.write_report()
