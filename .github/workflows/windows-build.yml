@@ -12,6 +12,14 @@ on:
       - main
   workflow_dispatch:
 
+# Both portable jobs share one self-hosted runner, so a build for a commit
+# that has since been superseded on the same PR only delays the next one, and
+# with it that commit's model sweep. Only pull_request runs share a group;
+# every other run gets its own, so branch and tag builds are never cancelled.
+concurrency:
+  group: windows-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build-windows-portable:
     runs-on: [self-hosted, windows, x64, portable]
