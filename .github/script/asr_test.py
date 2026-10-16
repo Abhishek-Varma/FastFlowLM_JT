@@ -33,8 +33,12 @@ before then.
 
 With --baseline, the results of another build (normally main's, run on the
 same machine just before) become the reference. The run fails if the pooled
-error rate rises by more than --tolerance points, any one set's by more than
---set-tolerance, or the number of runaways grows. The report also shows how
+error rate rises by more than --tolerance points, the rate of any set of ten
+or more files by more than --set-tolerance, or a file turns into a runaway, or
+repeats more phrases, while also getting more errors than in the baseline.
+The long-form sets are left to the pooled rate and those last two checks: a
+single file there moves by many points whenever one decode flips, which HRX
+builds do between identical runs. The report also shows how
 many transcripts changed. Even a numerically equivalent change, such as a
 different FFT, flips a few borderline decodes, so a few changed files and
 small per-set moves are expected; --max-drift is for builds that should
@@ -80,6 +84,8 @@ DURATION_TOLERANCE_S = 0.1
 SAME_TEXT_MAX_WER = 0.02
 REPEAT_NGRAM = 6
 RUNAWAY_RATIO = 1.5
+# Smaller sets are judged through the pooled rate only; see the docstring.
+SET_CHECK_MIN_FILES = 10
 ARABIC_DIACRITICS = re.compile("[\u064b-\u065f\u0670\u06d6-\u06ed]")
 
 
@@ -159,9 +165,10 @@ class AsrTest(SweepTask):
         parser.add_argument("--tolerance", type=float, default=1.0,
                             help="Allowed rise in the pooled error rate, in points (default: 1.0).")
         parser.add_argument("--set-tolerance", type=float, default=5.0,
-                            help="Allowed rise in any one set's error rate, in points "
-                                 "(default: 5.0). Sets are ten files, so one flipped "
-                                 "decode moves them by a point or more.")
+                            help="Allowed rise in the error rate of any set of "
+                                 f"{SET_CHECK_MIN_FILES} or more files, in points "
+                                 "(default: 5.0). One flipped decode moves a ten-file "
+                                 "set by a point or more.")
         parser.add_argument("--max-drift", type=float, default=None,
                             help="Fail a set whose transcripts differ from the baseline's "
                                  "by more than this fraction, for builds meant to change "
@@ -567,17 +574,27 @@ class AsrTest(SweepTask):
                 self.check(writer, model, "eval", "pooled error rate no worse than the baseline",
                            overall["error_rate"] - base_overall["error_rate"] <= tolerance,
                            f"{pct(overall['error_rate'])} vs {pct(base_overall['error_rate'])}")
-                self.check(writer, model, "eval", "no more runaways than the baseline",
-                           overall["runaways"] <= base_overall["runaways"],
-                           f"{overall['runaways']} vs {base_overall['runaways']}")
+                # A file that crosses the runaway length while making no more
+                # errors, for instance by also transcribing what the baseline
+                # dropped, is not a regression.
+                new_runaways = sorted(
+                    f for f, r in self.results["items"].items()
+                    if r.get("runaway") and f in base_items
+                    and not base_items[f].get("runaway")
+                    and r["edits"] > base_items[f]["edits"])
+                self.check(writer, model, "eval", "no new runaway transcripts",
+                           not new_runaways,
+                           ", ".join(new_runaways) if new_runaways else
+                           f"{overall['runaways']} runaways, baseline {base_overall['runaways']}")
             for set_name, current in self.results["sets"].items():
                 base = self.baseline["sets"].get(set_name)
                 if not base:
                     continue
                 delta = current["error_rate"] - base["error_rate"]
-                self.check(writer, model, f"eval {set_name}",
-                           "error rate no worse than the baseline", delta <= set_tolerance,
-                           f"{pct(current['error_rate'])} vs {pct(base['error_rate'])}")
+                if current["files"] >= SET_CHECK_MIN_FILES:
+                    self.check(writer, model, f"eval {set_name}",
+                               "error rate no worse than the baseline", delta <= set_tolerance,
+                               f"{pct(current['error_rate'])} vs {pct(base['error_rate'])}")
                 compared = [(f, r) for f, r in self.results["items"].items()
                             if r["set"] == set_name and f in base_items]
                 drift = pooled([error_rate(base_items[f]["text"], r["text"], r["language"],
@@ -596,10 +613,11 @@ class AsrTest(SweepTask):
                           f"baseline {base['rtf']:.3f}")
             for name, counts in self.results["repeats"].items():
                 base = self.baseline.get("repeats", {}).get(name)
-                if base:
+                if base and name in base_items:
+                    more_errors = self.results["items"][name]["edits"] > base_items[name]["edits"]
                     self.check(writer, model, f"eval {name}",
                                "no more repeated phrases than the baseline",
-                               counts["text"] <= base["text"],
+                               counts["text"] <= base["text"] or not more_errors,
                                f"{counts['text']} vs {base['text']}")
         elif self.expected:
             limit = self.expected.get("overall")
@@ -609,7 +627,7 @@ class AsrTest(SweepTask):
                            f"{pct(overall['error_rate'])} vs expected {pct(limit)}")
             for set_name, current in self.results["sets"].items():
                 limit = self.expected.get("sets", {}).get(set_name)
-                if limit is not None:
+                if limit is not None and current["files"] >= SET_CHECK_MIN_FILES:
                     self.check(writer, model, f"eval {set_name}",
                                "error rate within the expected value",
                                current["error_rate"] <= limit + set_tolerance,
