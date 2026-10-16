@@ -2,8 +2,8 @@ name: ASR Test
 
 # Checks Whisper transcription on real NPU hardware whenever ASR code changes.
 # Nothing is rebuilt here: like the model sweep, this tests the portable builds
-# that "Build Linux Portable" produces for the same commit, default and HRX
-# alike. Linux only for now. .github/script/asr_test.py holds the checks.
+# that "Build Linux Portable" and "Build Windows Packages" produce for the same
+# commit, default and HRX alike. .github/script/asr_test.py holds the checks.
 #
 # The trigger paths are the Whisper engine and its prebuilt NPU libraries, the
 # audio front end and FFT it runs on, and the two server files that host
@@ -11,8 +11,8 @@ name: ASR Test
 # so any change to them runs this test too; it costs a few minutes of one NPU
 # machine. The pull_request and push path lists must stay identical.
 #
-# A manual dispatch tests the dispatched ref's commit, so start "Build Linux
-# Portable" on that ref first.
+# A manual dispatch tests the dispatched ref's commit, so start both build
+# workflows on that ref first.
 
 on:
   pull_request:
@@ -26,6 +26,7 @@ on:
       - 'src/include/audio_process_utils/**'
       - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
+      - 'src/lib/libfftw3*'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
       - 'src/test/whisper_npu/**'
@@ -44,6 +45,7 @@ on:
       - 'src/include/audio_process_utils/**'
       - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
+      - 'src/lib/libfftw3*'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
       - 'src/test/whisper_npu/**'
@@ -64,19 +66,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Waits on a hosted runner for this commit's build run, the same way the
-  # model sweep's resolve-build does, and pins it to a run id so a stale
-  # artifact from an earlier push can never be tested. Outputs a JSON list of
-  # builds, which the test job expands into its matrix.
+  # Waits on a hosted runner for this commit's build runs, the same way the
+  # model sweep's resolve-build does, and pins each to a run id so a stale
+  # artifact from an earlier push can never be tested. Outputs one JSON list of
+  # builds per platform, which the test jobs expand into their matrix.
   resolve-build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
       linux_run_id: ${{ steps.resolve.outputs.linux_run_id }}
+      windows_run_id: ${{ steps.resolve.outputs.windows_run_id }}
       linux_builds: ${{ steps.resolve.outputs.linux_builds }}
+      windows_builds: ${{ steps.resolve.outputs.windows_builds }}
 
     steps:
-      - name: Wait for this commit's portable build
+      - name: Wait for this commit's portable builds
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,6 +95,7 @@ jobs:
           APPEAR_DEADLINE=$(( SECONDS + 10 * 60 ))
           FINISH_DEADLINE=$(( SECONDS + 80 * 60 ))
           linux_builds='[]'
+          windows_builds='[]'
 
           # Newest run for whichever candidate SHA matches, or empty.
           find_run() {
@@ -156,18 +161,24 @@ jobs:
             echo "${platform}_run_id=${run_id}" >> "$GITHUB_OUTPUT"
 
             # Fully anchored, so neither pattern matches the other's artifact
-            # or the models-from-source one.
+            # or the MSI job's "fastflowlm-windows-msi-<sha>".
             add_build "${platform}_builds" "${artifacts}" "${default_pattern}" "${platform}"
             add_build "${platform}_builds" "${artifacts}" "${hrx_pattern}" "${platform}-hrx"
           }
 
           wait_for_build debian-portable.yml linux \
             '^portable$' '^HRX-portable$' || true
-          echo "linux_builds=${linux_builds}" >> "$GITHUB_OUTPUT"
+          wait_for_build windows-build.yml windows \
+            '^fastflowlm-windows-[0-9a-f]+$' '^HRX-fastflowlm-windows-[0-9a-f]+$' || true
 
-          # One missing build is a warning above; nothing at all to test would
-          # otherwise leave a green check that tested nothing.
-          if [ "${linux_builds}" = "[]" ]; then
+          {
+            echo "linux_builds=${linux_builds}"
+            echo "windows_builds=${windows_builds}"
+          } >> "$GITHUB_OUTPUT"
+
+          # One missing platform is a warning above; nothing at all to test
+          # would otherwise leave a green check that tested nothing.
+          if [ "${linux_builds}" = "[]" ] && [ "${windows_builds}" = "[]" ]; then
             echo "::error::No portable build was found for this commit, so nothing was tested."
             exit 1
           fi
@@ -247,6 +258,100 @@ jobs:
       - name: Write job summary
         if: always()
         run: cat asr-results/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asr-test-${{ matrix.build.platform }}-${{ github.run_number }}
+          path: asr-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+  asr-windows:
+    name: asr (${{ matrix.build.platform }})
+    needs: resolve-build
+    if: needs.resolve-build.outputs.windows_builds != '[]'
+    runs-on: [self-hosted, windows, x64, npu, sweep]
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJSON(needs.resolve-build.outputs.windows_builds) }}
+
+    steps:
+      - name: Checkout test scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          filter: blob:none
+
+      - name: Resolve model path
+        shell: powershell
+        run: |
+          $modelPath = Join-Path $env:USERPROFILE ".flm"
+          New-Item -ItemType Directory -Force $modelPath | Out-Null
+          "FLM_MODEL_PATH=$modelPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # The artifact holds flm.exe and its DLLs at the top level.
+      - name: Download ${{ matrix.build.platform }} portable build
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.resolve-build.outputs.windows_run_id }}
+          name: ${{ matrix.build.artifact }}
+          path: flm-windows
+          if_no_artifact_found: fail
+
+      - name: Verify FLM binary runs
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $flm = Join-Path $env:GITHUB_WORKSPACE "flm-windows\flm.exe"
+          if (-not (Test-Path $flm)) {
+            throw "flm.exe not found at $flm"
+          }
+          "FLM_BIN=$flm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $flm version
+
+      # A no-op once the weights are on the runner.
+      - name: Pull Whisper
+        shell: powershell
+        run: |
+          & $env:FLM_BIN pull whisper-v3:turbo
+          # A native command's exit code does not trip ErrorActionPreference.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Set up Python virtualenv
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install openai
+
+      # See the Linux job about --require-verbose-json.
+      - name: Run ASR test
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cmdArgs = @(
+            ".github\script\asr_test.py",
+            "--flm-bin", $env:FLM_BIN,
+            "--platform", "${{ matrix.build.platform }}",
+            "--output-dir", "asr-results"
+          )
+          & ".\.venv\Scripts\python.exe" $cmdArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Write job summary
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path asr-results\*.md) {
+            Get-Content asr-results\*.md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
 
       - name: Upload results
         if: always()
