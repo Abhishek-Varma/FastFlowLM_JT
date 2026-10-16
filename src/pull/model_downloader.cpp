@@ -78,7 +78,7 @@ struct ResolvedModelFile {
 /// \return true when the entry carries a "file_sources" map
 /// \note These entries are assembled from third-party repos at a fixed commit
 ///       rather than published by FastFlowLM, so every file is hash-verified
-///       against the same pinned metadata it was downloaded with. The rai
+///       against the same pinned metadata it was downloaded with. The core
 ///       Phi-4 GGUF is the only such entry today, but the rule is about how the
 ///       files are sourced, not about which backend consumes them.
 bool uses_pinned_upstream_integrity(const nlohmann::json& model_info) {

@@ -44,7 +44,7 @@ AMD Ryzen™ AI 7 350 (Kraken Point) with 32 GB DRAM; performance is comparable 
 
 ---
 
-## 🧪 Phi-4-mini-instruct Q8_0 GGUF on the rai backend (`phi4-mini-it-rai:4b`, `aie_next`)
+## 🧪 Phi-4-mini-instruct Q8_0 GGUF on the core backend (`phi4-mini-it-core:4b`, `dev04`)
 
 These are **descriptive measurements from individual runs**, not a benchmark sweep and not a pass threshold. Each figure below comes from one run, not from an average over many. They are not comparable to the tables above, which sweep 1k–32k on NPU2.
 
@@ -52,11 +52,11 @@ These are **descriptive measurements from individual runs**, not a benchmark swe
 
 | | |
 |---|---|
-| Machine | aie_next development machine |
+| Machine | dev04 development machine |
 | OS | Microsoft Windows 11 Enterprise 10.0.26100 |
 | FastFlowLM commit | `16943bc4` |
 | corelib commit / version | `a8c6e8d` / `0.11.0`, built from source, loaded from beside `flm.exe` |
-| Run | 2026-10-01, `flm serve phi4-mini-it-rai:4b --ctx-len 4096`, `/api/generate` with `max_tokens: 8` |
+| Run | 2026-10-01, `flm serve phi4-mini-it-core:4b --ctx-len 4096`, `/api/generate` with `max_tokens: 8` |
 
 ### Measurements
 
@@ -72,7 +72,7 @@ One server, four prompts in increasing length, each a fresh conversation. The
 
 Model load was 1.0–1.2 s (`Model loaded in`, as reported by FLM). Every reply
 was a coherent continuation of the prompt, and the server log reports
-`Backend: rai (from model catalog)`.
+`Backend: core (from model catalog)`.
 
 Not measured at this version: cold and warm TTFT in isolation, and the
 cancellation and capacity-boundary checks.

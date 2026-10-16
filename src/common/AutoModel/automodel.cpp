@@ -479,7 +479,7 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
             buffer<bf16> chunk_y = this->lm_engine->prefill(chunk_tokens, (i == 0)? payload : nullptr);
             if (i == chunks - 1) {
                 // Moved, not copied: buffer's copy is shallow and does not take
-                // ownership, so a copy of logits the engine owns (the rai
+                // ownership, so a copy of logits the engine owns (the core
                 // engines return them that way) dangles once chunk_y goes.
                 y = std::move(chunk_y);
             }

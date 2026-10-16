@@ -101,33 +101,33 @@ flm run qwen3:8b
 
 ---
 
-## 🧪 Qwen3 0.6B / 1.7B / 4B / 8B on the rai backend (developer preview)
+## 🧪 Qwen3 0.6B / 1.7B / 4B / 8B on the core backend (developer preview)
 
-- **Tags:** `qwen3-rai:0.6b`, `qwen3-rai:1.7b`, `qwen3-rai:4b`, `qwen3-rai:8b` — their own tags, beside the NPU2 `qwen3:*` entries. `supported_platforms` is `aie_next`, and the `-rai` suffix is what asks for corelib's kernels.
-- **Backend:** `rai` — one engine for all four sizes. The GGUF's own metadata selects the size and is cross-checked against it.
+- **Tags:** `qwen3-core:0.6b`, `qwen3-core:1.7b`, `qwen3-core:4b`, `qwen3-core:8b` — their own tags, beside the NPU2 `qwen3:*` entries. `supported_platforms` is `dev04`, and the `-core` suffix is what asks for corelib's kernels.
+- **Backend:** `core` — one engine for all four sizes. The GGUF's own metadata selects the size and is cross-checked against it.
 - **Source format:** GGUF `Q8_0`, read directly. Every weight is requantized to **group 64** while it is packed, except the 0.6B lm_head, which packs at **group 32**.
 - **Usable generation window:** 4095 tokens, prompt plus output. Over-capacity requests are rejected with HTTP 400 before any work reaches the device.
-- **Availability:** developer build against corelib 0.29.4 — see [Phi-4 on the rai backend](phi.md).
+- **Availability:** developer build against corelib 0.29.4 — see [Phi-4 on the core backend](phi.md).
 
-The same corelib path also runs `gemma4-it-rai:e2b` and `gemma4-it-rai:e4b` (text only), `qwen3.5-rai:9b` and `qwen3.6-moe-rai:35b-a3b` (text only). Qwen3 stays at 4096; the other three go further.
+The same corelib path also runs `gemma4-it-core:e2b` and `gemma4-it-core:e4b` (text only), `qwen3.5-core:9b` and `qwen3.6-moe-core:35b-a3b` (text only). Qwen3 stays at 4096; the other three go further.
 
 FastFlowLM sends a long prompt to these models in chunks of `max_prefill_len` (4096) tokens that end on multiples of 4096 counted from the start of the conversation, not from the start of the turn. A later turn's prompt therefore starts with at most one chunk inside a 4096-token page, and every chunk after that starts on a page boundary, which is where corelib runs a whole page as one pass.
 
-- **`qwen3.5-rai:9b` — up to 32768 tokens.** The default is 4096; raise it with `--ctx-len` (`-c`). Past 4096 the context is rounded up to whole 4096-token pages. Long contexts have three costs:
+- **`qwen3.5-core:9b` — up to 32768 tokens.** The default is 4096; raise it with `--ctx-len` (`-c`). Past 4096 the context is rounded up to whole 4096-token pages. Long contexts have three costs:
     - **Memory, up front.** The KV cache is allocated when the model is created, at the full capacity: 32 KiB per token (8 attention layers × 4 KV heads × 256 × BF16, for K and V), so 32768 tokens is 1 GiB on top of the weights.
     - **Prompts run at decode speed.** corelib's Qwen3.5 has no batched prefill: every prompt token is one decode step, so a long prompt takes as long as generating that many tokens.
     - **Accuracy past the first page.** Attention past 4096 tokens runs on a paged decode kernel that drifts a little further from the reference with each page it reads (corelib's `PAGED_DECODE_PAGE_DRIFT`). corelib reports Qwen3.5-4B and 9B still recalling a fact from position 0 at 31,983 tokens.
-- **`qwen3.6-moe-rai:35b-a3b` — up to 131072 tokens**, the most corelib has verified on the NPU (the model's own limit is 262144; corelib refuses more). The default is 4096; raise it with `--ctx-len` (`-c`). Long contexts have three costs:
+- **`qwen3.6-moe-core:35b-a3b` — up to 131072 tokens**, the most corelib has verified on the NPU (the model's own limit is 262144; corelib refuses more). The default is 4096; raise it with `--ctx-len` (`-c`). Long contexts have three costs:
     - **Memory, up front.** The KV cache is allocated when the model is created, at the full capacity you ask for (rounded up to whole 4096-token pages), whether or not a conversation ever fills it: about 20 KiB per token (10 attention layers × 2 KV heads × 256 × BF16, for K and V), so 131072 tokens is about 2.5 GiB on top of the weights.
     - **Long prompts run in passes of up to a page.** The first 4096 tokens from position 0 are one pass, and so is each later chunk that starts on a page boundary, padded to the page; past the second page these passes are slightly less accurate (corelib's `PAGED_PREFILL_DEEP_PAGES`, which corelib measured at perplexity 13.17 against 13.18 exact at 12,500 tokens). A chunk starting inside a page runs as passes up to the next page boundary, padded to at least 256 rows where that fits, also on the NPU; only a pass in a page's last 255 positions is padded to 128 rows and runs its attention on the CPU. corelib steps a few short remainders one token at a time instead: a pass of fewer than 5 tokens, a 128-row pass with only a few live tokens, and a pass starting in the last 127 positions of a page.
     - **Checkpoints take host memory.** A checkpoint (what lets a conversation rewind without replaying) copies the KV cache into host memory, in whole 4096-token pages up to the current position: about 80 MiB per filled page, so up to about 2.5 GiB at a full 131072-token context.
-- **`gemma4-it-rai:e2b` / `gemma4-it-rai:e4b` — up to 16384 tokens**, the length corelib has validated paged Gemma 4 to, and never past the GGUF's own `gemma4.context_length`. The default is 16384. Up to 4096 any length works; above 4096 the context must be a multiple of 4096. The KV cache for the whole context is allocated up front, when the model loads.
+- **`gemma4-it-core:e2b` / `gemma4-it-core:e4b` — up to 16384 tokens**, the length corelib has validated paged Gemma 4 to, and never past the GGUF's own `gemma4.context_length`. The default is 16384. Up to 4096 any length works; above 4096 the context must be a multiple of 4096. The KV cache for the whole context is allocated up front, when the model loads.
 
-Qwen3, Qwen3.5, Qwen3.6 and Gemma 4 run as corelib's own models, which pack their weights on every load: there is no packed-weight cache beside the GGUF. A `<gguf name>.rai-weights.bin` / `.json` pair left there by an earlier build is no longer read and can be deleted.
+Qwen3, Qwen3.5, Qwen3.6 and Gemma 4 run as corelib's own models, which pack their weights on every load: there is no packed-weight cache beside the GGUF. A `<gguf name>.core-weights.bin` / `.json` pair left there by an earlier build is no longer read and can be deleted.
 
 ```powershell
-flm pull qwen3-rai:4b
-flm run  qwen3-rai:4b
+flm pull qwen3-core:4b
+flm run  qwen3-core:4b
 ```
 
 ---

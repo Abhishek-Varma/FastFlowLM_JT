@@ -3,17 +3,17 @@
 /// \note One place knows both the family names from model_list.json and the
 ///       engine types behind them. Everything else goes through the registry.
 /// \note Every family registers the flm backend. Only families with a corelib
-///       engine also register a rai backend, and only when this build has one.
+///       engine also register a core backend, and only when this build has one.
 #include "AutoModel/automodel.hpp"
 #include "AutoModel/flm_backend.hpp"
 #include "AutoModel/model_backend.hpp"
 
-#if defined(FLM_ENABLE_RAI)
-#include "models/gemma4/rai/aie_next/gemma4_rai_backend.hpp"
-#include "models/phi4/rai/aie_next/phi4_rai_backend.hpp"
-#include "models/qwen3/rai/aie_next/qwen3_rai_backend.hpp"
-#include "models/qwen35/rai/aie_next/qwen35_rai_backend.hpp"
-#include "models/qwen36/rai/aie_next/qwen36_rai_backend.hpp"
+#if defined(FLM_ENABLE_CORE)
+#include "models/gemma4/core/dev04/gemma4_core_backend.hpp"
+#include "models/phi4/core/dev04/phi4_core_backend.hpp"
+#include "models/qwen3/core/dev04/qwen3_core_backend.hpp"
+#include "models/qwen35/core/dev04/qwen35_core_backend.hpp"
+#include "models/qwen36/core/dev04/qwen36_core_backend.hpp"
 #endif
 
 namespace flm::backend {
@@ -58,22 +58,22 @@ void register_builtin_backends(BackendRegistry& registry) {
     RegisterFlm<nanbeige_npu>(registry, "nanbeige");
     RegisterFlm<phi4_npu>(registry, "phi4");
 
-#if defined(FLM_ENABLE_RAI)
-    registry.register_backend("gemma4e", flm::backend::kRaiBackendId,
-                              flm::gemma4::rai_factory(),
-                              flm::gemma4::rai_traits());
-    registry.register_backend("phi4", flm::backend::kRaiBackendId,
-                              flm::phi4::rai_factory(),
-                              flm::phi4::rai_traits());
-    registry.register_backend("qwen3", flm::backend::kRaiBackendId,
-                              flm::qwen3::rai_factory(),
-                              flm::qwen3::rai_traits());
-    registry.register_backend("qwen3.5", flm::backend::kRaiBackendId,
-                              flm::qwen35::rai_factory(),
-                              flm::qwen35::rai_traits());
-    registry.register_backend("qwen3.6-moe", flm::backend::kRaiBackendId,
-                              flm::qwen36::rai_factory(),
-                              flm::qwen36::rai_traits());
+#if defined(FLM_ENABLE_CORE)
+    registry.register_backend("gemma4e", flm::backend::kCoreBackendId,
+                              flm::gemma4::core_factory(),
+                              flm::gemma4::core_traits());
+    registry.register_backend("phi4", flm::backend::kCoreBackendId,
+                              flm::phi4::core_factory(),
+                              flm::phi4::core_traits());
+    registry.register_backend("qwen3", flm::backend::kCoreBackendId,
+                              flm::qwen3::core_factory(),
+                              flm::qwen3::core_traits());
+    registry.register_backend("qwen3.5", flm::backend::kCoreBackendId,
+                              flm::qwen35::core_factory(),
+                              flm::qwen35::core_traits());
+    registry.register_backend("qwen3.6-moe", flm::backend::kCoreBackendId,
+                              flm::qwen36::core_factory(),
+                              flm::qwen36::core_traits());
 #endif
 }
 

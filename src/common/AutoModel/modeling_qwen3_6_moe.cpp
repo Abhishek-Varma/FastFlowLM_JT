@@ -59,14 +59,14 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
         header_print("WARNING", "No messages or prompt provided");
         return false;
     }
-    if (this->backend_id() == flm::backend::kRaiBackendId) {
+    if (this->backend_id() == flm::backend::kCoreBackendId) {
         bool has_image = !input.images.empty();
         for (const auto& item : input.messages) {
             if (item.contains("images") && !item["images"].empty()) has_image = true;
         }
         if (has_image)
             throw ModelRequestError(400, false,
-                "Qwen3.6 on backend 'rai' runs text only; this request has images");
+                "Qwen3.6 on backend 'core' runs text only; this request has images");
     }
 
     constexpr bool DEBUG_IMAGE_PREPROCESS = false;

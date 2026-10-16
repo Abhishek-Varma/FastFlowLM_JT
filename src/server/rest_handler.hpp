@@ -122,7 +122,7 @@ private:
     std::unique_ptr<Whisper> whisper_engine;
     std::unique_ptr<AutoEmbeddingModel> auto_embedding_engine;
 #endif
-    // Owned by main(); on a rai build this is corelib's device, which must
+    // Owned by main(); on a core build this is corelib's device, which must
     // not be duplicated.
     flm_rt::device* npu_device_inst;
     model_list& supported_models;

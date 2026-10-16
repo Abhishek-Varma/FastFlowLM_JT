@@ -736,10 +736,10 @@
                 "footprint": 3.4
             }
         },
-        "phi4-mini-it-rai": {
+        "phi4-mini-it-core": {
             "4b": {
-                "supported_platforms": ["aie_next"],
-                "name": "phi4-mini-it-rai",
+                "supported_platforms": ["dev04"],
+                "name": "phi4-mini-it-core",
                 "url": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/78eb92a46fc37e6b524df991ed9aca9bc6aa7b80",
                 "file_url": "https://huggingface.co/api/models/unsloth/Phi-4-mini-instruct-GGUF/tree/78eb92a46fc37e6b524df991ed9aca9bc6aa7b80",
                 "size": 4100140571,
@@ -1442,12 +1442,12 @@
                 "footprint": 3.8
             }
         },
-        "gemma4-it-rai":     {
+        "gemma4-it-core":     {
         "e2b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "gemma4-it-rai-e2b",
+            "name": "gemma4-it-core-e2b",
             "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2",
             "file_url": "https://huggingface.co/api/models/unsloth/gemma-4-E2B-it-GGUF/tree/0314792d7f1f7e229411f620751375812bb9faf2",
             "size": 5080530526,
@@ -1487,7 +1487,7 @@
                 }
             },
             "footprint": 5.1,
-            "model_info_key": "gemma4-it-rai:e2b",
+            "model_info_key": "gemma4-it-core:e2b",
             "label": [
                 "reasoning",
                 "tool-calling"
@@ -1496,9 +1496,9 @@
         },
         "e4b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "gemma4-it-rai-e4b",
+            "name": "gemma4-it-core-e4b",
             "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3",
             "file_url": "https://huggingface.co/api/models/unsloth/gemma-4-E4B-it-GGUF/tree/bfc15c382204943c3a8fff0c750b94ae2364d7a3",
             "size": 8225131325,
@@ -1538,7 +1538,7 @@
                 }
             },
             "footprint": 8.2,
-            "model_info_key": "gemma4-it-rai:e4b",
+            "model_info_key": "gemma4-it-core:e4b",
             "label": [
                 "reasoning",
                 "tool-calling"
@@ -1546,10 +1546,10 @@
             "asr": false
         }
     },
-        "qwen3.5-rai":     {
+        "qwen3.5-core":     {
         "9b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
             "name": "Qwen3.5-9B",
             "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5",
@@ -1586,17 +1586,17 @@
                 }
             },
             "footprint": 11.0,
-            "model_info_key": "qwen3.5-rai:9b",
+            "model_info_key": "qwen3.5-core:9b",
             "label": [
                 "reasoning",
                 "tool-calling"
             ]
         }
     },
-        "qwen3.6-moe-rai":     {
+        "qwen3.6-moe-core":     {
         "35b-a3b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
             "name": "Qwen3.6-35B-A3B",
             "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/a483e9e6cbd595906af30beda3187c2663a1118c",
@@ -1638,19 +1638,19 @@
                 }
             },
             "footprint": 36.9,
-            "model_info_key": "qwen3.6-moe-rai:35b-a3b",
+            "model_info_key": "qwen3.6-moe-core:35b-a3b",
             "label": [
                 "reasoning",
                 "tool-calling"
             ]
         }
     },
-        "qwen3-rai":     {
+        "qwen3-core":     {
         "0.6b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "qwen3-0.6b-rai",
+            "name": "qwen3-0.6b-core",
             "url": "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/50968a4468ef4233ed78cd7c3de230dd1d61a56b",
             "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-0.6B-GGUF/tree/50968a4468ef4233ed78cd7c3de230dd1d61a56b",
             "size": 650881322,
@@ -1686,13 +1686,13 @@
                 }
             },
             "footprint": 0.64,
-            "model_info_key": "qwen3-rai:0.6b"
+            "model_info_key": "qwen3-core:0.6b"
         },
         "1.7b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "qwen3-1.7b-rai",
+            "name": "qwen3-1.7b-core",
             "url": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222",
             "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-1.7B-GGUF/tree/d7f544eead698dbd1f15126ef60b45a1e1933222",
             "size": 1845860522,
@@ -1728,13 +1728,13 @@
                 }
             },
             "footprint": 1.83,
-            "model_info_key": "qwen3-rai:1.7b"
+            "model_info_key": "qwen3-core:1.7b"
         },
         "4b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "qwen3-4b-rai",
+            "name": "qwen3-4b-core",
             "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
             "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-4B-GGUF/tree/22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
             "size": 4291839353,
@@ -1770,13 +1770,13 @@
                 }
             },
             "footprint": 4.28,
-            "model_info_key": "qwen3-rai:4b"
+            "model_info_key": "qwen3-core:4b"
         },
         "8b": {
             "supported_platforms": [
-                "aie_next"
+                "dev04"
             ],
-            "name": "qwen3-8b-rai",
+            "name": "qwen3-8b-core",
             "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/a6adef130ffb23ddaf1a62fec9dced968c9bc482",
             "file_url": "https://huggingface.co/api/models/unsloth/Qwen3-8B-GGUF/tree/a6adef130ffb23ddaf1a62fec9dced968c9bc482",
             "size": 8720952748,
@@ -1812,7 +1812,7 @@
                 }
             },
             "footprint": 8.71,
-            "model_info_key": "qwen3-rai:8b"
+            "model_info_key": "qwen3-core:8b"
         }
     }
     }

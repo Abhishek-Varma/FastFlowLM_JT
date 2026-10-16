@@ -31,7 +31,7 @@ class model_list {
         /// \param list_path the path to the model list
         /// \param exe_dir the executable directory for resolving relative paths
         /// \param platform the NPU generation this machine has ("aie2p" or
-        ///        "aie_next"); an entry whose supported_platforms names a
+        ///        "dev04"); an entry whose supported_platforms names a
         ///        different generation is pruned, because these artifacts do
         ///        not run on this silicon
         /// \param backends the kernel flows this build links, as backend ids;
@@ -40,9 +40,9 @@ class model_list {
         ///       run; the backend list says which kernels were linked in. Which
         ///       flow runs an entry is not a third thing to look up: a tag is
         ///       served by exactly one flow and its name says which, so a
-        ///       family ending in "-rai" is ryzenai-corelib's and anything else
+        ///       family ending in "-core" is ryzenai-corelib's and anything else
         ///       is the FastFlowLM kernels'. That is why the two never contend
-        ///       for a tag -- phi4-mini-it and phi4-mini-it-rai are separate
+        ///       for a tag -- phi4-mini-it and phi4-mini-it-core are separate
         ///       entries, with their own artifacts and their own silicon.
         model_list(std::string& list_path, std::string& exe_dir,
                    std::string platform = "aie2p",
@@ -91,7 +91,7 @@ class model_list {
         }
 
         /// \brief the NPU generation this catalog was filtered for
-        /// \return "aie2p" or "aie_next"
+        /// \return "aie2p" or "dev04"
         const std::string& platform() const { return this->platform_; }
 
         /// \brief get the model info
@@ -302,19 +302,19 @@ class model_list {
         }
 
         /// \brief the kernel flow that runs a tag, read off the tag itself
-        /// \param model_type the family part of the tag, e.g. "phi4-mini-it-rai"
-        /// \return "rai" for a family ending in "-rai", "flm" otherwise
+        /// \param model_type the family part of the tag, e.g. "phi4-mini-it-core"
+        /// \return "core" for a family ending in "-core", "flm" otherwise
         /// \note The name is the mechanism, not a label on top of one. A
         ///       corelib model is packaged differently from its FastFlowLM
         ///       namesake -- different weights, different quantization -- so it
         ///       is a different model to pull and a different tag to ask for,
         ///       and there is nothing left for a catalog key to disambiguate.
         static std::string backend_for_family(const std::string& model_type) {
-            static const std::string suffix = "-rai";
+            static const std::string suffix = "-core";
             if (model_type.size() > suffix.size() &&
                 model_type.compare(model_type.size() - suffix.size(),
                                    suffix.size(), suffix) == 0) {
-                return "rai";
+                return "core";
             }
             return "flm";
         }

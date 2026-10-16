@@ -3850,7 +3850,7 @@
             "path": "tokenizer_config.json"
         }
     ],
-    "phi4-mini-it-rai:4b": [
+    "phi4-mini-it-core:4b": [
         {
             "type": "file",
             "path": "Phi-4-mini-instruct.Q8_0.gguf",
@@ -3877,7 +3877,7 @@
         }
     ]
 ,
-    "qwen3-rai:0.6b":     [
+    "qwen3-core:0.6b":     [
         {
             "type": "file",
             "path": "Qwen3-0.6B-Q8_0.gguf",
@@ -3903,7 +3903,7 @@
             "sha256": "8a5ec72f5c96766168a4024f88d70841ae341900a0c84fd4fd23f8eeae16c6a7"
         }
     ],
-    "qwen3-rai:1.7b":     [
+    "qwen3-core:1.7b":     [
         {
             "type": "file",
             "path": "Qwen3-1.7B-Q8_0.gguf",
@@ -3929,7 +3929,7 @@
             "sha256": "9c57c7059482fc07da4ba6fc344ea65f303a9467b4094ff1942a1243c4228699"
         }
     ],
-    "qwen3-rai:4b":     [
+    "qwen3-core:4b":     [
         {
             "type": "file",
             "path": "Qwen3-4B-Q8_0.gguf",
@@ -3955,7 +3955,7 @@
             "sha256": "d273f02569c3b1ee10ca61bea97339d3ad790003c81b65bfd57dfd59f49ef420"
         }
     ],
-    "qwen3-rai:8b":     [
+    "qwen3-core:8b":     [
         {
             "type": "file",
             "path": "Qwen3-8B-Q8_0.gguf",
@@ -3981,7 +3981,7 @@
             "sha256": "3df0849d23c68f1176d00adc25beb915ade1e6127f8192baaa28f96018a63369"
         }
     ],
-    "gemma4-it-rai:e2b":     [
+    "gemma4-it-core:e2b":     [
         {
             "type": "file",
             "path": "gemma-4-E2B-it-Q8_0.gguf",
@@ -4013,7 +4013,7 @@
             "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5"
         }
     ],
-    "gemma4-it-rai:e4b":     [
+    "gemma4-it-core:e4b":     [
         {
             "type": "file",
             "path": "gemma-4-E4B-it-Q8_0.gguf",
@@ -4045,7 +4045,7 @@
             "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5"
         }
     ],
-    "qwen3.5-rai:9b":     [
+    "qwen3.5-core:9b":     [
         {
             "type": "file",
             "path": "Qwen3.5-9B-Q8_0.gguf",
@@ -4071,7 +4071,7 @@
             "sha256": "d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05"
         }
     ],
-    "qwen3.6-moe-rai:35b-a3b": [
+    "qwen3.6-moe-core:35b-a3b": [
         {
             "type": "file",
             "path": "Qwen3.6-35B-A3B-Q8_0.gguf",
