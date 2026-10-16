@@ -36,11 +36,21 @@ if(CMAKE_C_COMPILER)
     list(APPEND _flm_ljt_args -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER})
 endif()
 
+# Short working directories: the default <name>-prefix/src/<name>-build layout
+# plus CMake's try-compile and MSBuild's .tlog paths exceeds Windows' 260-char
+# MAX_PATH on CI runners with deep work directories.
+set(_flm_ljt_work ${CMAKE_BINARY_DIR}/ljt)
 ExternalProject_Add(flm_libjpeg_turbo
     URL https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${FLM_LIBJPEG_TURBO_VERSION}/libjpeg-turbo-${FLM_LIBJPEG_TURBO_VERSION}.tar.gz
     URL_HASH SHA256=6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     EXCLUDE_FROM_ALL TRUE
+    PREFIX ${_flm_ljt_work}
+    DOWNLOAD_DIR ${_flm_ljt_work}/dl
+    SOURCE_DIR ${_flm_ljt_work}/s
+    BINARY_DIR ${_flm_ljt_work}/b
+    STAMP_DIR ${_flm_ljt_work}/st
+    TMP_DIR ${_flm_ljt_work}/t
     INSTALL_DIR ${_flm_ljt_prefix}
     CMAKE_ARGS ${_flm_ljt_args}
     BUILD_BYPRODUCTS ${_flm_ljt_lib})
