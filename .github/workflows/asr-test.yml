@@ -1,0 +1,258 @@
+name: ASR Test
+
+# Checks Whisper transcription on real NPU hardware whenever ASR code changes.
+# Nothing is rebuilt here: like the model sweep, this tests the portable builds
+# that "Build Linux Portable" produces for the same commit, default and HRX
+# alike. Linux only for now. .github/script/asr_test.py holds the checks.
+#
+# The trigger paths are the Whisper engine and its prebuilt NPU libraries, the
+# audio front end and FFT it runs on, and the two server files that host
+# /v1/audio/transcriptions. Those server files also hold every other endpoint,
+# so any change to them runs this test too; it costs a few minutes of one NPU
+# machine. The pull_request and push path lists must stay identical.
+#
+# A manual dispatch tests the dispatched ref's commit, so start "Build Linux
+# Portable" on that ref first.
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/common/whisper/**'
+      - 'src/include/whisper/**'
+      - 'src/lib/xrt/*whisper_npu*'
+      - 'src/lib/hrx/*whisper_npu*'
+      - 'src/common/audio_process_utils/**'
+      - 'src/include/audio_process_utils/**'
+      - 'src/include/fftw3.h'
+      - 'src/include/pocketfft/**'
+      - 'src/server/rest_handler.cpp'
+      - 'src/server/server.cpp'
+      - 'src/test/whisper_npu/**'
+      - '.github/script/asr_test.py'
+      - '.github/script/sweep_common.py'
+      - '.github/script/assets/test_audio*'
+      - '.github/workflows/asr-test.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/common/whisper/**'
+      - 'src/include/whisper/**'
+      - 'src/lib/xrt/*whisper_npu*'
+      - 'src/lib/hrx/*whisper_npu*'
+      - 'src/common/audio_process_utils/**'
+      - 'src/include/audio_process_utils/**'
+      - 'src/include/fftw3.h'
+      - 'src/include/pocketfft/**'
+      - 'src/server/rest_handler.cpp'
+      - 'src/server/server.cpp'
+      - 'src/test/whisper_npu/**'
+      - '.github/script/asr_test.py'
+      - '.github/script/sweep_common.py'
+      - '.github/script/assets/test_audio*'
+      - '.github/workflows/asr-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Needed to list and download artifacts from the build workflow runs.
+  actions: read
+
+# Only the newest commit on a ref is worth an NPU machine.
+concurrency:
+  group: asr-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Waits on a hosted runner for this commit's build run, the same way the
+  # model sweep's resolve-build does, and pins it to a run id so a stale
+  # artifact from an earlier push can never be tested. Outputs a JSON list of
+  # builds, which the test job expands into its matrix.
+  resolve-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      linux_run_id: ${{ steps.resolve.outputs.linux_run_id }}
+      linux_builds: ${{ steps.resolve.outputs.linux_builds }}
+
+    steps:
+      - name: Wait for this commit's portable build
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A pull_request run records the PR head commit in head_sha, while
+          # github.sha is the synthetic merge commit. Try both. On a push or a
+          # dispatch only the second is set.
+          CANDIDATE_SHAS: ${{ github.event.pull_request.head.sha }} ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          POLL_SECONDS=20
+          APPEAR_DEADLINE=$(( SECONDS + 10 * 60 ))
+          FINISH_DEADLINE=$(( SECONDS + 80 * 60 ))
+          linux_builds='[]'
+
+          # Newest run for whichever candidate SHA matches, or empty.
+          find_run() {
+            local workflow="$1" sha run_id
+            for sha in ${CANDIDATE_SHAS}; do
+              run_id=$(gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100" \
+                --jq 'if (.workflow_runs | length) == 0 then "" else (.workflow_runs | sort_by(.run_number) | last | .id) end')
+              if [ -n "${run_id}" ]; then
+                printf '%s' "${run_id}"
+                return 0
+              fi
+            done
+          }
+
+          # Appends {artifact, platform} to the named list when the run
+          # published an artifact matching the pattern. An artifact exists only
+          # if its build job got all the way through, so a failed HRX build
+          # drops just the HRX test.
+          add_build() {
+            local list="$1" artifacts="$2" pattern="$3" platform="$4" name
+            name=$(printf '%s\n' "${artifacts}" | grep -E "${pattern}" | head -n 1 || true)
+            if [ -z "${name}" ]; then
+              echo "::warning::No ${platform} portable artifact was published; skipping that test."
+              return 0
+            fi
+            echo "  ${platform}: ${name}"
+            printf -v "${list}" '%s' "$(jq -c --arg a "${name}" --arg p "${platform}" \
+              '. + [{artifact: $a, platform: $p}]' <<< "${!list}")"
+          }
+
+          wait_for_build() {
+            local workflow="$1" platform="$2" default_pattern="$3" hrx_pattern="$4"
+            local run_id="" status artifacts
+
+            while :; do
+              run_id=$(find_run "${workflow}")
+              [ -n "${run_id}" ] && break
+              if [ "${SECONDS}" -ge "${APPEAR_DEADLINE}" ]; then
+                echo "::warning::No ${workflow} run appeared for this commit; skipping ${platform}."
+                return 1
+              fi
+              echo "Waiting for a ${workflow} run to appear..."
+              sleep "${POLL_SECONDS}"
+            done
+
+            while :; do
+              status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')
+              [ "${status}" = "completed" ] && break
+              if [ "${SECONDS}" -ge "${FINISH_DEADLINE}" ]; then
+                echo "::warning::${workflow} run ${run_id} is still ${status}; skipping ${platform}."
+                return 1
+              fi
+              echo "${workflow} run ${run_id} is ${status}; checking again in ${POLL_SECONDS}s."
+              sleep "${POLL_SECONDS}"
+            done
+
+            artifacts=$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.expired | not) | .name')
+            echo "${workflow} run ${run_id} published:"
+            printf '%s\n' "${artifacts}" | sed 's/^/  /'
+            echo "${platform}_run_id=${run_id}" >> "$GITHUB_OUTPUT"
+
+            # Fully anchored, so neither pattern matches the other's artifact
+            # or the models-from-source one.
+            add_build "${platform}_builds" "${artifacts}" "${default_pattern}" "${platform}"
+            add_build "${platform}_builds" "${artifacts}" "${hrx_pattern}" "${platform}-hrx"
+          }
+
+          wait_for_build debian-portable.yml linux \
+            '^portable$' '^HRX-portable$' || true
+          echo "linux_builds=${linux_builds}" >> "$GITHUB_OUTPUT"
+
+          # One missing build is a warning above; nothing at all to test would
+          # otherwise leave a green check that tested nothing.
+          if [ "${linux_builds}" = "[]" ]; then
+            echo "::error::No portable build was found for this commit, so nothing was tested."
+            exit 1
+          fi
+
+  asr-linux:
+    name: asr (${{ matrix.build.platform }})
+    needs: resolve-build
+    if: needs.resolve-build.outputs.linux_builds != '[]'
+    runs-on: [self-hosted, linux, x64, npu, sweep]
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJSON(needs.resolve-build.outputs.linux_builds) }}
+
+    env:
+      # Weights are expected at $FLM_MODEL_PATH/models/<ModelName>
+      FLM_MODEL_PATH: /scratch
+
+    steps:
+      # Only the scripts and their test assets; this job compiles nothing.
+      - name: Checkout test scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          filter: blob:none
+
+      - name: Download ${{ matrix.build.platform }} portable build
+        uses: dawidd6/action-download-artifact@v25
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ needs.resolve-build.outputs.linux_run_id }}
+          name: ${{ matrix.build.artifact }}
+          path: build-artifact
+          if_no_artifact_found: fail
+
+      - name: Unpack portable build
+        run: |
+          set -euo pipefail
+          mkdir -p flm-linux
+          tarball=$(ls build-artifact/*_linux.tar.gz)
+          echo "Using tarball: ${tarball}"
+          tar xzf "${tarball}" -C flm-linux
+          chmod +x flm-linux/flm flm-linux/flm-real
+          echo "FLM_BIN=${GITHUB_WORKSPACE}/flm-linux/flm" >> "$GITHUB_ENV"
+          "${GITHUB_WORKSPACE}/flm-linux/flm" version
+
+      # A no-op once the weights are on the runner.
+      - name: Pull Whisper
+        run: |
+          set -euo pipefail
+          "${FLM_BIN}" pull whisper-v3:turbo
+
+      - name: Set up Python virtualenv
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          for attempt in 1 2 3; do
+            .venv/bin/python -m pip install --no-cache-dir openai && break
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+          done
+
+      # Add --require-verbose-json once main supports response_format=
+      # verbose_json. Until then a build without it is reported as skipped.
+      - name: Run ASR test
+        run: |
+          set -euo pipefail
+          .venv/bin/python .github/script/asr_test.py \
+            --flm-bin "${FLM_BIN}" \
+            --platform "${{ matrix.build.platform }}" \
+            --output-dir asr-results
+
+      - name: Write job summary
+        if: always()
+        run: cat asr-results/*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asr-test-${{ matrix.build.platform }}-${{ github.run_number }}
+          path: asr-results/
+          if-no-files-found: warn
+          retention-days: 30
