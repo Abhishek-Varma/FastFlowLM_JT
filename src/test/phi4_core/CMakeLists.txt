@@ -89,56 +89,6 @@ target_include_directories(test_real_corelib PRIVATE
     "${RYZENAI_CORELIB_INCLUDE_DIR}")
 target_compile_definitions(test_real_corelib PRIVATE RYZENAI_CORELIB_STATIC=1)
 
-add_executable(test_phi4_gguf
-    test_phi4_gguf.cpp fake_corelib.cpp
-    "${FLM_SOURCE_DIR}/common/core/corelib_api.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_gguf.cpp")
-target_include_directories(test_phi4_gguf PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${FLM_SOURCE_DIR}/include"
-    "${RYZENAI_CORELIB_INCLUDE_DIR}")
-target_compile_definitions(test_phi4_gguf PRIVATE RYZENAI_CORELIB_STATIC=1)
-
-add_executable(test_phi4_host
-    test_phi4_host.cpp
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_host.cpp")
-target_include_directories(test_phi4_host PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${FLM_SOURCE_DIR}/include")
-
-add_executable(test_phi4_shape_plan
-    test_phi4_shape_plan.cpp fake_corelib.cpp
-    "${FLM_SOURCE_DIR}/common/core/corelib_api.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_shape_plan.cpp")
-target_include_directories(test_phi4_shape_plan PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${FLM_SOURCE_DIR}/include"
-    "${RYZENAI_CORELIB_INCLUDE_DIR}")
-target_compile_definitions(test_phi4_shape_plan PRIVATE RYZENAI_CORELIB_STATIC=1)
-
-add_executable(test_phi4_engine
-    test_phi4_engine.cpp fake_corelib.cpp
-    "${FLM_SOURCE_DIR}/common/core/corelib_api.cpp"
-    "${FLM_SOURCE_DIR}/common/core/corelib_runtime.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_gguf.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_host.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_shape_plan.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core.cpp"
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_weight_cache.cpp")
-target_include_directories(test_phi4_engine PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}"
-    "${FLM_SOURCE_DIR}/include"
-    "${RYZENAI_CORELIB_INCLUDE_DIR}"
-    "${BOOST_INCLUDE_DIR}"
-    "${XRT_INCLUDE_DIR}")
-target_compile_definitions(test_phi4_engine PRIVATE
-    RYZENAI_CORELIB_STATIC=1 USEAVX2=1 DISABLE_ABI_CHECK=1
-    _ENABLE_EXTENDED_ALIGNED_STORAGE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_compile_options(test_phi4_engine PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/wd4005 /wd4244>)
-target_link_directories(test_phi4_engine PRIVATE "${XRT_INCLUDE_DIR}/../lib")
-target_link_libraries(test_phi4_engine PRIVATE xrt_coreutil)
-
 # The backend registry is part of the frontend now; builtin_backends.cpp is not,
 # because it names every prebuilt engine library. test_phi4_frontend.cpp supplies
 # its own empty register_builtin_backends and registers stubs instead.
@@ -150,8 +100,7 @@ set(PHI4_FRONTEND_SOURCES
 add_executable(test_phi4_frontend
     test_phi4_frontend.cpp fake_corelib.cpp
     ${PHI4_FRONTEND_SOURCES}
-    ${CORELIB_SOURCES}
-    "${FLM_SOURCE_DIR}/common/models/phi4/core/dev04/phi4_core_gguf.cpp")
+    ${CORELIB_SOURCES})
 target_include_directories(test_phi4_frontend PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}"
     "${FLM_SOURCE_DIR}/include"
@@ -275,10 +224,6 @@ add_frontend_compile_guard(phi4_frontend_compile_on TRUE)
 include(CTest)
 add_test(NAME test_corelib_api COMMAND test_corelib_api)
 add_test(NAME test_real_corelib COMMAND test_real_corelib)
-add_test(NAME test_phi4_gguf COMMAND test_phi4_gguf)
-add_test(NAME test_phi4_host COMMAND test_phi4_host)
-add_test(NAME test_phi4_shape_plan COMMAND test_phi4_shape_plan)
-add_test(NAME test_phi4_engine COMMAND test_phi4_engine)
 add_test(NAME test_phi4_frontend COMMAND test_phi4_frontend)
 add_test(NAME test_phi4_frontend_off COMMAND test_phi4_frontend_off)
 add_test(NAME test_model_downloader COMMAND test_model_downloader)

@@ -373,7 +373,7 @@ struct TypedFake<Tag, Result (*)(Args...)> {
                              std::is_same_v<Tag, flat_mha_enum_kernels_tag>) {
             // corelib 0.9 reports shipped kernels instead of padding a shape.
             // A negative M is the test double for "every requested M ships
-            // exactly" (see kernel_grid.hpp). Argument 1 is the callback,
+            // exactly". Argument 1 is the callback,
             // argument 2 is its context, for all three of these entry points.
             const auto status = Status(Tag::name);
             if (status == ryzenai_corelib_status_success && !state.pad_row_overrides.empty()) {

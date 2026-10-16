@@ -523,6 +523,8 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
 
     }
     if (this->is_eos(last_sampled_token)){
+        // Sampled from the prefill, so no engine has run it.
+        this->token_history.pop_back();
         meta_info.stop_reason = reason;
         return result;
     }
@@ -582,6 +584,9 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
             if (this->forward_on_eos &&
                 (!this->backend_ || this->backend_->forwards_past_eos())) {
                 this->lm_engine->forward(last_sampled_token);
+            } else {
+                // The engine never ran it, so the next prompt has to carry it.
+                this->token_history.pop_back();
             }
             break;
         }

@@ -6,11 +6,14 @@ to reach for:
 
 - **corelib runs the model whole** (it ships `ryzenai_corelib_model_<name>`):
   write one `BackendSpec` (its `.model` is the `ModelSpec`) and hand it to
-  `flm::core::Factory` — see §2a. Qwen3, Qwen3.5, Qwen3.6 and Gemma 4 are built
-  this way, each in one short
+  `flm::core::Factory` — see §2a. Every core model in the tree — Qwen3, Qwen3.5,
+  Qwen3.6, Gemma 4 and Phi-4 — is built this way, each in one short
   `<model>_core_backend.cpp`.
-- **corelib has only the ops**: write the engine yourself, op by op, as
-  Phi-4 does — the rest of this document, from §2 on, walks through it.
+- **corelib has only the ops**: write the engine yourself, op by op — the rest
+  of this document, from §2 on, walks through it. No model in the tree does
+  this any more; the last one, Phi-4's, is under
+  `src/common/models/phi4/core/dev04/` in the history before Phi-4 moved to
+  corelib's `phi4mini` model, and the files §2–§4 name are its.
 
 A backend names *where the kernels come from*: `flm` is FastFlowLM's own kernel
 flow, `core` is corelib. That is a separate axis from which silicon the host has,
@@ -42,8 +45,8 @@ This is a contributor document. For *using* a backend once it exists — `--back
 |---|---|
 | **Platform** | Windows and Linux. Both configure and build; only Windows has been run on hardware, and the `src/test/phi4_core` suite is still Windows-only. |
 | **Hardware** | An dev04 NPU. There is no simulator; a wrong shape shows up as garbage output, not an error. |
-| **corelib headers** | The corelib ABI is still pre-1.0, so FastFlowLM requires an **exact `0.29.7`** match on major, minor and patch. [`corelib_api.hpp`](../../include/core/corelib_api.hpp) `#error`s on any other version — deliberately, because the C ABI has changed shape between patch releases. The version is queried before any other entry point, so a mismatched runtime reports a version error rather than a missing symbol. corelib's default build gives one `ryzenai_corelib_model_<name>` library per model, carrying its kernels, which must sit beside corelib. A per-op engine (Phi-4) enables its model's kernel bundle on the stream it opens; a model corelib runs whole enables its own. |
-| **Weights** | A GGUF the vendor kernels can requantize. Phi-4 uses Q8_0; each weight is a `*_weights_create` call whose qweight source states `gguf_q8_0`. |
+| **corelib headers** | The corelib ABI is still pre-1.0, so FastFlowLM requires an **exact `0.29.7`** match on major, minor and patch. [`corelib_api.hpp`](../../include/core/corelib_api.hpp) `#error`s on any other version — deliberately, because the C ABI has changed shape between patch releases. The version is queried before any other entry point, so a mismatched runtime reports a version error rather than a missing symbol. corelib's default build gives one `ryzenai_corelib_model_<name>` library per model, carrying its kernels, which must sit beside corelib. A per-op engine enables its model's kernel bundle on the stream it opens; a model corelib runs whole enables its own. |
+| **Weights** | A GGUF corelib's model reads: a Q8_0 one, which it requantizes on every load, or a Q4_G128 or Q4_G32 one, whose codes it packs as they are. The catalog names which; see `preferred_source` in §6. |
 
 Configure with:
 
@@ -143,7 +146,7 @@ a second generation grows a sibling folder instead of a conditional.
 FastFlowLM's own engines have no *sources* here — they ship as prebuilt libraries
 under `lib/<runtime>/` — but their headers follow the same three levels. Headers
 mirror the source split, so an `#include` says which provider and which silicon
-it belongs to (`models/phi4/core/dev04/phi4_core_gguf.hpp` against
+it belongs to (`models/phi4/core/dev04/phi4_core_backend.hpp` against
 `models/phi4/flm/aie2p/phi4_npu.hpp`), and a grep for `models/<model>/core/` finds
 everything the core path pulls in.
 
@@ -151,12 +154,13 @@ everything the core path pulls in.
 globs `*/core/*/*.cpp` — every platform under every family's core folder — and that
 glob is what `flm_core` compiles. Creating the folder is the whole registration step.
 
-Phi-4's core side is six translation units, and the split is worth copying:
+A per-op engine is six translation units, as Phi-4's was, and the split is worth
+copying:
 
 | file | what belongs in it |
 |---|---|
 | `<model>_core_gguf.cpp` | Open and validate the GGUF. Tensor lookup by name, shape checks, metadata, and the cross-validation against `config.json` / `tokenizer.json` / `tokenizer_config.json`. **No device code.** |
-| `<model>_core_shape_plan.cpp` | Ask corelib which kernels it ships (`*_enum_kernels`), pick the smallest one covering each live row count ([`kernel_grid.hpp`](../../include/core/kernel_grid.hpp) `CoveringRows`), and cache one row-extent record per row count. Built once per engine. |
+| `<model>_core_shape_plan.cpp` | Ask corelib which kernels it ships (`*_enum_kernels`), pick the smallest one covering each live row count (`CoveringRows`, in `core/kernel_grid.hpp` at `f827ca9a`), and cache one row-extent record per row count. Built once per engine. |
 | `<model>_core_weight_cache.cpp` | The on-disk cache of packed weights: write after a fresh pack, reload as one `role_packed` source per weight. |
 | `<model>_core_host.cpp` | The math corelib does not do: Q8 embedding-row decode, RMS norm, f32→bf16, RoPE tables. Plain CPU, unit-testable, no corelib types in the signatures. |
 | `<model>_core.cpp` | The `causal_lm` subclass. Owns the device tensors, the stream and the decode loop. |
@@ -169,8 +173,7 @@ without hardware.
 
 ## 3. The engine: a `causal_lm` subclass
 
-Model it on [`phi4_core.hpp`](../../include/models/phi4/core/dev04/phi4_core.hpp).
-Two rules matter more than the rest.
+Model it on `phi4_core.hpp` at `f827ca9a`. Two rules matter more than the rest.
 
 ### `causal_lm.hpp` is a frozen ABI
 
@@ -215,8 +218,7 @@ engine type, never through a `causal_lm*`.
   (`kWeightCreateConcurrency`). The per-create thread hint
   (`kRequantizeThreads`) goes to corelib as `fast_packer_threads`: 0 lets corelib
   choose (8 threads), 1 keeps each create serial. The two multiply,
-  so pick them together. See
-  [`phi4_core_constants.hpp`](../../include/models/phi4/core/dev04/phi4_core_constants.hpp).
+  so pick them together. See `phi4_core_constants.hpp` at `f827ca9a`.
 - Expose `bool poisoned() const noexcept`. A corelib failure mid-decode usually
   leaves device state that only a reload can clear; the backend surfaces this and
   `AutoModel` turns it into a 500 that asks for an unload/reload.
@@ -229,8 +231,10 @@ engine type, never through a `causal_lm*`.
 
 [`ModelBackend`](../../include/AutoModel/model_backend.hpp) owns one engine **and
 every rule for driving it**. Its defaults describe the FastFlowLM NPU engines, so
-you override only what differs. Phi-4's corelib backend
-([`phi4_core_backend.cpp`](phi4/core/dev04/phi4_core_backend.cpp)) overrides six:
+you override only what differs. A per-op backend overrides six, the values
+here being the per-op Phi-4 one's (the shared backend in
+[`corelib_model_backend.cpp`](../core/corelib_model_backend.cpp) states the same
+ones from its spec):
 
 | override | corelib value | why |
 |---|---|---|
@@ -239,7 +243,7 @@ you override only what differs. Phi-4's corelib backend
 | `max_decode_length()` | `4095` | corelib's own decode window |
 | `supports_preemption()` | `false` | no checkpoint/restore on this path |
 | `forwards_past_eos()` | `false` | the extra post-EOS `forward()` the FLM engines want would exceed the window |
-| `forced_eos_ids()` | `{200020, 199999}` | proven by three sources agreeing in `ValidatePhi4Contract`, which beats `tokenizer_config.json` alone |
+| `forced_eos_ids()` | `{200020, 199999}` | `<\|end\|>` and `<\|endoftext\|>`: `tokenizer_config.json` names only the second |
 
 `poisoned()` forwards to the engine.
 
@@ -395,21 +399,23 @@ and `sha256`. The downloader refuses anything it cannot match
 
 Three tiers, and the first two do not need an NPU:
 
-- **Pure logic** — the GGUF and host layers. Shape rejection, metadata parsing,
-  contract cross-validation, RMS norm and RoPE against reference values.
+- **Pure logic** — for a per-op engine, the GGUF and host layers. Shape
+  rejection, metadata parsing, contract cross-validation, RMS norm and RoPE
+  against reference values. A spec has none: [`test/core_model/`](../../test/core_model/)
+  runs it against the fake corelib, as `test_phi4_core_backend.cpp` does Phi-4's.
 - **Frontend against a stub backend** — see
   [`test/phi4_core/test_phi4_frontend.cpp`](../../test/phi4_core/test_phi4_frontend.cpp).
   It defines its own empty `flm::backend::register_builtin_backends` (so it never
   links the prebuilt engine libraries) and installs stubs with
   `BackendRegistry::replace_backend`. The stub repeats the real backend's
-  pre-device work verbatim, which keeps the "nothing is opened before validation"
+  pre-device work, which keeps the "nothing is opened before validation"
   and "no device is created for a bad package" assertions meaningful.
 - **Registry and selection** — [`test/model_backend/`](../../test/model_backend/),
   Linux-buildable: registration, duplicate ids, resolution precedence, and the
   error text for an id this build does not have.
 
-Add a `test/<model>_core/` directory following the Phi-4 one. Note the
-trick it uses at configure time: it synthesizes a version-bumped copy of
+A per-op engine adds a `test/<model>_core/` directory following the Phi-4 one.
+Note the trick that one uses at configure time: it synthesizes a version-bumped copy of
 `ryzenai/corelib.h` and asserts the adapter **fails** to compile against it, which
 is how the version pin is actually enforced.
 

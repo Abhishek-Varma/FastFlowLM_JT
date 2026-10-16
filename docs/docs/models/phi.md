@@ -28,21 +28,24 @@ flm run phi4-mini-it:4b
 
 - **Tag:** `phi4-mini-it-core:4b` — its own tag, beside `phi4-mini-it:4b`, which stays the NPU2/Q4NX build. They are two entries in the one catalog, `model_list.json`, describing two different packages, and nothing about one is a patch on the other. Two things decide whether an install offers this one, and **the first is the machine**: `supported_platforms` says `dev04` here and `aie2p` there, checked against the generation FastFlowLM reads from the device, so on shipping silicon this tag is not listed even by a build that has corelib compiled in. Only then does the second apply — whether corelib's kernels were linked at all, which the `-core` suffix on the family name is what asks for. `utils::get_device()` is still a stand-in and currently answers `dev04` for every build, so a corelib developer build offers this tag and not the NPU2 one; a build without corelib on the same setting offers no models at all, and says so.
 - **Backend:** `core` — the backend names the kernel provider; FastFlowLM reaches these kernels through AMD's `ryzenai_corelib`
-- **Source format:** GGUF, read directly. No ONNX model, no tensor manifest, and no converted or packed weight file is produced or shipped.
-- **Quantization:** GGML `Q8_0` in the file, requantized to **group 64** while the weights are packed for the device, through corelib's explicit `*_create_gguf_requantized` entry points. This is a **lossy** second quantization step and it is not reversible; output will differ from the Q8_0 source.
+- **Source format:** GGUF, read directly by corelib's own `phi4mini` model, the way Qwen3, Qwen3.5, Qwen3.6 and Gemma 4 run. No ONNX model, no tensor manifest, and no converted or packed weight file is produced or shipped.
+- **Quantization:** whichever GGUF `flm pull` fetched. AMD's **`Q4_G128`** file, from Phi-4-mini's ONNX export, is packed exactly as it is, apart from its FP16 scales narrowing to BF16. The fallback, unsloth's **`Q8_0`**, is requantized to **group 64** on every load, which is a **lossy** second quantization step, so its output differs from the Q8_0 source.
 - **Usable generation window:** 4095 tokens — the rendered prompt plus the requested output together, so the largest admissible prompt is 4094. An over-capacity request is rejected with HTTP 400 *before* any work is submitted to the device. Note this is far below the model's 128k context; see below for why.
 - **Availability:** Windows and Linux, and this is a **developer build**. The core runtime is not packaged by the MSI, Inno or snap installer; you build against corelib yourself.
 
-On core this tag pulls from two pinned repositories, because the GGUF publisher does not ship the tokenizer files FastFlowLM's tokenizer frontend consumes:
+On core this tag pulls from pinned repositories, because the GGUF publishers do not ship the tokenizer files FastFlowLM's tokenizer frontend consumes. The GGUF comes from AMD's repository when `flm pull` can reach it: it is private for now, so that takes a Hugging Face token with access to it (`HF_TOKEN`, or `hf auth login`). Otherwise the pull falls back to unsloth's:
 
 | File | Repository | Revision |
 |---|---|---|
-| `Phi-4-mini-instruct.Q8_0.gguf` | [`unsloth/Phi-4-mini-instruct-GGUF`](https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF) | `78eb92a46fc37e6b524df991ed9aca9bc6aa7b80` |
+| `Phi-4-mini-instruct-Q4_G128.gguf` | [`amd/Phi-4-mini-instruct-Q4_G128-GGUF`](https://huggingface.co/amd/Phi-4-mini-instruct-Q4_G128-GGUF) | `812448440ca39fa1a18e1f0f874c18dfdc5be075` |
+| `Phi-4-mini-instruct.Q8_0.gguf` (fallback) | [`unsloth/Phi-4-mini-instruct-GGUF`](https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF) | `78eb92a46fc37e6b524df991ed9aca9bc6aa7b80` |
 | `tokenizer.json` | [`microsoft/Phi-4-mini-instruct`](https://huggingface.co/microsoft/Phi-4-mini-instruct) | `cfbefacb99257ffa30c83adab238a50856ac3083` |
 | `tokenizer_config.json` | [`microsoft/Phi-4-mini-instruct`](https://huggingface.co/microsoft/Phi-4-mini-instruct) | `cfbefacb99257ffa30c83adab238a50856ac3083` |
 | `config.json` | [`microsoft/Phi-4-mini-instruct`](https://huggingface.co/microsoft/Phi-4-mini-instruct) | `cfbefacb99257ffa30c83adab238a50856ac3083` |
 
-All four are SHA-256 verified before the download is promoted, and the pulled directory contains exactly these four files.
+Each file is SHA-256 verified before the download is promoted, and a pulled directory holds one GGUF and the three tokenizer and config files.
+
+corelib packs the weights on every load: there is no packed-weight cache beside the GGUF. A `phi4-core-weights.bin` / `.json` pair left there by an earlier build is no longer read and can be deleted.
 
 ### Building
 
@@ -85,9 +88,9 @@ flm run  phi4-mini-it-core:4b
 
 Phi-4-mini itself supports 128k, and the existing `phi4-mini-it:4b` tag defaults to 32k. This backend gives you 4095. That is a real functional regression and it has two separate causes, which are worth keeping apart.
 
-**The 4096 ceiling is a correctness boundary, not a buffer size.** 4096 is exactly Phi-4-mini's `rope.scaling.original_context_length`. LongRoPE selects its factors by *sequence length*, not per position: at or below the original length the short factors apply, above it the long ones do. This implementation derives only the short branch, so 4096 is the point past which the rope tables would silently be wrong. It is enforced rather than assumed — loading fails with `invalid Phi-4 RoPE metadata` unless the GGUF reports `rope.scaling.original_context_length` of exactly 4096. Raising this ceiling means deriving the long factors, not enlarging an array.
+**The 4096 ceiling is a correctness boundary, not a buffer size.** 4096 is exactly Phi-4-mini's `rope.scaling.original_context_length`. LongRoPE selects its factors by *sequence length*, not per position: at or below the original length the short factors apply, above it the long ones do. corelib's `phi4mini` reads only the short factors, so 4096 is the point past which the rope tables would silently be wrong. It is enforced rather than assumed — corelib refuses a GGUF whose `phi3.rope.scaling.original_context_length` is not exactly 4096. Raising this ceiling means deriving the long factors, not enlarging an array.
 
-**The extra −1 is this frontend's own conservatism.** `kMaxDecodeWindow` is 4095, one below the attention window, so that any request the server admits is guaranteed to have room to finish rather than failing partway. It costs exactly one token and it is not imposed by corelib.
+**The extra −1 is the core backend's.** It decodes at most one token fewer than its context, so that any request the server admits has room to finish rather than failing partway. It costs exactly one token.
 
 ### No fallback
 

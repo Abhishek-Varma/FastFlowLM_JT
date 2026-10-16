@@ -1,5 +1,4 @@
 #include "test_support.hpp"
-#include "gguf_fixture.hpp"
 #if defined(FLM_ENABLE_CORE)
 #include "fake_corelib.hpp"
 #endif
@@ -10,7 +9,6 @@
 #if defined(FLM_ENABLE_CORE)
 #include <core/corelib_runtime.hpp>
 #include <models/phi4/core/dev04/phi4_core_backend.hpp>
-#include <models/phi4/core/dev04/phi4_core_gguf.hpp>
 #endif
 #include "server.hpp"
 
@@ -39,6 +37,8 @@ void register_builtin_backends(BackendRegistry&) {}
 }  // namespace flm::backend
 
 namespace {
+
+constexpr const char* kGguf = "Phi-4-mini-instruct-Q4_G128.gguf";
 
 std::vector<int> g_encoded_tokens;
 std::vector<int> g_samples;
@@ -153,33 +153,15 @@ std::unique_ptr<flm::backend::ModelBackend> MakeFlmStub(
 }
 
 #if defined(FLM_ENABLE_CORE)
-/// \brief read a JSON file, recording the open for the file-access audit
-nlohmann::json ReadObserved(const std::filesystem::path& path) {
-    flm::file_access::ObserveOpen(path);
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot open " + path.string());
-    return nlohmann::json::parse(input);
-}
-
 /// \brief the corelib backend, with its engine and runtime faked
-/// \note Everything CoreBackend does before it touches the device is
-///       repeated verbatim, so a mismatched package still fails with nothing
-///       allocated and the file-access audit still sees the real reads.
+/// \note The real backend states its EOS ids, so before it touches the device
+///       it reads no file and only requires the GGUF corelib will read.
 std::unique_ptr<flm::backend::ModelBackend> MakeCoreStub(
     const flm::backend::BackendContext& context) {
     const std::filesystem::path root(context.model_path);
-    const auto config = ReadObserved(root / "config.json");
-    const auto tokenizer_json = ReadObserved(root / "tokenizer.json");
-    // tokenizer_config.json arrives already parsed from the frontend, exactly
-    // as it does for the real backend, so the audit sees a single open.
-    if (context.tokenizer_config == nullptr) {
-        throw std::runtime_error(
-            "Phi-4 core backend needs the frontend's tokenizer_config.json");
+    if (!std::filesystem::exists(root / kGguf)) {
+        throw std::runtime_error("Phi-4 core: " + (root / kGguf).string() + " does not exist");
     }
-    auto package = flm::phi4::Phi4GgufPackage::Open(
-        root / "Phi-4-mini-instruct.Q8_0.gguf");
-    package->ValidatePhi4Contract(config, tokenizer_json,
-                                  *context.tokenizer_config);
 
     ++g_factory.core_calls;
     if (g_factory.throw_for_core) throw std::runtime_error("missing corelib");
@@ -197,6 +179,37 @@ std::unique_ptr<flm::backend::ModelBackend> MakeCoreStub(
 }
 #endif
 
+nlohmann::json PackageConfig() {
+    return {{"model_type", "phi3"}, {"num_hidden_layers", 32},
+            {"hidden_size", 3072}, {"intermediate_size", 8192},
+            {"num_attention_heads", 24}, {"num_key_value_heads", 8},
+            {"head_dim", 128}, {"vocab_size", 200064},
+            {"rms_norm_eps", 1.0e-5}, {"original_max_position_embeddings", 4096},
+            {"eos_token_id", 199999}};
+}
+
+nlohmann::json PackageTokenizer() {
+    nlohmann::json vocab = nlohmann::json::object();
+    for (int id = 0; id < 200019; ++id) vocab["t" + std::to_string(id)] = id;
+    vocab["<|endoftext|>"] = 199999;
+    vocab["<|end|>"] = 200020;
+    return {{"model", {{"vocab", std::move(vocab)}}},
+            {"added_tokens", nlohmann::json::array({
+                {{"id", 200019}, {"content", "<|assistant|>"}},
+                {{"id", 200020}, {"content", "<|end|>"}},
+                {{"id", 200021}, {"content", "<|user|>"}},
+                {{"id", 200022}, {"content", "<|system|>"}},
+                {{"id", 200023}, {"content", "<|tool|>"}},
+                {{"id", 200024}, {"content", "<|/tool|>"}},
+                {{"id", 200025}, {"content", "<|tool_call|>"}},
+                {{"id", 200026}, {"content", "<|/tool_call|>"}},
+                {{"id", 200027}, {"content", "<|tool_response|>"}},
+                {{"id", 200028}, {"content", "<|tag|>"}},
+                {{"id", 200018}, {"content", "<|endofprompt|>"}},
+                {{"id", 199999}, {"content", "<|endoftext|>"}}})}};
+}
+
+/// \brief a Phi-4 package directory; an invalid one has no GGUF
 class TempPackage final {
 public:
     explicit TempPackage(bool valid = true) {
@@ -204,18 +217,16 @@ public:
         path_ = std::filesystem::temp_directory_path() /
             ("flm-task4-" + std::to_string(++serial));
         std::filesystem::create_directories(path_);
-        Write(path_ / "config.json", gguf_fixture::ValidConfig());
-        Write(path_ / "tokenizer.json", gguf_fixture::ValidTokenizer());
-        auto tokenizer_config = gguf_fixture::ValidTokenizerConfig();
-        tokenizer_config["eos_token"] = "<legacy-eos>";
-        tokenizer_config["eos_token_id"] = nlohmann::json::array({200020, 199999});
+        Write(path_ / "config.json", PackageConfig());
+        Write(path_ / "tokenizer.json", PackageTokenizer());
+        nlohmann::json tokenizer_config = {
+            {"add_bos_token", false},
+            {"chat_template", "<|user|>{{ message }}<|end|><|assistant|>"},
+            {"eos_token", "<legacy-eos>"},
+            {"eos_token_id", nlohmann::json::array({200020, 199999})}};
         Write(path_ / "tokenizer_config.json", tokenizer_config);
-        auto gguf = gguf_fixture::Builder().AddFullContractTensors(false).Write("frontend");
-        std::filesystem::rename(gguf.path, path_ / "Phi-4-mini-instruct.Q8_0.gguf");
-        if (!valid) {
-            auto config = gguf_fixture::ValidConfig();
-            config["hidden_size"] = 1;
-            Write(path_ / "config.json", config);
+        if (valid) {
+            std::ofstream(path_ / kGguf, std::ios::binary) << "GGUF";
         }
     }
     ~TempPackage() {
@@ -523,8 +534,7 @@ void TestNoManifestOnnxConvertedWeightOrCachePathIsOpened() {
     }
     std::sort(names.begin(), names.end());
     TEST_REQUIRE(names == std::vector<std::string>({
-        "Phi-4-mini-instruct.Q8_0.gguf", "config.json", "config.json",
-        "tokenizer.json", "tokenizer.json", "tokenizer_config.json"}));
+        "config.json", "tokenizer.json", "tokenizer_config.json"}));
 }
 
 void TestUnknownBackendIsAnError() {
@@ -752,6 +762,53 @@ void TestEosSelfTerminatesWithoutAnExtraDecode() {
     TEST_REQUIRE(meta.stop_reason == EOT_DETECTED);
 }
 
+struct SecondTurn {
+    std::vector<int> forwarded;
+    std::vector<int> prefill_sizes;
+};
+
+/// \brief a first turn that ends in EOS, then a second that resends it, its EOS and one token
+SecondTurn RunSecondTurn(Phi4& model, std::vector<int> first_samples) {
+    g_encoded_tokens = {1, 2}; g_samples = std::move(first_samples); g_sample_index = 0;
+    auto meta = Meta(); auto input = Input(); std::ostringstream output;
+    TEST_REQUIRE(model.insert(meta, input));
+    (void)model.generate(meta, 10, output);
+    TEST_REQUIRE(meta.stop_reason == EOT_DETECTED);
+    SecondTurn turn{g_factory.engine->forwarded, {}};
+    g_encoded_tokens = {1, 2};
+    for (std::size_t i = 0; i + 1 < g_samples.size(); ++i) g_encoded_tokens.push_back(g_samples[i]);
+    g_encoded_tokens.insert(g_encoded_tokens.end(), {200020, 3});
+    g_factory.engine->prefill_sizes.clear();
+    TEST_REQUIRE(model.insert(meta, input));
+    turn.prefill_sizes = g_factory.engine->prefill_sizes;
+    return turn;
+}
+
+void TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn() {
+    // The core backend declines the post-EOS forward, so its engine holds the
+    // reply without its EOS and the next turn has to carry it: here 200020, 3.
+    {
+        TempPackage package; FactoryScope scope; auto core = ReadyCore(package);
+        const auto turn = RunSecondTurn(*core, {11, 200020});
+        TEST_REQUIRE((turn.forwarded == std::vector<int>{11}));
+        TEST_REQUIRE((turn.prefill_sizes == std::vector<int>{2}));
+    }
+    // An EOS sampled straight from the prefill is never run either.
+    {
+        TempPackage package; FactoryScope scope; auto core = ReadyCore(package);
+        const auto turn = RunSecondTurn(*core, {200020});
+        TEST_REQUIRE(turn.forwarded.empty());
+        TEST_REQUIRE((turn.prefill_sizes == std::vector<int>{2}));
+    }
+    // The flm backend forwards the EOS, so only the new token is left.
+    {
+        TempPackage package; FactoryScope scope; auto flm = Load(package, ModelInfo());
+        const auto turn = RunSecondTurn(*flm, {11, 200020});
+        TEST_REQUIRE((turn.forwarded == std::vector<int>{11, 200020}));
+        TEST_REQUIRE((turn.prefill_sizes == std::vector<int>{1}));
+    }
+}
+
 void TestCoreDecodeTimeAndSpeedAreMeasured() {
     // The core path used to have a decode loop of its own that recorded nothing, so
     // profile reported "0 us" and a nan speed. It now shares _shared_generate;
@@ -911,6 +968,7 @@ int main() {
     RunTest(TestPostSubmitErrorReturns500ClearsConversationAndLeavesModelPoisoned, "TestPostSubmitErrorReturns500ClearsConversationAndLeavesModelPoisoned");
     RunTest(TestPoisonedModelReturns500UntilReload, "TestPoisonedModelReturns500UntilReload");
     RunTest(TestEosSelfTerminatesWithoutAnExtraDecode, "TestEosSelfTerminatesWithoutAnExtraDecode");
+    RunTest(TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn, "TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn");
     RunTest(TestCoreDecodeTimeAndSpeedAreMeasured, "TestCoreDecodeTimeAndSpeedAreMeasured");
     RunTest(TestCliAndAllFourGenerationEndpointsPassTheSameBudgetSemantics, "TestCliAndAllFourGenerationEndpointsPassTheSameBudgetSemantics");
     RunTest(TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint, "TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint");
