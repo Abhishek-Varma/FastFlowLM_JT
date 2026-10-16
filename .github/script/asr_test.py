@@ -147,7 +147,9 @@ class AsrTest(SweepTask):
         parser.add_argument("--baseline", default=None, metavar="RESULTS_JSON",
                             help="Results of a reference build to compare against.")
         parser.add_argument("--expected", default=None, metavar="JSON",
-                            help="Error rate per set to stay under when there is no baseline.")
+                            help="Error rates per platform and set to stay under when there "
+                                 "is no baseline. Builds decode differently per platform, "
+                                 "so only --platform's entry is used.")
         parser.add_argument("--tolerance", type=float, default=1.0,
                             help="Allowed rise in the pooled error rate, in points (default: 1.0).")
         parser.add_argument("--set-tolerance", type=float, default=5.0,
@@ -173,8 +175,13 @@ class AsrTest(SweepTask):
                               "repeats": {}, "language": {}}
         self.baseline = (json.loads(Path(args.baseline).read_text(encoding="utf-8"))
                          if args.baseline else None)
-        self.expected = (json.loads(Path(args.expected).read_text(encoding="utf-8"))
-                         if args.expected else None)
+        self.expected = None
+        if args.expected:
+            platforms = json.loads(Path(args.expected).read_text(encoding="utf-8"))["platforms"]
+            self.expected = platforms.get(args.platform)
+            if self.expected is None:
+                print(f"::warning::{args.expected} has no expected rates for "
+                      f"{args.platform}; accuracy is reported but not checked.")
         self.responses_dir = self.output_dir / "responses"
         self.responses_dir.mkdir(exist_ok=True)
 
