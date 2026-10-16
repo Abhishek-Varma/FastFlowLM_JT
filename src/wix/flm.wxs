@@ -254,15 +254,6 @@
       <Component Id="Comp_zlib1.dll" Guid="*">
         <File Id="File_zlib1.dll" Source="$(SourceDir)\zlib1.dll" KeyPath="yes" />
       </Component>
-      <Component Id="Comp_libfftw3_3.dll" Guid="*">
-        <File Id="File_libfftw3_3.dll" Source="$(SourceDir)\libfftw3-3.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_libfftw3f_3.dll" Guid="*">
-        <File Id="File_libfftw3f_3.dll" Source="$(SourceDir)\libfftw3f-3.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_libfftw3l_3.dll" Guid="*">
-        <File Id="File_libfftw3l_3.dll" Source="$(SourceDir)\libfftw3l-3.dll" KeyPath="yes" />
-      </Component>
 
       <Component Id="Comp_logo.ico" Guid="*">
         <File Id="File_logo.ico" Source="$(SourceDir)\logo.ico" KeyPath="yes" />
@@ -272,6 +263,9 @@
       </Component>
       <Component Id="Comp_model_info.json" Guid="*">
         <File Id="File_model_info.json" Source="$(SourceDir)\model_info.json" KeyPath="yes" />
+      </Component>
+      <Component Id="Comp_THIRD_PARTY_NOTICES.txt" Guid="*">
+        <File Id="File_THIRD_PARTY_NOTICES.txt" Source="$(SourceDir)\THIRD_PARTY_NOTICES.txt" KeyPath="yes" />
       </Component>
 
     </ComponentGroup>

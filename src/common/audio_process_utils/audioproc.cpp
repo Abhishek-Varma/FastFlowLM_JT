@@ -18,37 +18,22 @@ namespace audioproc {
     {
         const int n_bins = fft_length / 2 + 1;
 
-        // Allocate FFTW buffers
-        float* fft_in = (float*)fftwf_malloc(fft_length * sizeof(float));
-        fftwf_complex* fft_out = (fftwf_complex*)fftwf_malloc(n_bins * sizeof(fftwf_complex));
-
-        // Create plan (FFTW_ESTIMATE for fast planning)
-        fftwf_plan plan = fftwf_plan_dft_r2c_1d(fft_length, fft_in, fft_out, FFTW_ESTIMATE);
+        std::vector<float> fft_in(fft_length);
 
         for (int f = 0; f < num_frames; ++f) {
             // Copy frame data
-            std::memcpy(fft_in, frames + f * frame_length, frame_length * sizeof(float));
+            std::memcpy(fft_in.data(), frames + f * frame_length, frame_length * sizeof(float));
             // Zero-pad if fft_length > frame_length
             if (fft_length > frame_length) {
-                std::memset(fft_in + frame_length, 0, (fft_length - frame_length) * sizeof(float));
+                std::memset(fft_in.data() + frame_length, 0, (fft_length - frame_length) * sizeof(float));
             }
 
-            fftwf_execute(plan);
-
-            // Copy interleaved (re, im) output
-            float* dst = out_complex + f * n_bins * 2;
-            for (int k = 0; k < n_bins; ++k) {
-                dst[2 * k]     = fft_out[k][0]; // real
-                dst[2 * k + 1] = fft_out[k][1]; // imag
-            }
+            // Writes interleaved (re, im) output directly
+            rfft_many(fft_in.data(), out_complex + f * n_bins * 2, 1, fft_length);
         }
-
-        fftwf_destroy_plan(plan);
-        fftwf_free(fft_in);
-        fftwf_free(fft_out);
     }
 
-    // Internal helper: runs FFTW batch and applies a per-bin scalar reduction.
+    // Internal helper: runs the FFT per frame and applies a per-bin scalar reduction.
     // Reduce: (float re, float im) -> float
     template<typename Reduce>
     static void rfft_reduce_batch_impl(
@@ -61,25 +46,20 @@ namespace audioproc {
     {
         const int n_bins = fft_length / 2 + 1;
 
-        float* fft_in          = (float*)fftwf_malloc(fft_length * sizeof(float));
-        fftwf_complex* fft_out = (fftwf_complex*)fftwf_malloc(n_bins * sizeof(fftwf_complex));
-        fftwf_plan plan = fftwf_plan_dft_r2c_1d(fft_length, fft_in, fft_out, FFTW_ESTIMATE);
+        std::vector<float> fft_in(fft_length);
+        std::vector<float> fft_out(static_cast<size_t>(n_bins) * 2);
 
         for (int f = 0; f < num_frames; ++f) {
-            std::memcpy(fft_in, frames + f * frame_length, frame_length * sizeof(float));
+            std::memcpy(fft_in.data(), frames + f * frame_length, frame_length * sizeof(float));
             if (fft_length > frame_length)
-                std::memset(fft_in + frame_length, 0, (fft_length - frame_length) * sizeof(float));
+                std::memset(fft_in.data() + frame_length, 0, (fft_length - frame_length) * sizeof(float));
 
-            fftwf_execute(plan);
+            rfft_many(fft_in.data(), fft_out.data(), 1, fft_length);
 
             float* dst = out + f * n_bins;
             for (int k = 0; k < n_bins; ++k)
-                dst[k] = reduce(fft_out[k][0], fft_out[k][1]);
+                dst[k] = reduce(fft_out[2 * k], fft_out[2 * k + 1]);
         }
-
-        fftwf_destroy_plan(plan);
-        fftwf_free(fft_in);
-        fftwf_free(fft_out);
     }
 
     void rfft_magnitude_batch(

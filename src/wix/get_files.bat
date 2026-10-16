@@ -17,6 +17,10 @@ echo Copying model_list.json...
 copy "..\model_list.json" "package\model_list.json"
 copy "..\model_info.json" "package\model_info.json"
 
+REM Copy third-party license notices from repo root
+echo Copying THIRD_PARTY_NOTICES.txt...
+copy "..\..\THIRD_PARTY_NOTICES.txt" "package\THIRD_PARTY_NOTICES.txt"
+
 REM Copy static installer assets
 echo Copying static assets...
 copy "..\inno\logo.ico" "package\logo.ico"

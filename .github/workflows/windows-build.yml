@@ -79,6 +79,9 @@ jobs:
           Copy-Item -Path .\xclbins -Destination $dist\ -Recurse -Force
           Copy-Item -Path .\model_list.json -Destination $dist\ -Force
           Copy-Item -Path .\model_info.json -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_RUNTIME.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_BINARY.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\THIRD_PARTY_NOTICES.txt -Destination $dist\ -Force
           Copy-Item -Path .\lib\xrt\*.dll -Destination $dist\ -Force
           Copy-Item -Path .\lib\*.dll -Destination $dist\ -Force
 
@@ -116,6 +119,9 @@ jobs:
           Copy-Item -Path .\xclbins -Destination $dist\ -Recurse -Force
           Copy-Item -Path .\model_list.json -Destination $dist\ -Force
           Copy-Item -Path .\model_info.json -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_RUNTIME.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_BINARY.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\THIRD_PARTY_NOTICES.txt -Destination $dist\ -Force
           Copy-Item -Path .\lib\xrt\*.dll -Destination $dist\ -Force
           Copy-Item -Path .\lib\*.dll -Destination $dist\ -Force
           Copy-Item -Path .\build-models-from-source\engines\*.dll -Destination $dist\ -Force
@@ -285,6 +291,9 @@ jobs:
           Copy-Item -Path .\xclbins -Destination $dist\ -Recurse -Force
           Copy-Item -Path .\model_list.json -Destination $dist\ -Force
           Copy-Item -Path .\model_info.json -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_RUNTIME.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\LICENSE_BINARY.txt -Destination $dist\ -Force
+          Copy-Item -Path ..\THIRD_PARTY_NOTICES.txt -Destination $dist\ -Force
           Copy-Item -Path .\lib\*.dll -Destination $dist\ -Force
 
           # HRX-variant op libraries override the default ones
