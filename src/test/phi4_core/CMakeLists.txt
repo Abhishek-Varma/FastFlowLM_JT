@@ -32,9 +32,12 @@ set(CORELIB_SOURCES
 # compile time. The caller-provided header remains untouched.
 file(READ "${RYZENAI_CORELIB_INCLUDE_DIR}/ryzenai/corelib.h" CORELIB_HEADER_TEXT)
 string(REGEX REPLACE
-    "#define RYZENAI_CORELIB_VERSION_PATCH[ \t]+0"
-    "#define RYZENAI_CORELIB_VERSION_PATCH 1"
+    "#define RYZENAI_CORELIB_VERSION_PATCH[ \t]+[0-9]+"
+    "#define RYZENAI_CORELIB_VERSION_PATCH 9999"
     WRONG_CORELIB_HEADER_TEXT "${CORELIB_HEADER_TEXT}")
+if(WRONG_CORELIB_HEADER_TEXT STREQUAL CORELIB_HEADER_TEXT)
+  message(FATAL_ERROR "No RYZENAI_CORELIB_VERSION_PATCH in corelib.h to mismatch")
+endif()
 set(WRONG_CORELIB_INCLUDE_DIR
     "${CMAKE_CURRENT_BINARY_DIR}/wrong-corelib-version/include")
 file(MAKE_DIRECTORY "${WRONG_CORELIB_INCLUDE_DIR}/ryzenai")
@@ -42,14 +45,32 @@ file(WRITE "${WRONG_CORELIB_INCLUDE_DIR}/ryzenai/corelib.h"
     "${WRONG_CORELIB_HEADER_TEXT}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/wrong-corelib-version/probe.cpp"
     "#define RYZENAI_CORELIB_STATIC 1\n#include \"core/corelib_api.hpp\"\n")
+# The probe must compile against the real header, or its failure against the
+# mismatched one proves nothing.
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+try_compile(CORELIB_PINNED_VERSION_ACCEPTED
+    SOURCES "${CMAKE_CURRENT_BINARY_DIR}/wrong-corelib-version/probe.cpp"
+    CMAKE_FLAGS
+        "-DCMAKE_CXX_STANDARD=20"
+        "-DINCLUDE_DIRECTORIES=${FLM_SOURCE_DIR}/include;${RYZENAI_CORELIB_INCLUDE_DIR}"
+    OUTPUT_VARIABLE PINNED_CORELIB_COMPILE_OUTPUT)
+if(NOT CORELIB_PINNED_VERSION_ACCEPTED)
+  message(FATAL_ERROR "Corelib adapter rejected the header it is pinned to:\n"
+                      "${PINNED_CORELIB_COMPILE_OUTPUT}")
+endif()
 try_compile(CORELIB_WRONG_VERSION_ACCEPTED
     SOURCES "${CMAKE_CURRENT_BINARY_DIR}/wrong-corelib-version/probe.cpp"
     CMAKE_FLAGS
         "-DCMAKE_CXX_STANDARD=20"
-        "-DCMAKE_CXX_FLAGS=/I${FLM_SOURCE_DIR}/include /I${WRONG_CORELIB_INCLUDE_DIR}"
+        "-DINCLUDE_DIRECTORIES=${FLM_SOURCE_DIR}/include;${WRONG_CORELIB_INCLUDE_DIR}"
     OUTPUT_VARIABLE WRONG_CORELIB_COMPILE_OUTPUT)
+unset(CMAKE_TRY_COMPILE_TARGET_TYPE)
 if(CORELIB_WRONG_VERSION_ACCEPTED)
   message(FATAL_ERROR "Corelib adapter accepted a header it is not pinned to")
+endif()
+if(NOT WRONG_CORELIB_COMPILE_OUTPUT MATCHES "FastFlowLM requires ryzenai-corelib headers exactly")
+  message(FATAL_ERROR "Corelib probe failed for a reason other than the pin:\n"
+                      "${WRONG_CORELIB_COMPILE_OUTPUT}")
 endif()
 
 add_executable(test_corelib_api
