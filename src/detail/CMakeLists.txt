@@ -59,7 +59,11 @@ if(WIN32)
     )
 endif()
 
-if(NOT MSVC)
+if(MSVC)
+    # cl and clang-cl do not take the GCC -m flags in the else branch. Both
+    # need the ISA named on this target.
+    target_compile_options(gemma4e_npu PRIVATE /arch:AVX512)
+else()
     target_compile_options(gemma4e_npu PRIVATE
         -O3 -Wall -fmax-errors=1
         -mavx512f -mavx512vl -mavx512bw -mavx512dq -mfma
