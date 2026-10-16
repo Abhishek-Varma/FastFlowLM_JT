@@ -51,12 +51,22 @@ enum ert_cmd_state {
 
 namespace hrx {
 
+// Which module's hrx_gpu_initialize() succeeded. A member of Runtime would
+// change that object's size, and on Linux an older prebuilt engine can be
+// the STB_GNU_UNIQUE winner at the old size. get() touches this before
+// constructing Runtime, so the flag outlives ~Runtime().
+inline bool& runtime_owns_shutdown() {
+    static bool owns = false;
+    return owns;
+}
+
 // ---------------------------------------------------------------------------
 // Process-wide HRX runtime (one device + one stream), lazily initialized.
 // ---------------------------------------------------------------------------
 class Runtime {
 public:
     static Runtime& get() {
+        runtime_owns_shutdown();
         static Runtime r;
         return r;
     }
@@ -67,10 +77,14 @@ public:
     void ensure() {
         if (dev) return;
         hrx_status_t init_status = hrx_gpu_initialize(0);
+        const bool initialized_here = hrx_status_is_ok(init_status);
         const bool initialized =
-            hrx_status_is_ok(init_status) ||
+            initialized_here ||
             hrx_status_code(init_status) == HRX_STATUS_ALREADY_EXISTS;
         hrx_status_ignore(init_status);
+        // Each engine module has its own Runtime. Only the call that actually
+        // initialized the accelerator may shut it down.
+        if (initialized_here) runtime_owns_shutdown() = true;
         if (initialized &&
             hrx_status_is_ok(hrx_gpu_device_get(0, &dev)) &&
             hrx_status_is_ok(hrx_stream_create(dev, 0, &stream))) {
@@ -84,7 +98,9 @@ public:
         }
     }
 
-    // Reclaims libhrx's free-buffer cache/arena; fires at static destruction, after every engine is gone.
+    // Runs at static destruction, after the engines owned by main are gone.
+    // Releases this stream. The instance whose hrx_gpu_initialize() succeeded
+    // then calls hrx_gpu_shutdown(), which destroys the device and its heap.
     ~Runtime();
 
 private:
@@ -254,21 +270,6 @@ inline void release_executable(const std::string& key) {
     }
 }
 
-// ~Runtime() only: frees every cached executable, refcount or not (refs==0 entries never get erased otherwise).
-inline void purge_executable_cache() {
-    std::vector<hrx_executable_t> to_free;
-    {
-        std::lock_guard<std::mutex> lk(exe_cache_mu());
-        auto& cache = exe_cache();
-        to_free.reserve(cache.size());
-        for (auto& entry : cache) {
-            if (entry.second.exe) to_free.push_back(entry.second.exe);
-        }
-        cache.clear();
-    }
-    for (hrx_executable_t exe : to_free) hrx_executable_release(exe);
-}
-
 // Backward-compatible entry point (no ownership tracking). Retained for any
 // caller that does not manage executable lifetime; prefer the
 // lookup_or_build/retain/release trio used by npu_app.
@@ -401,18 +402,17 @@ inline std::unordered_map<hrx_buffer_t, BufCoh>& buf_coh() {
 }
 
 inline Runtime::~Runtime() {
-    if (!dev && !stream) return;
-    purge_executable_cache();
-    // Allocator reuses addresses; stale entries would mislabel new buffers' dirty bits.
-    {
-        std::lock_guard<std::mutex> lk(buf_coh_mu());
-        buf_coh().clear();
-    }
+    if (!stream && !runtime_owns_shutdown()) return;
+    // hrx_stream_create() retains the device, and hrx_gpu_shutdown() does not
+    // release streams, so drop this stream first.
     if (stream) hrx_stream_release(stream);
-    // No hrx_device_release(): hrx_gpu_shutdown() already owns that reference.
-    hrx_report(hrx_gpu_shutdown(), "hrx_gpu_shutdown");
-    dev = nullptr;
     stream = nullptr;
+    if (runtime_owns_shutdown()) {
+        // No hrx_device_release(): hrx_gpu_shutdown() already owns that reference.
+        hrx_report(hrx_gpu_shutdown(), "hrx_gpu_shutdown");
+        runtime_owns_shutdown() = false;
+    }
+    dev = nullptr;
     ok = false;
     if (std::getenv("HRX_DEBUG"))
         std::fprintf(stderr, "[hrx] device+stream released (Runtime@%p)\n",
