@@ -1,0 +1,15 @@
+{
+  "_note": "Error rates of main (flm 1.0.9-6-g77bc6bdd, Linux portable, Whisper-V3-Turbo-NPU2) on a Strix NPU, 2026-10-15. Used only by runs with no baseline build. Update when main's accuracy changes on purpose.",
+  "overall": 0.1855,
+  "sets": {
+    "en-short": 0.0971,
+    "en-long": 0.1189,
+    "en-longform": 0.1653,
+    "de-fleurs": 0.3814,
+    "es-fleurs": 0.1542,
+    "fr-fleurs": 0.2769,
+    "ja-fleurs": 0.194,
+    "zh-fleurs": 0.1348,
+    "ar-fleurs": 0.4171
+  }
+}
