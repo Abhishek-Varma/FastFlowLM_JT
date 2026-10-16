@@ -131,7 +131,7 @@ class AsrTest(SweepTask):
         # otherwise easy to mistake for a pass.
         print(f"::warning::{model} {fmt}: {name} skipped: {detail}")
 
-    def transcribe(self, model: str, path: Path, response_format: str | None) -> dict:
+    def transcribe(self, model: str, path: Path, response_format: str | None) -> str:
         """The raw response body, so fields the SDK does not model survive."""
         kwargs = {"model": model}
         if response_format:
@@ -140,18 +140,34 @@ class AsrTest(SweepTask):
             raw = self.client.audio.transcriptions.with_raw_response.create(
                 file=handle, **kwargs
             )
-        # The server answers with an empty body when ASR is not loaded.
-        return raw.http_response.json()
+        return raw.http_response.text
+
+    def response_path(self, model: str, fmt: str) -> Path:
+        # Model tags contain ':', which Windows does not allow in filenames.
+        safe_model = re.sub(r"[^\w.-]", "_", model)
+        return self.output_dir / f"{self.name}_{self.args.platform}_{safe_model}_{fmt}.json"
 
     def request(self, writer, model: str, path: Path, fmt: str) -> dict | None:
+        """Sends one request and keeps its body in the output directory.
+
+        The body is saved before it is parsed, so a failed check, or a body
+        that is not JSON at all, can still be inspected in the artifact.
+        """
         started = time.monotonic()
         try:
-            body = self.transcribe(model, path, None if fmt == "default" else fmt)
+            text = self.transcribe(model, path, None if fmt == "default" else fmt)
         except Exception as exc:
             self.check(writer, model, fmt, "request succeeds", False, str(exc))
             return None
+        self.response_path(model, fmt).write_text(text, encoding="utf-8")
         print(f"  {fmt}: {time.monotonic() - started:.1f}s")
-        return body
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # The server answers with an empty body when ASR is not loaded.
+            self.check(writer, model, fmt, "response is JSON", False,
+                       f"{len(text)} bytes: {text[:80]!r}")
+            return None
 
     def check_json(self, writer, model: str, body: dict, reference: dict | None) -> None:
         text = body.get("text") or ""

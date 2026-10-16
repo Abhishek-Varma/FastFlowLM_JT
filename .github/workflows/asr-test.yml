@@ -5,11 +5,17 @@ name: ASR Test
 # that "Build Linux Portable" and "Build Windows Packages" produce for the same
 # commit, default and HRX alike. .github/script/asr_test.py holds the checks.
 #
-# The trigger paths are the Whisper engine and its prebuilt NPU libraries, the
-# audio front end and FFT it runs on, and the two server files that host
-# /v1/audio/transcriptions. Those server files also hold every other endpoint,
-# so any change to them runs this test too; it costs a few minutes of one NPU
-# machine. The pull_request and push path lists must stay identical.
+# The trigger paths are the Whisper engine, its NPU kernels and prebuilt NPU
+# libraries, the FFmpeg, audio front end and FFT code it runs on, and the
+# server files that host /v1/audio/transcriptions. Those server files also hold
+# every other endpoint, so any change to them runs this test too; it costs a
+# few minutes of one NPU machine. The pull_request and push path lists must
+# stay identical. Shared files such as src/CMakeLists.txt (the Linux FFmpeg
+# version) and lm_config.hpp are left out, since every change touches them.
+#
+# The weekly run tests main's latest build, to catch what no commit changes:
+# Whisper weights republished on Hugging Face, and NPU driver or firmware
+# updates on the runners.
 #
 # A manual dispatch tests the dispatched ref's commit, so start both build
 # workflows on that ref first.
@@ -20,6 +26,7 @@ on:
     paths:
       - 'src/common/whisper/**'
       - 'src/include/whisper/**'
+      - 'src/xclbins/Whisper-V3-Turbo-NPU2/**'
       - 'src/lib/xrt/*whisper_npu*'
       - 'src/lib/hrx/*whisper_npu*'
       - 'src/common/audio_process_utils/**'
@@ -27,8 +34,12 @@ on:
       - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
       - 'src/lib/libfftw3*'
+      - 'src/lib/av*'
+      - 'src/lib/sw*'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
+      - 'src/server/multipart.cpp'
+      - 'src/server/multipart.hpp'
       - 'src/test/whisper_npu/**'
       - '.github/script/asr_test.py'
       - '.github/script/sweep_common.py'
@@ -39,6 +50,7 @@ on:
     paths:
       - 'src/common/whisper/**'
       - 'src/include/whisper/**'
+      - 'src/xclbins/Whisper-V3-Turbo-NPU2/**'
       - 'src/lib/xrt/*whisper_npu*'
       - 'src/lib/hrx/*whisper_npu*'
       - 'src/common/audio_process_utils/**'
@@ -46,13 +58,19 @@ on:
       - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
       - 'src/lib/libfftw3*'
+      - 'src/lib/av*'
+      - 'src/lib/sw*'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
+      - 'src/server/multipart.cpp'
+      - 'src/server/multipart.hpp'
       - 'src/test/whisper_npu/**'
       - '.github/script/asr_test.py'
       - '.github/script/sweep_common.py'
       - '.github/script/assets/test_audio*'
       - '.github/workflows/asr-test.yml'
+  schedule:
+    - cron: '23 4 * * 1'  # Mondays 04:23 UTC
   workflow_dispatch:
 
 permissions:
@@ -60,9 +78,10 @@ permissions:
   # Needed to list and download artifacts from the build workflow runs.
   actions: read
 
-# Only the newest commit on a ref is worth an NPU machine.
+# Only the newest commit on a ref is worth an NPU machine. The event name keeps
+# the weekly run and a push to main from cancelling each other.
 concurrency:
-  group: asr-test-${{ github.ref }}
+  group: asr-test-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -85,8 +104,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # A pull_request run records the PR head commit in head_sha, while
-          # github.sha is the synthetic merge commit. Try both. On a push or a
-          # dispatch only the second is set.
+          # github.sha is the synthetic merge commit. Try both. On a push, a
+          # dispatch or the weekly run only the second is set; for the weekly
+          # run it is main's latest commit, built by that commit's push.
           CANDIDATE_SHAS: ${{ github.event.pull_request.head.sha }} ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -179,7 +199,9 @@ jobs:
           # One missing platform is a warning above; nothing at all to test
           # would otherwise leave a green check that tested nothing.
           if [ "${linux_builds}" = "[]" ] && [ "${windows_builds}" = "[]" ]; then
-            echo "::error::No portable build was found for this commit, so nothing was tested."
+            # The Linux portable artifact is kept for 7 days, so a weekly run
+            # after a quiet week on main can find nothing left to download.
+            echo "::error::No portable build was found for this commit, so nothing was tested. Build artifacts expire, so for an older commit, rerun the build workflows first."
             exit 1
           fi
 
