@@ -58,9 +58,6 @@ target_link_libraries(test_gemma4e_flash PUBLIC
     swscale
     swresample
     zlib
-    libfftw3-3
-    libfftw3f-3
-    libfftw3l-3
 )
 
 # Link OpenMP if available

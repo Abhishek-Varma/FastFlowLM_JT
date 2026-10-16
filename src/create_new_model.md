@@ -41,7 +41,7 @@ Before writing any wrapper code, these artifacts must exist:
   structs (image / audio descriptors for omni models). The path carries both axes
   after the family: `flm` is the kernel provider (FastFlowLM's own flow) and
   `aie2p` the silicon generation. A model reaching its kernels through corelib on
-  the newer generation sits at `<model>/rai/aie_next/` instead; see
+  the newer generation sits at `<model>/core/dev04/` instead; see
   [`common/models/README.md`](common/models/README.md).
 - **Engine library**
   - Linux: `lib/xrt/lib<model>_npu.so` and, if the HRX runtime is used,

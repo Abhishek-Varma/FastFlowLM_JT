@@ -26,6 +26,12 @@ class PromptCache {
 private:
     std::vector<uint64_t> message_checksums_;
     std::vector<uint64_t> tool_checksums_;
+    /// \brief whether the checksums describe what the engine holds
+    /// \note False when new and after reset(). Empty checksums are otherwise
+    ///       a prefix of every conversation, so the first request after a
+    ///       reset would be told it may restore a checkpoint the engine does
+    ///       not have.
+    bool primed_ = false;
 
     uint64_t _calculate_single_message_checksum(const json& message) {
         // Hash only the content-bearing fields so messages produced by
@@ -137,6 +143,7 @@ public:
 
     void update_message_checksum(json& messages) {
         message_checksums_ = _calculate_message_checksums(messages, messages.size());
+        primed_ = true;
     }
 
 
@@ -151,7 +158,7 @@ public:
         info.total_rounds = messages.size();
         info.cached_rounds = message_checksums_.size();
 
-        if (messages.size() <= 2) {
+        if (!primed_ || messages.size() <= 2) {
             update_message_checksum(messages);
             update_tool_checksum(tools);
             return false;
@@ -192,5 +199,6 @@ public:
     void reset() {
         message_checksums_.clear();
         reset_tool_checksum();
+        primed_ = false;
     }
 };

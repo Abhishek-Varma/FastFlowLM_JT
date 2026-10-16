@@ -72,218 +72,136 @@ env:
   MODEL_LIMIT: ${{ inputs.limit || '0' }}
 
 jobs:
-  # Decides where each platform's portable build comes from, and does not
-  # finish until that build actually exists. Everything downstream reads
-  # <platform>_ready and only has to know the answer, not how it was reached.
+  # Decides what the sweep runs against. On a dispatch that means resolving
+  # a release tag. The tag is resolved once here rather than letting each
+  # platform (or the downloader) ask for "latest", so both platforms are
+  # guaranteed to sweep the same release even if one is published mid-run,
+  # and so the tag appears in the log. On a commit sweep there is nothing to
+  # look up and this finishes in seconds.
+  resolve-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # "run" = artifacts from a CI run, "release" = assets from a release.
+      mode: ${{ steps.resolve.outputs.mode }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+
+    steps:
+      - name: Resolve the build source
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
+            echo "mode=run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tag="${RELEASE_TAG}"
+          if [ -z "${tag}" ]; then
+            tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')
+            echo "No tag given; latest release is ${tag}."
+          fi
+          {
+            echo "mode=release"
+            echo "release_tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+  # Each platform's portable builds are resolved by their own job, which does
+  # not finish until those builds actually exist. Everything downstream reads
+  # that job's ready flags and only has to know the answer, not how it was
+  # reached; .github/script/resolve_build.sh has the details.
   #
-  # On a dispatch that means resolving a release tag and confirming it carries
-  # the asset each platform needs. The tag is resolved here rather than letting
-  # the downloader ask for "latest", so both platforms are guaranteed to sweep
-  # the same release even if one is published mid-run, and so the tag appears
-  # in the log.
+  # On a dispatch that means confirming the release carries the asset each
+  # sweep needs. On a commit sweep it means waiting. Both build workflows
+  # trigger on the same event as this one, so they are still compiling when
+  # the sweep is queued, and GitHub has no cross-workflow "needs:". Waiting
+  # from a hosted runner keeps the NPU machines free until there is something
+  # to sweep. Each build resolves to a concrete run id; pinning the download
+  # to that id is what stops a sweep from silently picking up a stale artifact
+  # built from an earlier push on the same branch.
   #
-  # On a commit sweep it means waiting. Both build workflows trigger on the
-  # same event as this one, so they are still compiling when the sweep is
-  # queued, and GitHub has no cross-workflow "needs:". Waiting from a hosted
-  # runner keeps the NPU machines free until there is something to sweep. Each
-  # build resolves to a concrete run id; pinning the download to that id is
-  # what stops a sweep from silently picking up a stale artifact built from an
-  # earlier push on the same branch.
+  # The platforms are resolved by separate jobs so that neither waits on the
+  # other: the Linux sweeps start as soon as the hosted Linux build is done,
+  # and the Windows build, which queues for a shared self-hosted runner, gets
+  # its own, longer deadline instead of whatever the Linux wait left over.
   #
   # Readiness is per build, not per workflow run. Each artifact has its own
   # readiness flag. A failed optional build does not block the other sweeps.
   # The build workflow reports its failure, so this workflow skips the missing
   # artifact.
-  resolve-build:
+  resolve-linux:
+    needs: resolve-source
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
-      # "run" = artifacts from a CI run, "release" = assets from a release.
-      mode: ${{ steps.resolve.outputs.mode }}
-      release_tag: ${{ steps.resolve.outputs.release_tag }}
-      linux_run_id: ${{ steps.resolve.outputs.linux_run_id }}
-      windows_run_id: ${{ steps.resolve.outputs.windows_run_id }}
-      linux_ready: ${{ steps.resolve.outputs.linux_ready }}
-      linux_models_from_source_ready: ${{ steps.resolve.outputs.linux_models_from_source_ready }}
-      windows_ready: ${{ steps.resolve.outputs.windows_ready }}
-      windows_models_from_source_ready: ${{ steps.resolve.outputs.windows_models_from_source_ready }}
-      linux_hrx_ready: ${{ steps.resolve.outputs.linux_hrx_ready }}
-      windows_hrx_ready: ${{ steps.resolve.outputs.windows_hrx_ready }}
+      mode: ${{ needs.resolve-source.outputs.mode }}
+      release_tag: ${{ needs.resolve-source.outputs.release_tag }}
+      run_id: ${{ steps.resolve.outputs.run_id }}
+      ready: ${{ steps.resolve.outputs.ready }}
+      hrx_ready: ${{ steps.resolve.outputs.hrx_ready }}
+      models_from_source_ready: ${{ steps.resolve.outputs.models_from_source_ready }}
 
     steps:
-      - name: Resolve the portable builds
+      - name: Checkout sweep scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          filter: blob:none
+
+      - name: Resolve the Linux portable builds
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          MODE: ${{ needs.resolve-source.outputs.mode }}
+          RELEASE_TAG: ${{ needs.resolve-source.outputs.release_tag }}
           # A pull_request run records the PR head commit in head_sha, while
           # github.sha is the synthetic merge commit. Try both, so the lookup
           # does not depend on which one the API reports. On a push only the
           # second is set, and it is the one the build workflow records.
           CANDIDATE_SHAS: ${{ github.event.pull_request.head.sha }} ${{ github.sha }}
-        run: |
-          set -euo pipefail
+          # "Build Linux Portable" runs on hosted runners and takes ~30 min.
+          FINISH_MINUTES: "80"
+        run: bash .github/script/resolve_build.sh linux
 
-          # --- Release mode: a dispatch sweeps a shipped build ----------------
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            tag="${RELEASE_TAG}"
-            if [ -z "${tag}" ]; then
-              tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name')
-              echo "No tag given; latest release is ${tag}."
-            fi
+  resolve-windows:
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 190
+    outputs:
+      mode: ${{ needs.resolve-source.outputs.mode }}
+      release_tag: ${{ needs.resolve-source.outputs.release_tag }}
+      run_id: ${{ steps.resolve.outputs.run_id }}
+      ready: ${{ steps.resolve.outputs.ready }}
+      hrx_ready: ${{ steps.resolve.outputs.hrx_ready }}
+      models_from_source_ready: ${{ steps.resolve.outputs.models_from_source_ready }}
 
-            # Fails the job on a typo'd tag, which is the right outcome: the
-            # operator asked for something specific that does not exist.
-            assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
-              --jq '.assets[].name')
-            echo "Assets on ${tag}:"
-            printf '%s\n' "${assets}" | sed 's/^/  /'
+    steps:
+      - name: Checkout sweep scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/script
+          filter: blob:none
 
-            {
-              echo "mode=release"
-              echo "release_tag=${tag}"
-            } >> "$GITHUB_OUTPUT"
-
-            # A release can legitimately ship one platform and not the other,
-            # so check each asset separately instead of assuming both are there.
-            # Anchored at the start of the name so an HRX_-prefixed asset is
-            # never mistaken for the default build.
-            if printf '%s\n' "${assets}" | grep -q '^fastflowlm_.*_linux\.tar\.gz$'; then
-              echo "linux_ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::warning::Release ${tag} has no fastflowlm_*_linux.tar.gz asset; skipping the Linux sweep."
-            fi
-            if printf '%s\n' "${assets}" | grep -q '^fastflowlm_.*_windows_amd64\.zip$'; then
-              echo "windows_ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::warning::Release ${tag} has no fastflowlm_*_windows_amd64.zip asset; skipping the Windows sweep."
-            fi
-
-            # HRX assets ship from v1.0.8 on, and a failed HRX build leaves a
-            # release without them, so their absence is a notice, not a warning.
-            if printf '%s\n' "${assets}" | grep -q '^HRX_fastflowlm_.*_linux\.tar\.gz$'; then
-              echo "linux_hrx_ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::notice::Release ${tag} has no HRX_fastflowlm_*_linux.tar.gz asset; skipping the Linux HRX sweep."
-            fi
-            if printf '%s\n' "${assets}" | grep -q '^HRX_fastflowlm_.*_windows_amd64\.zip$'; then
-              echo "windows_hrx_ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::notice::Release ${tag} has no HRX_fastflowlm_*_windows_amd64.zip asset; skipping the Windows HRX sweep."
-            fi
-            exit 0
-          fi
-
-          # --- Run mode: a PR or a src/** push sweeps this commit's build -----
-          echo "mode=run" >> "$GITHUB_OUTPUT"
-
-          POLL_SECONDS=20
-          # Separate windows: a build that never starts is a lost cause well
-          # before one that is merely slow.
-          APPEAR_DEADLINE=$(( SECONDS + 10 * 60 ))
-          FINISH_DEADLINE=$(( SECONDS + 80 * 60 ))
-
-          # Newest run for whichever candidate SHA matches, or empty.
-          find_run() {
-            local workflow="$1" sha run_id
-            for sha in ${CANDIDATE_SHAS}; do
-              run_id=$(gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100" \
-                --jq 'if (.workflow_runs | length) == 0 then "" else (.workflow_runs | sort_by(.run_number) | last | .id) end')
-              if [ -n "${run_id}" ]; then
-                printf '%s' "${run_id}"
-                return 0
-              fi
-            done
-          }
-
-          # The upload step is the last thing each build job does and carries no
-          # "if: always()", so an artifact exists only if that job got all the
-          # way through. That makes artifact presence a better readiness signal
-          # than the run's conclusion, which is a single verdict over every job
-          # in the workflow: a failed HRX build, or a failed .deb build, would
-          # otherwise take the default portable sweep down with it.
-          #
-          # Names are matched fully anchored, so "fastflowlm-windows-<sha>"
-          # picks up neither the HRX- prefixed artifact nor the MSI job's
-          # "fastflowlm-windows-msi-<sha>".
-          check_artifact() {
-            local artifacts="$1" pattern="$2" flag="$3" label="$4" run_id="$5"
-            if printf '%s\n' "${artifacts}" | grep -qE "${pattern}"; then
-              echo "${flag}=true" >> "$GITHUB_OUTPUT"
-              echo "  ${label}: ready"
-            else
-              echo "::warning::Run ${run_id} published no ${label} artifact; skipping that sweep."
-            fi
-          }
-
-          wait_for_build() {
-            local workflow="$1" platform="$2" default_pattern="$3" hrx_pattern="$4"
-            local source_pattern="${5:-}" source_flag="${6:-}" source_label="${7:-}"
-            local run_id="" status artifacts
-
-            while :; do
-              run_id=$(find_run "${workflow}")
-              [ -n "${run_id}" ] && break
-              if [ "${SECONDS}" -ge "${APPEAR_DEADLINE}" ]; then
-                echo "::warning::No ${workflow} run appeared for this commit; skipping those sweeps."
-                return 1
-              fi
-              echo "Waiting for a ${workflow} run to appear..."
-              sleep "${POLL_SECONDS}"
-            done
-
-            # Waits for the whole run rather than the individual build job:
-            # artifacts are only listable once their job has uploaded them, and
-            # the run completing is the one event that guarantees that for all
-            # of them.
-            while :; do
-              status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status')
-              [ "${status}" = "completed" ] && break
-              if [ "${SECONDS}" -ge "${FINISH_DEADLINE}" ]; then
-                echo "::warning::${workflow} run ${run_id} is still ${status}; skipping those sweeps."
-                return 1
-              fi
-              echo "${workflow} run ${run_id} is ${status}; checking again in ${POLL_SECONDS}s."
-              sleep "${POLL_SECONDS}"
-            done
-
-            artifacts=$(gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.expired | not) | .name')
-            echo "${workflow} run ${run_id} published:"
-            printf '%s\n' "${artifacts}" | sed 's/^/  /'
-
-            # Written even when neither artifact landed; the ready flags are
-            # what gate the sweeps, and an unused run id costs nothing.
-            echo "${platform}_run_id=${run_id}" >> "$GITHUB_OUTPUT"
-
-            check_artifact "${artifacts}" "${default_pattern}" \
-              "${platform}_ready" "${platform} portable" "${run_id}"
-            check_artifact "${artifacts}" "${hrx_pattern}" \
-              "${platform}_hrx_ready" "${platform} HRX portable" "${run_id}"
-            if [ -n "${source_pattern}" ]; then
-              check_artifact "${artifacts}" "${source_pattern}" \
-                "${source_flag}" "${source_label}" "${run_id}"
-            fi
-          }
-
-          # Neither platform gates the other, so a failure here leaves that
-          # platform not-ready rather than aborting the step.
-          wait_for_build debian-portable.yml linux \
-            '^portable$' '^HRX-portable$' \
-            '^models-from-source-portable$' 'linux_models_from_source_ready' \
-            'Linux models-from-source portable' || echo "Linux build unavailable."
-          wait_for_build windows-build.yml windows \
-            '^fastflowlm-windows-[0-9a-f]+$' '^HRX-fastflowlm-windows-[0-9a-f]+$' \
-            '^models-from-source-fastflowlm-windows-[0-9a-f]+$' \
-            'windows_models_from_source_ready' 'Windows models-from-source portable' \
-            || echo "Windows build unavailable."
+      - name: Resolve the Windows portable builds
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ needs.resolve-source.outputs.mode }}
+          RELEASE_TAG: ${{ needs.resolve-source.outputs.release_tag }}
+          CANDIDATE_SHAS: ${{ github.event.pull_request.head.sha }} ${{ github.sha }}
+          # The build itself takes ~30 min, but both portable jobs share one
+          # self-hosted runner and queue behind other PRs' builds, which has
+          # pushed a run past 85 min. Waiting longer only costs hosted-runner
+          # time; giving up skips the Windows sweep entirely.
+          FINISH_MINUTES: "180"
+        run: bash .github/script/resolve_build.sh windows
 
   sweep-linux:
-    needs: resolve-build
+    needs: resolve-linux
     # Unset when no Linux build could be resolved, whichever mode we are in.
-    if: needs.resolve-build.outputs.linux_ready == 'true'
+    if: needs.resolve-linux.outputs.ready == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 120
 
@@ -322,15 +240,15 @@ jobs:
       # fastflowlm_<version>_linux.tar.gz in build-artifact/, so the unpack
       # step below does not care which one it was.
 
-      # Pinned to the exact run that resolve-build confirmed, so this cannot
+      # Pinned to the exact run that resolve-linux confirmed, so this cannot
       # resolve to an older green build of the same branch. The artifact is
       # named "portable" and holds a single tarball.
       - name: Download Linux portable build (CI run)
-        if: needs.resolve-build.outputs.mode == 'run'
+        if: needs.resolve-linux.outputs.mode == 'run'
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.linux_run_id }}
+          run_id: ${{ needs.resolve-linux.outputs.run_id }}
           name: portable
           path: build-artifact
           if_no_artifact_found: fail
@@ -339,12 +257,12 @@ jobs:
       # runner beyond the node the runner already ships. extract stays off:
       # the unpack step below handles the tarball, and it also has to handle
       # the CI-artifact case.
-      - name: Download Linux portable build (release ${{ needs.resolve-build.outputs.release_tag }})
-        if: needs.resolve-build.outputs.mode == 'release'
+      - name: Download Linux portable build (release ${{ needs.resolve-linux.outputs.release_tag }})
+        if: needs.resolve-linux.outputs.mode == 'release'
         uses: robinraju/release-downloader@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ needs.resolve-build.outputs.release_tag }}
+          tag: ${{ needs.resolve-linux.outputs.release_tag }}
           fileName: "fastflowlm_*_linux.tar.gz"
           out-file-path: build-artifact
 
@@ -400,8 +318,8 @@ jobs:
           retention-days: 30
 
   sweep-linux-models-from-source:
-    needs: resolve-build
-    if: needs.resolve-build.outputs.linux_models_from_source_ready == 'true'
+    needs: resolve-linux
+    if: needs.resolve-linux.outputs.models_from_source_ready == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 60
 
@@ -424,7 +342,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.linux_run_id }}
+          run_id: ${{ needs.resolve-linux.outputs.run_id }}
           name: models-from-source-portable
           path: build-artifact
           if_no_artifact_found: fail
@@ -477,13 +395,13 @@ jobs:
           retention-days: 30
 
   # The Linux sweep again, against the HRX build. "Build Linux Portable"
-  # produces both from the same run, so this shares linux_run_id with
+  # produces both from the same run, so this shares its run id with
   # sweep-linux but has its own readiness flag: whichever of the two builds
   # succeeded gets swept, independently of the other.
   sweep-linux-hrx:
-    needs: resolve-build
+    needs: resolve-linux
     # Unset when no Linux HRX build could be resolved, whichever mode we are in.
-    if: needs.resolve-build.outputs.linux_hrx_ready == 'true'
+    if: needs.resolve-linux.outputs.hrx_ready == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 120
 
@@ -518,21 +436,21 @@ jobs:
       # Same shape as the default artifact, under the HRX- name and holding a
       # single HRX_-prefixed tarball.
       - name: Download Linux HRX portable build (CI run)
-        if: needs.resolve-build.outputs.mode == 'run'
+        if: needs.resolve-linux.outputs.mode == 'run'
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.linux_run_id }}
+          run_id: ${{ needs.resolve-linux.outputs.run_id }}
           name: HRX-portable
           path: build-artifact
           if_no_artifact_found: fail
 
-      - name: Download Linux HRX portable build (release ${{ needs.resolve-build.outputs.release_tag }})
-        if: needs.resolve-build.outputs.mode == 'release'
+      - name: Download Linux HRX portable build (release ${{ needs.resolve-linux.outputs.release_tag }})
+        if: needs.resolve-linux.outputs.mode == 'release'
         uses: robinraju/release-downloader@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ needs.resolve-build.outputs.release_tag }}
+          tag: ${{ needs.resolve-linux.outputs.release_tag }}
           fileName: "HRX_fastflowlm_*_linux.tar.gz"
           out-file-path: build-artifact
 
@@ -586,9 +504,9 @@ jobs:
           retention-days: 30
 
   sweep-windows:
-    needs: resolve-build
+    needs: resolve-windows
     # Unset when no Windows build could be resolved, whichever mode we are in.
-    if: needs.resolve-build.outputs.windows_ready == 'true'
+    if: needs.resolve-windows.outputs.ready == 'true'
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 120
 
@@ -627,14 +545,14 @@ jobs:
 
       # "Build Windows Packages" publishes the portable payload under
       # fastflowlm-windows-<sha>. Both workflows run off the same event, so
-      # github.sha matches; the run id from resolve-build pins which run it
+      # github.sha matches; the run id from resolve-windows pins which run it
       # comes from.
       - name: Download Windows portable build (CI run)
-        if: needs.resolve-build.outputs.mode == 'run'
+        if: needs.resolve-windows.outputs.mode == 'run'
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.windows_run_id }}
+          run_id: ${{ needs.resolve-windows.outputs.run_id }}
           name: fastflowlm-windows-${{ github.sha }}
           path: flm-windows
           if_no_artifact_found: fail
@@ -642,12 +560,12 @@ jobs:
       # The release zip is that same artifact's contents zipped from inside the
       # directory, so extracting it in place reproduces the CI layout. The zip
       # itself stays alongside, which is harmless.
-      - name: Download Windows portable build (release ${{ needs.resolve-build.outputs.release_tag }})
-        if: needs.resolve-build.outputs.mode == 'release'
+      - name: Download Windows portable build (release ${{ needs.resolve-windows.outputs.release_tag }})
+        if: needs.resolve-windows.outputs.mode == 'release'
         uses: robinraju/release-downloader@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ needs.resolve-build.outputs.release_tag }}
+          tag: ${{ needs.resolve-windows.outputs.release_tag }}
           fileName: "fastflowlm_*_windows_amd64.zip"
           out-file-path: flm-windows
           extract: true
@@ -698,8 +616,8 @@ jobs:
           retention-days: 30
 
   sweep-windows-models-from-source:
-    needs: resolve-build
-    if: needs.resolve-build.outputs.windows_models_from_source_ready == 'true'
+    needs: resolve-windows
+    if: needs.resolve-windows.outputs.models_from_source_ready == 'true'
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 60
 
@@ -726,7 +644,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.windows_run_id }}
+          run_id: ${{ needs.resolve-windows.outputs.run_id }}
           name: models-from-source-fastflowlm-windows-${{ github.sha }}
           path: flm-windows-models-from-source
           if_no_artifact_found: fail
@@ -776,12 +694,12 @@ jobs:
           retention-days: 30
 
   # The Windows sweep again, against the HRX build. "Build Windows Packages"
-  # produces both from the same run, so this shares windows_run_id with
+  # produces both from the same run, so this shares its run id with
   # sweep-windows but has its own readiness flag.
   sweep-windows-hrx:
-    needs: resolve-build
+    needs: resolve-windows
     # Unset when no Windows HRX build could be resolved, whichever mode we are in.
-    if: needs.resolve-build.outputs.windows_hrx_ready == 'true'
+    if: needs.resolve-windows.outputs.hrx_ready == 'true'
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 120
 
@@ -820,23 +738,23 @@ jobs:
       # prefixed name: flm.exe and its DLLs at the top level, with the HRX op
       # libraries and hrx.dll overlaid.
       - name: Download Windows HRX portable build (CI run)
-        if: needs.resolve-build.outputs.mode == 'run'
+        if: needs.resolve-windows.outputs.mode == 'run'
         uses: dawidd6/action-download-artifact@v25
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ needs.resolve-build.outputs.windows_run_id }}
+          run_id: ${{ needs.resolve-windows.outputs.run_id }}
           name: HRX-fastflowlm-windows-${{ github.sha }}
           path: flm-windows
           if_no_artifact_found: fail
 
       # The HRX release zip is that same artifact zipped from inside the
       # directory, so extracting it in place reproduces the CI layout.
-      - name: Download Windows HRX portable build (release ${{ needs.resolve-build.outputs.release_tag }})
-        if: needs.resolve-build.outputs.mode == 'release'
+      - name: Download Windows HRX portable build (release ${{ needs.resolve-windows.outputs.release_tag }})
+        if: needs.resolve-windows.outputs.mode == 'release'
         uses: robinraju/release-downloader@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ needs.resolve-build.outputs.release_tag }}
+          tag: ${{ needs.resolve-windows.outputs.release_tag }}
           fileName: "HRX_fastflowlm_*_windows_amd64.zip"
           out-file-path: flm-windows
           extract: true

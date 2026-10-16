@@ -49,7 +49,6 @@ LDFLAGS += -lgemma4e_npu
 # modeling_gemma4e.cpp serves both wrappers, so both engines must be linked.
 LDFLAGS += -lgemma4e_flash
 LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
-LDFLAGS += -lfftw3f
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

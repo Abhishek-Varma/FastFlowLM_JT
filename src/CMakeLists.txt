@@ -51,16 +51,16 @@ option(FLM_PORTABLE_BUILD "Build portable distribution with bundled runtime libr
 # Where the kernels come from. FastFlowLM's own flow and ryzenai-corelib share
 # no engine, so a build links one or the other; this option is not an extra.
 # It also fixes the NPU generation the build targets -- see utils/npu_platform.hpp.
-option(FLM_ENABLE_RAI
+option(FLM_ENABLE_CORE
        "Reach kernels through ryzenai-corelib instead of FastFlowLM's own flow" OFF)
 
-if(FLM_ENABLE_RAI)
+if(FLM_ENABLE_CORE)
     # The corelib prefix lives outside this repository, so its headers have to
     # be found rather than assumed. The hints mirror the library lookup below:
     # a header tree vendored into include/ wins, then a prefix named by
     # RYZENAI_CORELIB_ROOT, and failing both the standard CMake search still
     # honours CMAKE_PREFIX_PATH. Without the hints every configure has to be
-    # handed a prefix on the command line, which is the only reason the rai
+    # handed a prefix on the command line, which is the only reason the core
     # build ever needed an environment variable.
     find_path(RYZENAI_CORELIB_INCLUDE_DIR NAMES ryzenai/corelib.h
         HINTS "${CMAKE_SOURCE_DIR}/include"
@@ -83,10 +83,10 @@ if(FLM_ENABLE_RAI)
     # XRT's xrt/detail/any.h selects boost::any over std::any whenever
     # __cplusplus reads below 201703L. MSVC reports 199711L regardless of /std
     # unless it is handed /Zc:__cplusplus, so a Windows build has to supply
-    # Boost headers that nothing else on the rai path wants. GCC and Clang
+    # Boost headers that nothing else on the core path wants. GCC and Clang
     # report C++20 honestly, so that branch is never taken there and there is
     # nothing to find -- which is why this is a Windows-only lookup rather than
-    # a dependency of the rai backend.
+    # a dependency of the core backend.
     if(WIN32)
         find_path(FLM_CORELIB_BOOST_INCLUDE_DIR NAMES boost/any.hpp
             HINTS "$ENV{CONDA_PREFIX}/Library/include"
@@ -300,9 +300,9 @@ include("${CMAKE_SOURCE_DIR}/common/chat/chat_sources.cmake")
 # ———————————————————————————————————————————————
 file(GLOB SOURCES "src/*.cpp" "runner/*.cpp" "common/*.cpp" "common/*/*.cpp" "server/*.cpp" "pull/*.cpp" )
 file(GLOB HEADERS "include/*.hpp" "runner/*.hpp" "common/*.hpp" "common/*/*.hpp" "server/*.hpp" "pull/*.hpp")
-list(FILTER SOURCES EXCLUDE REGEX ".*/common/rai/.*\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX ".*/common/core/.*\\.cpp$")
 
-# Model sources live two levels deeper than the globs above reach. Only the rai
+# Model sources live two levels deeper than the globs above reach. Only the core
 # half exists as loose sources; it is built separately, below.
 
 # Exclude files that depend on missing libraries for Linux
@@ -331,39 +331,101 @@ if(NOT WIN32)
 
     # Define a macro to indicate limited model support on Linux
     # add_compile_definitions(FASTFLOWLM_LINUX_LIMITED_MODELS=1)
+else()
+    # Windows cl and clang-cl need the ISA named on these files, and clang-cl
+    # ignores the GCC -m flags.
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/common/image_process_utils/imageprocAVX512.cpp
+        ${CMAKE_SOURCE_DIR}/common/audio_process_utils/audioprocAVX512.cpp
+        PROPERTIES
+        COMPILE_OPTIONS "/arch:AVX512"
+    )
 endif()
 
 
 add_executable(flm ${SOURCES} ${HEADERS})
 
-if(FLM_ENABLE_RAI)
-    include("${CMAKE_SOURCE_DIR}/common/rai/rai_sources.cmake")
-    add_library(flm_rai STATIC ${FLM_RAI_SOURCES})
-    target_include_directories(flm_rai PUBLIC
+if(FLM_ENABLE_CORE)
+    include("${CMAKE_SOURCE_DIR}/common/core/core_sources.cmake")
+    add_library(flm_core STATIC ${FLM_CORE_SOURCES})
+    target_include_directories(flm_core PUBLIC
         "${CMAKE_SOURCE_DIR}/include" "${RYZENAI_CORELIB_INCLUDE_DIR}")
     # XRT headers come from whichever discovery above succeeded: pkg-config sets
     # XRT_INCLUDE_DIRS, the Windows and /opt/xilinx fallbacks set the singular
     # XRT_INCLUDE_DIR. Same choice the flm target makes below -- naming only the
-    # singular one here left flm_rai with no XRT headers at all on Linux.
+    # singular one here left flm_core with no XRT headers at all on Linux.
     if(NOT WIN32 AND XRT_FOUND)
-        target_include_directories(flm_rai PUBLIC ${XRT_INCLUDE_DIRS})
+        target_include_directories(flm_core PUBLIC ${XRT_INCLUDE_DIRS})
     else()
-        target_include_directories(flm_rai PUBLIC ${XRT_INCLUDE_DIR})
+        target_include_directories(flm_core PUBLIC ${XRT_INCLUDE_DIR})
     endif()
     # Only Windows looks this one up; see the find_path above for why.
     if(FLM_CORELIB_BOOST_INCLUDE_DIR)
-        target_include_directories(flm_rai PUBLIC "${FLM_CORELIB_BOOST_INCLUDE_DIR}")
+        target_include_directories(flm_core PUBLIC "${FLM_CORELIB_BOOST_INCLUDE_DIR}")
     endif()
     # RYZENAI_CORELIB_STATIC drops the vendor header's dllimport decoration;
     # FLM_CORELIB_LINK_STATIC is what tells our own code the symbols are linked
     # in and must be bound directly instead of through LoadLibrary/dlopen.
-    target_compile_definitions(flm_rai PUBLIC
-        FLM_ENABLE_RAI=1 RYZENAI_CORELIB_STATIC=1 FLM_CORELIB_LINK_STATIC=1)
+    target_compile_definitions(flm_core PUBLIC
+        FLM_ENABLE_CORE=1 RYZENAI_CORELIB_STATIC=1 FLM_CORELIB_LINK_STATIC=1)
     # CMAKE_DL_LIBS is -ldl on Linux and empty on Windows: corelib_api.cpp still
     # compiles its dlopen path in a statically linked build, so the symbols have
     # to resolve even though nothing calls them here.
-    target_link_libraries(flm_rai PUBLIC "${RYZENAI_CORELIB_LIBRARY}" ${CMAKE_DL_LIBS})
-    target_link_libraries(flm PRIVATE flm_rai)
+    target_link_libraries(flm_core PUBLIC "${RYZENAI_CORELIB_LIBRARY}" ${CMAKE_DL_LIBS})
+    target_link_libraries(flm PRIVATE flm_core)
+    # corelib loads each ryzenai_corelib_model_<name>.dll, which carries that
+    # model's kernels, only from the directory ryzenai_corelib.dll itself was
+    # loaded from, so both have to land beside flm.exe.
+    if(WIN32)
+        get_filename_component(FLM_CORELIB_LIB_DIR "${RYZENAI_CORELIB_LIBRARY}" DIRECTORY)
+        file(GLOB FLM_CORELIB_RUNTIME_DLLS
+            "${FLM_CORELIB_LIB_DIR}/../bin/ryzenai_corelib.dll"
+            "${FLM_CORELIB_LIB_DIR}/../bin/ryzenai_corelib_model_*.dll")
+        list(FILTER FLM_CORELIB_RUNTIME_DLLS EXCLUDE REGEX "ryzenai_corelib_model_dummy\\.dll$")
+        if(FLM_CORELIB_RUNTIME_DLLS)
+            add_custom_command(TARGET flm POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${FLM_CORELIB_RUNTIME_DLLS} $<TARGET_FILE_DIR:flm>)
+        else()
+            message(WARNING "No ryzenai_corelib DLLs under ${FLM_CORELIB_LIB_DIR}/../bin; "
+                            "copy them beside flm.exe by hand")
+        endif()
+    endif()
+endif()
+
+# ———————————————————————————————————————————————
+# Opt-in Windows dependency prefix.
+#
+# Windows otherwise has exactly two routes for Boost/curl/FFmpeg: a vcpkg
+# toolchain, or the bare CI runner's hardcoded C:/dev paths and CI-specific
+# library names. A developer box with neither can point this at one prefix
+# laid out as <prefix>/include + <prefix>/lib -- in practice a conda env's
+# Library dir (conda-forge boost, libcurl, ffmpeg) -- and each block that
+# applies the CI runner's include dirs, definitions, link dirs and library
+# names switches to it.
+# Empty (the default) leaves both existing routes exactly as they were.
+# ———————————————————————————————————————————————
+set(FLM_WIN_DEPS_PREFIX "" CACHE PATH
+    "Windows only: take Boost/curl/FFmpeg from <prefix>/include and <prefix>/lib (e.g. a conda env's Library dir) instead of the CI runner's C:/dev paths")
+if(FLM_WIN_DEPS_PREFIX)
+    if(NOT WIN32)
+        message(FATAL_ERROR "FLM_WIN_DEPS_PREFIX is a Windows-only route")
+    endif()
+    if(VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR "FLM_WIN_DEPS_PREFIX and a vcpkg toolchain are two "
+                            "different dependency routes; use one")
+    endif()
+    # The library names a conda-forge Library dir ships: unversioned Boost and
+    # curl import libs (both are DLL builds), FFmpeg import libs.
+    set(FLM_WIN_DEPS_PREFIX_LIBS
+        avformat avcodec avutil swscale swresample libcurl boost_program_options)
+    foreach(_flm_dep IN LISTS FLM_WIN_DEPS_PREFIX_LIBS)
+        if(NOT EXISTS "${FLM_WIN_DEPS_PREFIX}/lib/${_flm_dep}.lib")
+            message(FATAL_ERROR "FLM_WIN_DEPS_PREFIX: missing "
+                                "${FLM_WIN_DEPS_PREFIX}/lib/${_flm_dep}.lib")
+        endif()
+    endforeach()
+    message(STATUS "Windows deps from prefix: ${FLM_WIN_DEPS_PREFIX}")
 endif()
 
 if(WIN32)
@@ -372,30 +434,26 @@ if(WIN32)
         # a local CMakePresets build): the vcpkg tree ships CMake package configs,
         # so resolve the native deps in CONFIG mode. find_package auto-detects the
         # correct versioned import-lib names, so this works regardless of the
-        # installed Boost/FFTW versions.
+        # installed Boost version.
         find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
         find_package(CURL CONFIG REQUIRED)
         find_package(FFMPEG REQUIRED)
-        find_package(FFTW3 CONFIG REQUIRED)
-        find_package(FFTW3f CONFIG REQUIRED)
-        find_package(FFTW3l CONFIG REQUIRED)
     endif()
+    # A third, opt-in route (FLM_WIN_DEPS_PREFIX, declared above) takes Boost,
+    # curl and FFmpeg from one local prefix, wired next to each CI-runner block.
     # Otherwise (the bare self-hosted CI runner) there is no vcpkg toolchain and
     # no Boost in vcpkg: Boost is a standalone b2 build under C:/dev/boost_1_88_0
-    # and curl/ffmpeg/fftw are linked by raw name from the vcpkg lib dir. That
+    # and curl/ffmpeg are linked by raw name from the vcpkg lib dir. That
     # path is wired via the include/link dirs and raw library names guarded by
     # NOT VCPKG_TOOLCHAIN below.
 else()
     find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
     # The Linux build environment installs these via apt, which provides the
     # CMake FindCURL module and pkg-config files rather than CMake package
-    # configs. Resolve CURL via the module and FFmpeg/FFTW via pkg-config.
+    # configs. Resolve CURL via the module and FFmpeg via pkg-config.
     find_package(CURL REQUIRED)
     find_package(Threads REQUIRED)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(FFTW3 REQUIRED IMPORTED_TARGET fftw3)
-    pkg_check_modules(FFTW3F REQUIRED IMPORTED_TARGET fftw3f)
-    pkg_check_modules(FFTW3L REQUIRED IMPORTED_TARGET fftw3l)
     # Portable builds link FFmpeg statically (built from source above), so the
     # system FFmpeg is only resolved via pkg-config for non-portable builds.
     if(NOT FFMPEG_BUILT_FROM_SOURCE)
@@ -431,12 +489,14 @@ if(NOT FLM_USE_HRX)
     endif()
 endif()
 
-if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+if(WIN32 AND NOT VCPKG_TOOLCHAIN AND NOT FLM_WIN_DEPS_PREFIX)
     # Bare CI runner: standalone Boost + vcpkg headers by absolute path.
     target_include_directories(flm PUBLIC
         C:/dev/boost_1_88_0
         C:/dev/vcpkg/installed/x64-windows/include/
     )
+elseif(FLM_WIN_DEPS_PREFIX)
+    target_include_directories(flm PUBLIC "${FLM_WIN_DEPS_PREFIX}/include")
 endif()
 
 target_compile_definitions(flm PUBLIC
@@ -463,18 +523,27 @@ if(WIN32)
     )
 endif()
 
-if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+if(WIN32 AND NOT VCPKG_TOOLCHAIN AND NOT FLM_WIN_DEPS_PREFIX)
     # Bare CI runner: statically link the standalone Boost + curl.
     target_compile_definitions(flm PUBLIC
         CURL_STATICLIB
         BOOST_ALL_NO_LIB
         BOOST_ALL_STATIC_LINK
     )
+elseif(FLM_WIN_DEPS_PREFIX)
+    # conda-forge Boost and curl are DLL builds. program_options exports data
+    # (boost::program_options::arg, options_description::m_default_line_length)
+    # that only resolves through dllimport, so BOOST_ALL_STATIC_LINK would leave
+    # it unresolved at link time; CURL_STATICLIB would mis-declare curl likewise.
+    target_compile_definitions(flm PUBLIC
+        BOOST_ALL_NO_LIB
+        BOOST_ALL_DYN_LINK
+    )
 endif()
 
 target_link_directories(flm PUBLIC
     ${FLM_ENGINE_LIB_DIR}       # per-backend prebuilt engine libs (lib/xrt or lib/hrx)
-    ${CMAKE_SOURCE_DIR}/lib     # shared third-party runtime libs (ffmpeg/curl/fftw/... on Windows)
+    ${CMAKE_SOURCE_DIR}/lib     # shared third-party runtime libs (ffmpeg/curl/... on Windows)
     ${FFMPEG_LIBRARY_DIRS}
 )
 
@@ -487,12 +556,14 @@ if(NOT FLM_USE_HRX)
     endif()
 endif()
 
-if(WIN32 AND NOT VCPKG_TOOLCHAIN)
+if(WIN32 AND NOT VCPKG_TOOLCHAIN AND NOT FLM_WIN_DEPS_PREFIX)
     # Bare CI runner: standalone Boost stage libs + vcpkg import libs.
     target_link_directories(flm PUBLIC
         C:/dev/boost_1_88_0/stage/lib
         C:/dev/vcpkg/installed/x64-windows/lib
     )
+elseif(FLM_WIN_DEPS_PREFIX)
+    target_link_directories(flm PUBLIC "${FLM_WIN_DEPS_PREFIX}/lib")
 endif()
 
 # Link static libraries first
@@ -607,9 +678,11 @@ if(WIN32 AND VCPKG_TOOLCHAIN)
         ${FFMPEG_LIBRARIES}
         Boost::program_options
         CURL::libcurl
-        FFTW3::fftw3
-        FFTW3::fftw3f
-        FFTW3::fftw3l
+    )
+elseif(WIN32 AND FLM_WIN_DEPS_PREFIX)
+    # Local prefix: the names it ships (checked at configure time above).
+    target_link_libraries(flm PUBLIC
+        ${FLM_WIN_DEPS_PREFIX_LIBS}
     )
 elseif(WIN32)
     # Bare CI runner: link the native deps by raw name from the standalone Boost
@@ -622,9 +695,6 @@ elseif(WIN32)
         swresample
         libcurl
         libboost_program_options-vc143-mt-x64-1_88
-        libfftw3-3
-        libfftw3f-3
-        libfftw3l-3
     )
 elseif(FFMPEG_BUILT_FROM_SOURCE)
     # Portable Linux: link the static FFmpeg archives built above (plus zlib) so
@@ -643,18 +713,12 @@ elseif(FFMPEG_BUILT_FROM_SOURCE)
         ${_flm_zlib_lib}
         Boost::program_options
         CURL::libcurl
-        PkgConfig::FFTW3
-        PkgConfig::FFTW3F
-        PkgConfig::FFTW3L
     )
 else()
     target_link_libraries(flm PUBLIC
         ${FFMPEG_LIBRARIES}
         Boost::program_options
         CURL::libcurl
-        PkgConfig::FFTW3
-        PkgConfig::FFTW3F
-        PkgConfig::FFTW3L
     )
 endif()
 
@@ -670,6 +734,10 @@ if(NOT WIN32)
 
     # Link with dl library for dlopen() support (used for preloading bundled libraries)
     target_link_libraries(flm PUBLIC dl)
+else()
+    # cl and clang-cl ignore -mavx -mavx2. /arch:AVX2 is the matching flag for
+    # the rest of flm.
+    target_compile_options(flm PUBLIC /arch:AVX2)
 endif()
 
 # ———————————————————————————————————————————————
@@ -864,9 +932,8 @@ elseif(NOT FLM_USE_HRX AND FLM_PORTABLE_BUILD)
     # as $XILINX_XRT/lib/x86_64-linux-gnu/<lib>. Those are invisible to
     # file(GET_RUNTIME_DEPENDENCIES), so copy the whole libxrt*.so* set (plus
     # boost_program_options), re-root each real lib at $ORIGIN, and mirror them
-    # under lib/x86_64-linux-gnu for XRT's internal lookup. FFTW is bundled the
-    # same way just below. Other shared deps (libcurl, libgomp, ...) resolve from
-    # the host.
+    # under lib/x86_64-linux-gnu for XRT's internal lookup. Other shared deps
+    # (libcurl, libgomp, ...) resolve from the host.
     install(TARGETS flm RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
     find_program(PATCHELF_EXECUTABLE patchelf REQUIRED)
     install(CODE "
@@ -941,37 +1008,6 @@ elseif(NOT FLM_USE_HRX AND FLM_PORTABLE_BUILD)
             endif()
         endforeach()
     ")
-    # Bundle FFTW so the portable tree does not depend on libfftw3 on the host.
-    install(CODE "
-        set(_flm_libdir \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
-        set(_flm_fftw_files \"\")
-        foreach(_dir \"${_flm_rt_dep_dir}\" \"/usr/lib/x86_64-linux-gnu\" \"/usr/lib\")
-            if(_dir)
-                file(GLOB _dir_fftw \"\${_dir}/libfftw3*.so*\")
-                list(APPEND _flm_fftw_files \${_dir_fftw})
-            endif()
-        endforeach()
-        foreach(_f \${_flm_fftw_files})
-            get_filename_component(_n \"\${_f}\" NAME)
-            if(IS_SYMLINK \"\${_f}\")
-                file(READ_SYMLINK \"\${_f}\" _t)
-                execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink
-                    \"\${_t}\" \"\${_flm_libdir}/\${_n}\")
-            else()
-                file(COPY \"\${_f}\" DESTINATION \"\${_flm_libdir}\"
-                    FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-                                     GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
-            endif()
-        endforeach()
-        file(GLOB _flm_fftw_real \"\${_flm_libdir}/libfftw3*.so.*\")
-        foreach(_l \${_flm_fftw_real})
-            if(NOT IS_SYMLINK \"\${_l}\")
-                execute_process(
-                    COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \"\$ORIGIN\" \"\${_l}\"
-                    RESULT_VARIABLE _rc)
-            endif()
-        endforeach()
-    ")
 elseif(NOT FLM_USE_HRX)
     # System XRT (.deb): XRT is an external dependency (the libxrt-npu2 package)
     # and flm's other shared libraries are resolved from the system via
@@ -1034,10 +1070,12 @@ install(FILES model_list.json DESTINATION "${FLM_SHARE_DESTINATION}")
 install(FILES model_info.json DESTINATION "${FLM_SHARE_DESTINATION}")
 
 # Ship both licenses with the binaries; LICENSE_BINARY.txt must accompany any
-# redistribution of the NPU kernels and engine libraries.
+# redistribution of the NPU kernels and engine libraries. THIRD_PARTY_NOTICES.txt
+# carries the notices for bundled and statically linked third-party code.
 install(FILES
     ${CMAKE_SOURCE_DIR}/../LICENSE_RUNTIME.txt
     ${CMAKE_SOURCE_DIR}/../LICENSE_BINARY.txt
+    ${CMAKE_SOURCE_DIR}/../THIRD_PARTY_NOTICES.txt
     DESTINATION "${FLM_SHARE_DESTINATION}")
 
 # xclbins, which are loaded by shared libraries need to be in location

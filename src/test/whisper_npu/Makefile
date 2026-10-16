@@ -35,7 +35,6 @@ ifeq ($(WSL), 0)
 # Use g++-13 directly without CMake
 
 LDFLAGS += -lwhisper_npu
-LDFLAGS += -lfftw3 -lfftw3f -lfftw3l
 LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
 
 

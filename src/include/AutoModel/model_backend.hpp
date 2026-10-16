@@ -1,7 +1,7 @@
 /// \file model_backend.hpp
 /// \brief Named execution backends for a model family
 /// \note A backend names *where the kernels come from*, not which silicon runs
-///       them: `flm` is FastFlowLM's own kernel flow, `rai` reaches them
+///       them: `flm` is FastFlowLM's own kernel flow, `core` reaches them
 ///       through ryzenai-corelib. Both are causal_lm subclasses, but they
 ///       differ in how they are built and in how they must be driven. A
 ///       ModelBackend owns one engine and states those differences, so the
@@ -9,9 +9,9 @@
 /// \note A backend id is *not* a platform id. Which generation the machine is
 ///       is utils::npu_platform's job, and one binary may carry several kernel
 ///       flows at once. Which flow runs a model is a property of the model:
-///       the weights differ -- NPU2/Q4NX for flm, a Q8_0 GGUF for rai -- so a
+///       the weights differ -- NPU2/Q4NX for flm, a Q8_0 GGUF for core -- so a
 ///       model is packaged, tagged and pulled once per flow, and the tag says
-///       which (kRaiFamilySuffix). The catalog's supported_platforms key
+///       which (kCoreFamilySuffix). The catalog's supported_platforms key
 ///       answers the other question, about the silicon.
 /// \note This seam deliberately sits *above* causal_lm. The engine libraries in
 ///       src/lib/<runtime> are prebuilt against causal_lm.hpp, so that header is
@@ -42,10 +42,10 @@ namespace flm::backend {
 inline constexpr const char* kFlmBackendId = "flm";
 
 /// \brief kernels reached through ryzenai-corelib
-/// \note Only compiled in when FLM_ENABLE_RAI is on, and only for families that
-///       have a corelib engine. It is added to a build, never swapped in: a rai
+/// \note Only compiled in when FLM_ENABLE_CORE is on, and only for families that
+///       have a corelib engine. It is added to a build, never swapped in: a core
 ///       build still runs every flm model with the flm kernels.
-inline constexpr const char* kRaiBackendId = "rai";
+inline constexpr const char* kCoreBackendId = "core";
 
 /// \brief the entry key naming the kernel flow an entry's artifacts need
 /// \note Written onto the entry by model_list, which derives it from the tag,
@@ -60,7 +60,7 @@ inline constexpr const char* kBackendKey = "backend";
 ///       a different tag to ask for. model_list::backend_for_family is where
 ///       this is applied; it is spelled out here so the two ids and the rule
 ///       that picks between them sit together.
-inline constexpr const char* kRaiFamilySuffix = "-rai";
+inline constexpr const char* kCoreFamilySuffix = "-core";
 
 /// \brief everything a backend factory needs to build its engine
 /// \note Assembled by the frontend once the shared model state is initialized,
@@ -117,9 +117,17 @@ public:
     virtual bool supports_preemption() const { return true; }
 
     /// \brief whether the engine wants one more forward() after an EOS token
-    /// \note The flm engines use it to keep their KV cache in step; the rai
+    /// \note The flm engines use it to keep their KV cache in step; the core
     ///       engines reject a decode past corelib's own limit, so they opt out.
     virtual bool forwards_past_eos() const { return true; }
+
+    /// \brief whether prefill chunks should end on multiples of the chunk
+    ///        length counted from position 0, rather than from the turn's start
+    /// \note corelib runs a pass that starts on a 4096-row page boundary as
+    ///       whole pages on the NPU, and one starting inside a page partly on
+    ///       the host, so its paged models want every chunk but a turn's first
+    ///       to start on a boundary.
+    virtual bool aligns_prefill_chunks() const { return false; }
 
     /// \brief whether the engine has failed in a way that needs a full reload
     virtual bool poisoned() const noexcept { return false; }

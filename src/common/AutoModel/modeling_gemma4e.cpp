@@ -19,12 +19,12 @@ template <typename EngineT>
 static gemma4e_engine_config_t read_gemma4e_engine_config(causal_lm* engine) {
     EngineT* e = dynamic_cast<EngineT*>(engine);
     if (e == nullptr) {
-        // Reachable in Release with the rai engine, which has no vision or
+        // Reachable in Release with the core engine, which has no vision or
         // audio path.
         throw std::runtime_error(
             "engine_config() was called on a Gemma4e wrapper whose engine is "
             "not the expected type -- the vision and audio paths are not "
-            "available on this backend (rai runs text only)");
+            "available on this backend (core runs text only)");
     }
     return gemma4e_engine_config_t{
         e->GEMMA4E_VISION_PATCH_SIZE,

@@ -318,7 +318,7 @@ public:
 	///        does not preserve context across turns (e.g. qwen3vl_flash).
 	bool single_turn = false;
 
-	virtual ~AutoModel() = default;
+	virtual ~AutoModel();
 
 	AutoModel(flm_rt::device* npu_device_inst, std::string current_model = "");
 

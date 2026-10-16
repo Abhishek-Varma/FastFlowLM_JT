@@ -357,11 +357,12 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
         this->ctx_length = -1;
     }
     if (args.prefill_chunk_len != -1) {
-        this->prefill_chunk_len = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
+        this->prefill_chunk_len_arg = args.prefill_chunk_len >= 512 ? args.prefill_chunk_len : 512;
     }
     else {
-        this->prefill_chunk_len = -1;
+        this->prefill_chunk_len_arg = -1;
     }
+    this->prefill_chunk_len = this->prefill_chunk_len_arg;
     
     // Initialize chat bot with default model
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
@@ -406,7 +407,7 @@ RestHandler::~RestHandler() = default;
 bool RestHandler::ensure_model_loaded(const std::string& model_tag,
                                       const std::string& request_backend) {
     // Refuse a name the catalog does not have before anything resolves it;
-    // an unknown name used to load a substitute model (and on aie_next could
+    // an unknown name used to load a substitute model (and on dev04 could
     // end the process). Checked after rectify_model_tag, as get_model_info
     // does, so "Ollama/<tag>" and bare family names still resolve.
     // "model-faker" means no model was chosen.
@@ -418,54 +419,70 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag,
         return false;
     }
 
+    // Nothing was chosen, so there is nothing to load; succeed only if a
+    // model is in fact loaded.
+    if (model_tag == "model-faker") {
+        return auto_chat_engine != nullptr;
+    }
+
     // A per-request "backend" overrides --backend; either one differing from
     // what is loaded forces a reload, exactly as a different model tag does.
     const std::string requested_backend =
         request_backend.empty() ? this->backend : request_backend;
-    std::string ensure_tag = model_tag;
-    if (current_model_tag != ensure_tag || current_backend != requested_backend) {
+    // Compared in its resolved form, which is what current_model_tag holds, so
+    // "llama3.2" or "Ollama/llama3.2:1b" does not reload llama3.2:1b each time.
+    const std::string resolved_tag = supported_models.rectify_model_tag(model_tag);
+    if (current_model_tag != resolved_tag || current_backend != requested_backend) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (auto_chat_engine != nullptr) {
-            auto_chat_engine.reset();
-        }
-        std::pair<std::string, std::unique_ptr<AutoModel>> auto_model = get_auto_model(ensure_tag, this->supported_models, this->npu_device_inst);
-        auto_chat_engine = std::move(auto_model.second);
-        auto_chat_engine->set_server_mode(true);
-        ensure_tag = auto_model.first;
-        switch (downloader.is_model_downloaded(ensure_tag, false, /*fast_check=*/true)) {
-            case ModelDownloader::ModelStatus::Ready:
-                break;
-            case ModelDownloader::ModelStatus::Outdated:
-            case ModelDownloader::ModelStatus::Missing:
-                downloader.pull_model(ensure_tag, this->modelscope);
-                break;
-            case ModelDownloader::ModelStatus::Incompatible:
-                return false;
-            }
-        auto [new_ensure_tag, model_info] = supported_models.get_model_info(ensure_tag);
-        auto_chat_engine->configure_parameter("img_pre_resize", this->img_pre_resize);
+        // The old model is released before the new one is built, so from here
+        // on nothing is loaded until the load below succeeds. Record that now:
+        // a failure must not leave the old tag naming an engine that is gone,
+        // or the next request for it would skip the reload and use that engine.
+        // The device is owned by main() and shared with every engine, so it is
+        // deliberately left alone; releasing the engine is what frees the
+        // hardware context.
+        this->auto_chat_engine.reset();
+        this->current_model_tag = "model-faker";
+        this->current_backend.clear();
+        // The cached conversation lived in the engine just released.
+        this->prompt_cache.reset();
         try {
+            auto [ensure_tag, engine] = get_auto_model(model_tag, this->supported_models, this->npu_device_inst);
+            switch (downloader.is_model_downloaded(ensure_tag, false, /*fast_check=*/true)) {
+                case ModelDownloader::ModelStatus::Ready:
+                    break;
+                case ModelDownloader::ModelStatus::Outdated:
+                case ModelDownloader::ModelStatus::Missing:
+                    if (!downloader.pull_model(ensure_tag, this->modelscope)) {
+                        throw std::runtime_error("failed to download " + ensure_tag);
+                    }
+                    break;
+                case ModelDownloader::ModelStatus::Incompatible:
+                    throw std::runtime_error(ensure_tag + " is incompatible with this version of FastFlowLM");
+            }
+            auto [new_ensure_tag, model_info] = supported_models.get_model_info(ensure_tag);
+            engine->set_server_mode(true);
+            engine->configure_parameter("img_pre_resize", this->img_pre_resize);
             const auto load_started = std::chrono::steady_clock::now();
-            auto_chat_engine->load_model(supported_models.get_model_path(new_ensure_tag), model_info, ctx_length, preemption, requested_backend);
+            engine->load_model(supported_models.get_model_path(new_ensure_tag), model_info, ctx_length, preemption, requested_backend);
             report_load_time(load_started);
+
+            // Per model, not per process: the flash models take 1024-token
+            // chunks and the rest 4096, so keeping the first model's value
+            // feeds every later model chunks sized for another one.
+            this->prefill_chunk_len = this->prefill_chunk_len_arg != -1
+                ? this->prefill_chunk_len_arg
+                : model_info["max_prefill_len"].get<int>();
+            this->auto_chat_engine = std::move(engine);
+            this->current_model_tag = ensure_tag;
+            this->current_backend = requested_backend;
         }
         catch (const std::exception& e) {
             header_print("ERROR", "Failed to load model: " + std::string(e.what()));
-            this->auto_chat_engine.reset();
-            // The device is owned by main() and shared with every engine, so it
-            // is deliberately left alone here; releasing the failed engine is
-            // what frees the hardware context.
-            this->current_model_tag = "model-faker";
             return false;
         }
-        
-        if (this->prefill_chunk_len == -1) {
-            this->prefill_chunk_len = model_info["max_prefill_len"].get<int>();;
-        }
-        current_model_tag = ensure_tag;
-        current_backend = requested_backend;
     }
-    return true;
+    return auto_chat_engine != nullptr;
 }
 
 ///@brief Ensure the asr model is loaded
@@ -1138,11 +1155,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                                                std::function<void(const json&)> send_response,
                                                StreamResponseCallback send_streaming_response,
                                                std::shared_ptr<CancellationToken> cancellation_token) {
-    static std::string model_used_for_last_message = "model-faker";
     try {
         // Extract OpenAI-style parameters
         json current_messages = request["messages"];
         std::string model = request.value("model", current_model_tag);
+        const std::string request_backend = request.value("backend", std::string());
         bool stream = request.value("stream", false);
         int length_limit = request.value("max_tokens", request.value("max_completion_tokens", 4096));
         json tools = request.value("tools", json::array());
@@ -1162,8 +1179,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         }
 
         auto load_start_time = time_utils::now();
-        // a request may name the backend to run on, see docs/instructions/cli.md
-        if (!ensure_model_loaded(model, request.value("backend", std::string()))) {
+        if (!ensure_model_loaded(model, request_backend)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
             send_response(error_response);
             return;
@@ -1196,12 +1212,10 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 return;
             }
         }
-        else if (model != model_used_for_last_message) { // switch models will clear context
-            this->prompt_cache.update_message_checksum(current_messages);
-            this->prompt_cache.update_tool_checksum(tools);
-            model_used_for_last_message = model;
-        }
         else {
+            // A model switch needs no case of its own: ensure_model_loaded
+            // resets the cache whenever it replaces the engine, so the first
+            // request on a new engine is a miss.
             cache_match_info_t cache_info;
             can_use_prompt_cache = prompt_cache.can_use_cache(current_messages, auto_chat_engine->get_chat_template_type(), tools, cache_info);
             if (can_use_prompt_cache) {
@@ -1482,6 +1496,7 @@ void RestHandler::handle_openai_completion(const json& request,
         // Extract OpenAI-style parameters
         std::string prompt = request["prompt"];
         std::string model = request.value("model", current_model_tag);
+        const std::string request_backend = request.value("backend", std::string());
         std::string reasoning_effort = request.value("reasoning_effort", "medium");
         bool stream = request.value("stream", false);
         json options = request.value("options", json::object());
@@ -1493,12 +1508,14 @@ void RestHandler::handle_openai_completion(const json& request,
        
         int length_limit = request.value("max_tokens", 4096);
 
-         // a request may name the backend to run on, see docs/instructions/cli.md
-        if (!ensure_model_loaded(model, request.value("backend", std::string()))) {
+        if (!ensure_model_loaded(model, request_backend)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
             send_response(error_response);
             return;
         }
+        // This shares the engine with /v1/chat/completions and replaces the
+        // conversation in it, so the chat cache no longer describes it.
+        this->prompt_cache.reset();
 
         configure_chat_engine_parameters(options, request);
 

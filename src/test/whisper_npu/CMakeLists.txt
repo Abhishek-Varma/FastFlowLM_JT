@@ -36,9 +36,6 @@ target_link_libraries(test_whisper_npu PUBLIC
     swresample
     zlib
     libboost_program_options-vc143-mt-x64-1_88
-    libfftw3-3
-    libfftw3f-3
-    libfftw3l-3
 )
 
 # Add test target

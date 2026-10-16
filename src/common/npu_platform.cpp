@@ -1,5 +1,5 @@
 /// \file npu_platform.cpp
-/// \brief which NPU generation this host has (aie2p vs aie_next)
+/// \brief which NPU generation this host has (aie2p vs dev04)
 #include "utils/npu_platform.hpp"
 
 namespace utils {
@@ -16,7 +16,7 @@ npu_platform get_device() {
 
 std::optional<npu_platform> parse_platform(std::string_view text) {
     if (text == platform_id(npu_platform::aie2p)) return npu_platform::aie2p;
-    if (text == platform_id(npu_platform::aie_next)) return npu_platform::aie_next;
+    if (text == platform_id(npu_platform::dev04)) return npu_platform::dev04;
     return std::nullopt;
 }
 

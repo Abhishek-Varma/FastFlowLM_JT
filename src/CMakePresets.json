@@ -5,7 +5,7 @@
       "name": "common-default",
       "hidden": true,
       "cacheVariables": {
-        "FLM_VERSION": "1.0.8",
+        "FLM_VERSION": "1.0.9",
         "NPU_VERSION": "32.0.203.304"
       }
     },
@@ -32,24 +32,24 @@
       }
     },
     {
-      "name": "linux-rai",
-      "displayName": "Linux RAI",
+      "name": "linux-core",
+      "displayName": "Linux Core",
       "description": "Linux build with statically linked ryzenai-corelib support",
       "inherits": "linux-default",
-      "binaryDir": "${sourceDir}/build-rai",
+      "binaryDir": "${sourceDir}/build-core",
       "cacheVariables": {
-        "FLM_ENABLE_RAI": "OFF",
+        "FLM_ENABLE_CORE": "OFF",
         "RYZENAI_CORELIB_INCLUDE_DIR": "$env{RYZENAI_CORELIB_INCLUDE_DIR}",
         "RYZENAI_CORELIB_LIBRARY": "$env{RYZENAI_CORELIB_LIBRARY}"
       }
     },
     {
-      "name": "linux-rai-on",
-      "displayName": "Linux RAI (enabled)",
+      "name": "linux-core-on",
+      "displayName": "Linux Core (enabled)",
       "description": "Linux build with the ryzenai-corelib kernel backend turned on. Builds into build/ like every other preset. Point it at a corelib prefix once with -DRYZENAI_CORELIB_ROOT=<prefix>, or drop the headers into include/ and libryzenai_corelib.so into lib/.",
       "inherits": "linux-default",
       "cacheVariables": {
-        "FLM_ENABLE_RAI": "ON"
+        "FLM_ENABLE_CORE": "ON"
       }
     },
     {
@@ -75,13 +75,13 @@
       }
     },
     {
-      "name": "windows-rai",
-      "displayName": "Windows RAI",
+      "name": "windows-core",
+      "displayName": "Windows Core",
       "description": "Windows build with statically linked ryzenai-corelib support",
       "inherits": "windows-default",
-      "binaryDir": "${sourceDir}/build-rai",
+      "binaryDir": "${sourceDir}/build-core",
       "cacheVariables": {
-        "FLM_ENABLE_RAI": "OFF",
+        "FLM_ENABLE_CORE": "OFF",
         "RYZENAI_CORELIB_INCLUDE_DIR": "$env{RYZENAI_CORELIB_INCLUDE_DIR}",
         "RYZENAI_CORELIB_LIBRARY": "$env{RYZENAI_CORELIB_LIBRARY}"
       }
@@ -120,26 +120,26 @@
       "jobs": 4
     },
     {
-      "name": "linux-rai",
-      "displayName": "Linux RAI Build",
+      "name": "linux-core",
+      "displayName": "Linux Core Build",
       "description": "Build the optional ryzenai-corelib runtime in Release",
-      "configurePreset": "linux-rai",
+      "configurePreset": "linux-core",
       "configuration": "Release",
       "jobs": 4
     },
     {
-      "name": "linux-rai-on",
-      "displayName": "Linux RAI Build (enabled)",
+      "name": "linux-core-on",
+      "displayName": "Linux Core Build (enabled)",
       "description": "Build the ryzenai-corelib kernel backend in Release",
-      "configurePreset": "linux-rai-on",
+      "configurePreset": "linux-core-on",
       "configuration": "Release",
       "jobs": 4
     },
     {
-      "name": "windows-rai",
-      "displayName": "Windows RAI Build",
+      "name": "windows-core",
+      "displayName": "Windows Core Build",
       "description": "Build the optional ryzenai-corelib runtime in Release",
-      "configurePreset": "windows-rai",
+      "configurePreset": "windows-core",
       "configuration": "Release",
       "jobs": 4
     }

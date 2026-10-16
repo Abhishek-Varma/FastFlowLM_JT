@@ -48,7 +48,6 @@ ifeq ($(WSL), 0)
 
 LDFLAGS += -lqwen3_5_omni_npu
 LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
-LDFLAGS += -lfftw3f
 
 # Map each source to an object file in BUILD_DIR (basenames are unique across
 # the source set). VPATH lets the pattern rule locate sources in their dirs.

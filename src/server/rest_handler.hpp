@@ -125,7 +125,7 @@ private:
     std::unique_ptr<Whisper> whisper_engine;
     std::unique_ptr<AutoEmbeddingModel> auto_embedding_engine;
 #endif
-    // Owned by main(); on a rai build this is corelib's device, which must
+    // Owned by main(); on a core build this is corelib's device, which must
     // not be duplicated.
     flm_rt::device* npu_device_inst;
     model_list& supported_models;
@@ -135,7 +135,10 @@ private:
     bool modelscope;
     bool asr;
     bool embed;
+    /// \brief the prefill chunk length of the loaded model
     int prefill_chunk_len;
+    /// \brief the --prefill-chunk-len value, -1 when each model's own is used
+    int prefill_chunk_len_arg;
     int generate_context_id;
     int chat_context_id;
     int ctx_length;

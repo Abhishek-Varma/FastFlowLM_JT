@@ -36,9 +36,9 @@
 #include "utils/vm_args.hpp"
 #include <boost/program_options.hpp>
 #include "benchmarking.hpp"
-#ifdef FLM_ENABLE_RAI
-#include "rai/corelib_runtime.hpp"
-#include "rai/corelib_device.hpp"
+#ifdef FLM_ENABLE_CORE
+#include "core/corelib_runtime.hpp"
+#include "core/corelib_device.hpp"
 #endif
 
 #ifndef _WIN32
@@ -216,7 +216,7 @@ std::string identify_npu_arch() {
 
 static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
     bool print_human = !quiet && !json_output;
-#ifdef FLM_ENABLE_RAI
+#ifdef FLM_ENABLE_CORE
     // Everything below reads the NPU's geometry and this process's memlock
     // limit from the driver and holds them against what FastFlowLM's own kernel
     // flow needs. A corelib build does not use that flow. corelib owns device
@@ -224,7 +224,7 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
     // worked, and says why when it did not -- so these checks answer a question
     // this build does not ask, against a threshold that describes FastFlowLM's
     // own kernels rather than the parts corelib supports. Left in, they fail a
-    // working rai install on hardware corelib runs on perfectly well.
+    // working core install on hardware corelib runs on perfectly well.
     //
     // The JSON keeps the shape callers already parse, but reports the checks as
     // skipped rather than claiming they passed: "ready" here means "this build
@@ -238,7 +238,7 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
 #else
             {"platform", "linux"},
 #endif
-            {"backend", "rai"},
+            {"backend", "core"},
             {"checks_skipped", true},
             {"ready", true}
         };
@@ -295,6 +295,11 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
         if (fd < 0) {
             if (errno == ENOENT)
                 break;
+            if (errno == EBUSY) {
+                validation_json["devices"].push_back({{"device", dev_name}, {"busy", true}});
+                if (print_human)
+                    header_print_r("ERROR", "NPU " + dev_name + " could not be opened: device busy");
+            }
             continue;
         }
 
@@ -489,17 +494,17 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
     }
     return true;
 #endif
-#endif // FLM_ENABLE_RAI
+#endif // FLM_ENABLE_CORE
 }
 
 
-#ifdef FLM_ENABLE_RAI
+#ifdef FLM_ENABLE_CORE
 /// \brief brings corelib up for the process and tears it down on every exit path
 /// \note main() has early `return 1`s and a catch-all, so the teardown has to be
 ///       a destructor rather than a trailing call. A failed shutdown must not
 ///       mask whatever the program was already reporting, hence the swallow.
-struct RaiProcessGuard {
-    ~RaiProcessGuard() {
+struct CoreProcessGuard {
+    ~CoreProcessGuard() {
         try {
             flm::corelib::CorelibRuntime::ShutdownProcess();
         } catch (const std::exception& e) {
@@ -593,11 +598,11 @@ int main(int argc, char* argv[]) {
     // One NPU runtime for the whole process, brought up before the catalog so
     // the catalog can be filtered to what this NPU generation can actually run.
     // Which runtime that is follows from the build, not from a decision here:
-    // the flm backend opens its own device, rai gets one from corelib.
-#ifdef FLM_ENABLE_RAI
+    // the flm backend opens its own device, core gets one from corelib.
+#ifdef FLM_ENABLE_CORE
     // Declared before anything that can return so the destructor covers the
     // early exits and the catch-all below.
-    RaiProcessGuard rai_guard;
+    CoreProcessGuard core_guard;
     // Declared out here so the early exits below still see a device, and so a
     // corelib that fails to come up leaves it null rather than undefined.
     flm_rt::device* npu_device = nullptr;
@@ -606,7 +611,7 @@ int main(int argc, char* argv[]) {
     // is left with "NPU device instance is nullptr" -- raised much later, by
     // whichever model reaches for the device first -- and nothing to act on.
     std::string npu_open_error;
-    // Set when corelib failed but a direct device was opened anyway: the rai
+    // Set when corelib failed but a direct device was opened anyway: the core
     // backend is gone, the rest of the build is not.
     std::string corelib_note;
 
@@ -617,25 +622,25 @@ int main(int argc, char* argv[]) {
         // than opening a second one: a buffer object created against a
         // different xrt::device for the same NPU binds without error and then
         // never completes. GetOrCreate holds the runtime process-wide, so the
-        // device stays valid until RaiProcessGuard tears it down at exit.
+        // device stays valid until CoreProcessGuard tears it down at exit.
         npu_device = flm::corelib::SharedDevice(*runtime);
         if (npu_device == nullptr)
             npu_open_error =
                 "corelib started but reports no NPU device on this machine";
     } catch (const std::exception& e) {
         // A box with no NPU must still run `flm list`/`pull`/`version`, so this
-        // stays a null device rather than an error, as in the non-rai path.
+        // stays a null device rather than an error, as in the non-core path.
         npu_open_error = std::string("corelib unavailable: ") + e.what();
         header_print("FLM", "corelib unavailable: " << e.what());
     }
     if (npu_device == nullptr) {
-        // corelib having no device is a reason for the rai backend to be
+        // corelib having no device is a reason for the core backend to be
         // unavailable, not for the process to have no NPU at all. Every other
         // family is served by the flm backend, which opens its own device and
         // never touches corelib -- so opening one directly keeps those models
         // working instead of failing the whole process over a backend they do
-        // not use. On a box whose NPU has no creatable AIE_NEXT hw_context this is
-        // the difference between "rai is unavailable" and "flm has no NPU".
+        // not use. On a box whose NPU has no creatable DEV04 hw_context this is
+        // the difference between "core is unavailable" and "flm has no NPU".
         //
         // This does not bring back the two-device bug, where a buffer created
         // against a second xrt::device for the same NPU bound without error and
@@ -653,6 +658,13 @@ int main(int argc, char* argv[]) {
         }
     }
 #else
+    // validate probes /dev/accel/* itself, and amdxdna refuses a second open of
+    // the same device from one process: run it before this process takes the
+    // device, or every probe gets EBUSY and the check reports "No NPU device found".
+    if (parsed_args.command == "validate") {
+        return sanity_check_npu_stack(false, parsed_args.json_output) ? 0 : 1;
+    }
+
     std::string npu_open_error;
     std::string corelib_note;
     flm_rt::device* npu_device = open_npu_device(&npu_open_error);
@@ -678,7 +690,7 @@ int main(int argc, char* argv[]) {
     // rather than the cause: it is raised from whichever model first reaches
     // for the device, long after the runtime that failed to come up.
     if (print_status && needs_npu && !corelib_note.empty()) {
-        header_print("FLM", "rai backend unavailable ("
+        header_print("FLM", "core backend unavailable ("
                                 << corelib_note
                                 << "); opened the NPU directly");
     }

@@ -7,7 +7,7 @@
 #include <string>
 #include <stdexcept>
 #include <immintrin.h>
-#include "fftw3.h"
+#include "audio_process_utils/rfft.hpp"
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -87,7 +87,7 @@ namespace avx512 {
         }
     }
 
-    // AVX512 optimized batch rfft using FFTW plan_many
+    // AVX512 optimized batch rfft (single batched FFT over all frames)
     void rfft_batch_avx512(
         const float* frames,
         float* out_complex,
