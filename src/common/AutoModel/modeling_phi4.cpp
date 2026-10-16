@@ -1,6 +1,6 @@
 /// \file modeling_phi4.cpp
 /// \brief Phi-4 frontend
-/// \note Every rule that used to be branched on here -- the rai decode cap,
+/// \note Every rule that used to be branched on here -- the core decode cap,
 ///       poisoning, the no-preemption rule, the package-verified stop ids, the
 ///       separate decode loop -- now lives behind flm::backend::ModelBackend.
 #include "AutoModel/modeling_phi4.hpp"

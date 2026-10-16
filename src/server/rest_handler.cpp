@@ -396,7 +396,7 @@ RestHandler::~RestHandler() = default;
 bool RestHandler::ensure_model_loaded(const std::string& model_tag,
                                       const std::string& request_backend) {
     // Refuse a name the catalog does not have before anything resolves it;
-    // an unknown name used to load a substitute model (and on aie_next could
+    // an unknown name used to load a substitute model (and on dev04 could
     // end the process). Checked after rectify_model_tag, as get_model_info
     // does, so "Ollama/<tag>" and bare family names still resolve.
     // "model-faker" means no model was chosen.

@@ -455,10 +455,17 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
                 max_prefill_len = new_max_len;
             }
         }
-        int chunks = (tokens.size() + max_prefill_len - 1) / max_prefill_len;
+        // A payload's tokens have to stay in the first chunk, which the
+        // first_len_run widening above sized for them.
+        const bool aligned = payload == nullptr && this->backend_ &&
+                             this->backend_->aligns_prefill_chunks();
+        const int lead = aligned
+            ? this->lm_engine->get_current_context_length() % max_prefill_len
+            : 0;
+        int chunks = (lead + static_cast<int>(tokens.size()) + max_prefill_len - 1) / max_prefill_len;
         for (int i = 0; i < chunks; i++) {
-            int start = i * max_prefill_len;
-            int end = std::min(static_cast<int>(tokens.size()), (i + 1) * max_prefill_len);
+            int start = std::max(0, i * max_prefill_len - lead);
+            int end = std::min(static_cast<int>(tokens.size()), (i + 1) * max_prefill_len - lead);
             std::vector<int> chunk_tokens(tokens.begin() + start, tokens.begin() + end);
             header_print("FLM", "Prefill chunk " + std::to_string(i+1) + "/" + std::to_string(chunks) + " with " + std::to_string(chunk_tokens.size()) + " tokens");
             if (is_cancelled()) {
@@ -472,7 +479,7 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
             buffer<bf16> chunk_y = this->lm_engine->prefill(chunk_tokens, (i == 0)? payload : nullptr);
             if (i == chunks - 1) {
                 // Moved, not copied: buffer's copy is shallow and does not take
-                // ownership, so a copy of logits the engine owns (the rai
+                // ownership, so a copy of logits the engine owns (the core
                 // engines return them that way) dangles once chunk_y goes.
                 y = std::move(chunk_y);
             }
@@ -516,6 +523,8 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
 
     }
     if (this->is_eos(last_sampled_token)){
+        // Sampled from the prefill, so no engine has run it.
+        this->token_history.pop_back();
         meta_info.stop_reason = reason;
         return result;
     }
@@ -575,6 +584,9 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
             if (this->forward_on_eos &&
                 (!this->backend_ || this->backend_->forwards_past_eos())) {
                 this->lm_engine->forward(last_sampled_token);
+            } else {
+                // The engine never ran it, so the next prompt has to carry it.
+                this->token_history.pop_back();
             }
             break;
         }

@@ -70,7 +70,7 @@ class Runner {
         int img_pre_resize;
         // CLI instance for interactive input
         CLIWide cli;
-        // Owned by main(); on a rai build it comes from corelib, on an flm
+        // Owned by main(); on a core build it comes from corelib, on an flm
         // build main opens it directly. Either way there is one per process and
         // it must not be duplicated.
         flm_rt::device* npu_device_inst;

@@ -19,6 +19,7 @@
 struct ModelFileSource {
     std::string url;
     std::string revision;
+    bool use_hf_token = false;
 };
 
 ModelFileSource resolve_file_source(
@@ -72,6 +73,9 @@ private:
     // Build download URLs for model files
     std::pair<nlohmann::json, float> build_download_list(
         const std::string& model_tag, bool modelscope=0, bool force_redownload=false);
+
+    // Settle which source a pull of an entry with a preferred one uses
+    void choose_pull_source(const std::string& model_tag, bool use_modelscope, bool force_redownload);
 
     // bool check_model_compatibility(const std::string& model_tag);
     ModelStatus check_model_compatibility(const std::string& model_tag, bool sub_process_mode=0);
