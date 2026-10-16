@@ -254,6 +254,18 @@ jobs:
         echo "Created tarball with symlinks preserved"
         # This build selects the HRX backend, so confirm libhrx is bundled.
         tar tzf $GITHUB_WORKSPACE/HRX_fastflowlm_${VERSION}_linux.tar.gz | grep libhrx
+        # FFmpeg is linked statically from an LGPL source build, so neither flm
+        # nor the tarball may carry a shared FFmpeg (distro builds are GPL) or
+        # the GPL codecs it would drag in.
+        if readelf -d flm-real | grep -E 'NEEDED.*lib(av|sw|postproc)'; then
+          echo "::error::flm-real links a shared FFmpeg library"
+          exit 1
+        fi
+        if tar tzf $GITHUB_WORKSPACE/HRX_fastflowlm_${VERSION}_linux.tar.gz \
+            | grep -E 'lib/lib(av(codec|format|util|filter|device)|sw(scale|resample)|postproc|x264|x265|xvidcore)[.]so'; then
+          echo "::error::tarball bundles a shared FFmpeg or GPL codec library"
+          exit 1
+        fi
 
     - name: Upload portable build artifact
       uses: actions/upload-artifact@v4
