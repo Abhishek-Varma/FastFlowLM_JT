@@ -63,6 +63,7 @@ public:
     }
     buffer<bf16> prefill(std::vector<int>& tokens, void*) override {
         ++prefill_calls;
+        prefill_sizes.push_back(static_cast<int>(tokens.size()));
         if (fail_prefill) {
             poisoned_state = true;
             throw std::runtime_error("submitted inference failed");
@@ -86,6 +87,7 @@ public:
     std::uint32_t max_length;
     int position{};
     int prefill_calls{};
+    std::vector<int> prefill_sizes;
     int forward_calls{};
     bool fail_prefill{};
     bool fail_forward{};
@@ -98,6 +100,7 @@ struct FactoryState {
     int legacy_calls{};
     int rai_calls{};
     bool throw_for_rai{};
+    bool aligns_prefill_chunks{};
     FakeEngine* engine{};
 #if defined(FLM_ENABLE_RAI)
     /// \brief the runtime the corelib stub reports as its detail()
@@ -124,6 +127,7 @@ public:
     std::uint32_t max_decode_length() const override { return decode_limit_; }
     bool supports_preemption() const override { return supports_preemption_; }
     bool forwards_past_eos() const override { return forwards_past_eos_; }
+    bool aligns_prefill_chunks() const override { return g_factory.aligns_prefill_chunks; }
     bool poisoned() const noexcept override { return engine_->poisoned_state; }
     std::optional<std::vector<int>> forced_eos_ids() const override {
         return forced_eos_ids_;
@@ -410,6 +414,33 @@ void TestPrefillLogitsAreStillOwnedWhenSampled() {
     TEST_REQUIRE(model->insert(meta, input));
     TEST_REQUIRE(g_factory.engine->prefill_calls == 1);
     TEST_REQUIRE(g_unowned_samples == 0);
+}
+
+/// \brief the chunk sizes a turn adding `fresh` tokens is prefilled in, after a
+///        first turn left `held` tokens in the engine
+std::vector<int> ContinuationChunks(bool aligned, int held, int fresh) {
+    TempPackage package;
+    FactoryScope scope;
+    g_factory.aligns_prefill_chunks = aligned;
+    auto model = Load(package, ModelInfo());
+    auto meta = Meta();
+    meta.max_prefill_len = 512;
+    auto input = Input(1);
+    g_encoded_tokens.clear();
+    for (int i = 0; i < held; ++i) g_encoded_tokens.push_back(i + 1);
+    TEST_REQUIRE(model->insert(meta, input));
+    TEST_REQUIRE(g_factory.engine->position == held);
+    for (int i = 0; i < fresh; ++i) g_encoded_tokens.push_back(held + i + 1);
+    g_factory.engine->prefill_sizes.clear();
+    TEST_REQUIRE(model->insert(meta, input));
+    return g_factory.engine->prefill_sizes;
+}
+
+void TestPrefillChunksEndOnMultiplesFromPositionZeroWhenTheBackendAsks() {
+    TEST_REQUIRE((ContinuationChunks(false, 100, 900) == std::vector<int>{512, 388}));
+    TEST_REQUIRE((ContinuationChunks(true, 100, 900) == std::vector<int>{412, 488}));
+    TEST_REQUIRE((ContinuationChunks(true, 512, 600) == std::vector<int>{512, 88}));
+    TEST_REQUIRE((ContinuationChunks(true, 100, 300) == std::vector<int>{300}));
 }
 
 void TestEnabledBuildStartsAndRunsLegacyPhi4WhenCorelibDllIsMissing() {
@@ -885,9 +916,11 @@ int main() {
     RunTest(TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint, "TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint");
     RunTest(TestQueueCompletionReleasesImmediatelyOrDelaysQueuedHandoff, "TestQueueCompletionReleasesImmediatelyOrDelaysQueuedHandoff");
     RunTest(TestCancellationAndCapacityErrorsLeaveTheServerQueueUsable, "TestCancellationAndCapacityErrorsLeaveTheServerQueueUsable");
+    RunTest(TestPrefillChunksEndOnMultiplesFromPositionZeroWhenTheBackendAsks, "TestPrefillChunksEndOnMultiplesFromPositionZeroWhenTheBackendAsks");
 #else
     RunTest(TestDefaultBuildCanConstructAndRunLegacyPhi4WithoutCorelib, "TestDefaultBuildCanConstructAndRunLegacyPhi4WithoutCorelib");
     RunTest(TestPrefillLogitsAreStillOwnedWhenSampled, "TestPrefillLogitsAreStillOwnedWhenSampled");
+    RunTest(TestPrefillChunksEndOnMultiplesFromPositionZeroWhenTheBackendAsks, "TestPrefillChunksEndOnMultiplesFromPositionZeroWhenTheBackendAsks");
     RunTest(TestFeatureOffRejectsRaiTagWithoutIncludingCorelibHeaders, "TestFeatureOffRejectsRaiTagWithoutIncludingCorelibHeaders");
 #endif
     std::cout << "test_phi4_frontend: PASS\n";

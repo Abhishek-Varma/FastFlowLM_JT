@@ -9,7 +9,8 @@
 
 namespace flm::qwen35 {
 
-inline constexpr std::uint32_t kRaiContextLimit = 4096;
+/// \note corelib rounds a context past 4096 up to whole 4096-row pages.
+inline constexpr std::uint32_t kRaiContextLimit = 32768;
 
 inline flm::backend::BackendTraits rai_traits() {
     flm::backend::BackendTraits traits;

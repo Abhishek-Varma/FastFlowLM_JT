@@ -172,6 +172,7 @@ void TestTheBackendReportsWhatTheSpecStates() {
     TEST_REQUIRE(backend->max_decode_length() == 2047);
     TEST_REQUIRE(!backend->supports_preemption());
     TEST_REQUIRE(!backend->forwards_past_eos());
+    TEST_REQUIRE(backend->aligns_prefill_chunks());
     TEST_REQUIRE((backend->forced_eos_ids() == std::vector<int>{151645, 151643}));
     TEST_REQUIRE(!backend->forced_bos_id().has_value());
     TEST_REQUIRE(backend->engine().get_current_context_length() == 0);

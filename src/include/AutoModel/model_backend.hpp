@@ -121,6 +121,14 @@ public:
     ///       engines reject a decode past corelib's own limit, so they opt out.
     virtual bool forwards_past_eos() const { return true; }
 
+    /// \brief whether prefill chunks should end on multiples of the chunk
+    ///        length counted from position 0, rather than from the turn's start
+    /// \note corelib runs a pass that starts on a 4096-row page boundary as
+    ///       whole pages on the NPU, and one starting inside a page partly on
+    ///       the host, so its paged models want every chunk but a turn's first
+    ///       to start on a boundary.
+    virtual bool aligns_prefill_chunks() const { return false; }
+
     /// \brief whether the engine has failed in a way that needs a full reload
     virtual bool poisoned() const noexcept { return false; }
 

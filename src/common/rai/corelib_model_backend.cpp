@@ -179,6 +179,7 @@ public:
     /// \note corelib refuses a forward past its context, so the extra one the
     ///       FastFlowLM engines take after an EOS token would fail here.
     bool forwards_past_eos() const override { return false; }
+    bool aligns_prefill_chunks() const override { return true; }
     bool poisoned() const noexcept override { return engine_ && engine_->poisoned(); }
     std::optional<std::vector<int>> forced_eos_ids() const override { return eos_ids_; }
     std::optional<int> forced_bos_id() const override { return bos_id_; }

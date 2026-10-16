@@ -125,6 +125,7 @@ void test_backend_defaults() {
     TEST_REQUIRE(backend.max_decode_length() == 0);
     TEST_REQUIRE(backend.supports_preemption());
     TEST_REQUIRE(backend.forwards_past_eos());
+    TEST_REQUIRE(!backend.aligns_prefill_chunks());
     TEST_REQUIRE(!backend.poisoned());
     TEST_REQUIRE(!backend.forced_eos_ids().has_value());
     TEST_REQUIRE(!backend.forced_bos_id().has_value());

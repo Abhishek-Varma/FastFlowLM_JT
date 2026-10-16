@@ -4,6 +4,8 @@
 
 #include "rai/corelib_model_backend.hpp"
 
+#include <string>
+
 namespace flm::qwen35 {
 
 /// \note The linear-attention state can neither rewind nor skip and corelib
@@ -12,7 +14,7 @@ flm::backend::BackendFactory rai_factory() {
     return rai::Factory({
         .model = {"qwen35", "Qwen3.5", kRaiContextLimit, rai::Continuation::kAnywhere,
                   rai::Rewind::kReplay},
-        .context_rule = "1..4096",
+        .context_rule = "1.." + std::to_string(kRaiContextLimit),
         .eos_ids = {248046, 248044},
     });
 }
