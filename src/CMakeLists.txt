@@ -457,12 +457,12 @@ else()
         pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
             libavformat libavcodec libavutil libswscale libswresample)
     endif()
-    # readline is GPL; skip it for portable builds (the CLI falls back to a
-    # plain line reader via the FASTFLOWLM_USE_READLINE guard) so the portable
-    # tarball carries no readline/ncurses runtime dependency.
+    # Line editing comes from libedit (BSD-3-Clause), which implements the
+    # readline API; GNU readline is GPL-3 and must not be linked. Portable builds
+    # skip it (the CLI falls back to a plain line reader via the
+    # FASTFLOWLM_USE_READLINE guard) so the tarball needs no libedit at runtime.
     if(NOT FLM_PORTABLE_BUILD)
-        pkg_check_modules(readline REQUIRED IMPORTED_TARGET readline)
-        pkg_check_modules(ncurses REQUIRED IMPORTED_TARGET ncursesw)
+        pkg_check_modules(libedit REQUIRED IMPORTED_TARGET libedit)
     endif()
 endif()
 
@@ -720,11 +720,12 @@ endif()
 if(NOT WIN32)
     target_compile_options(flm PUBLIC -mavx -mavx2)
 
-    # readline is only linked for non-portable builds (see the discovery block);
-    # the CLI compiles a plain line-reader fallback when the macro is undefined.
+    # libedit (readline API) is only linked for non-portable builds (see the
+    # discovery block); the CLI compiles a plain line-reader fallback when the
+    # macro is undefined.
     if(NOT FLM_PORTABLE_BUILD)
         target_compile_definitions(flm PUBLIC FASTFLOWLM_USE_READLINE=1)
-        target_link_libraries(flm PUBLIC PkgConfig::readline PkgConfig::ncurses)
+        target_link_libraries(flm PUBLIC PkgConfig::libedit)
     endif()
 
     # Link with dl library for dlopen() support (used for preloading bundled libraries)
