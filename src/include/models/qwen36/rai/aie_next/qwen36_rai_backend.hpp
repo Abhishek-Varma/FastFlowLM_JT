@@ -9,7 +9,9 @@
 
 namespace flm::qwen36 {
 
-inline constexpr std::uint32_t kRaiContextLimit = 262144;
+/// \note corelib refuses a capacity past 131072 at model_create, below the
+///       model's own 262144: the most it has verified on the NPU.
+inline constexpr std::uint32_t kRaiContextLimit = 131072;
 
 inline flm::backend::BackendTraits rai_traits() {
     flm::backend::BackendTraits traits;

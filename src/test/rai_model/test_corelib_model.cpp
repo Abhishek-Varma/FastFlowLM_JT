@@ -18,7 +18,7 @@ using flm::rai::CorelibModel;
 using flm::rai::ModelSpec;
 using flm::rai::Rewind;
 
-const ModelSpec kSnapshot{"qwen36", "Qwen3.6", 262144, Continuation::kAnywhere, Rewind::kSnapshot};
+const ModelSpec kSnapshot{"qwen36", "Qwen3.6", 131072, Continuation::kAnywhere, Rewind::kSnapshot};
 const ModelSpec kReplay{"qwen35", "Qwen3.5", 32768, Continuation::kAnywhere, Rewind::kReplay};
 const ModelSpec kFromStart{"qwen3", "Qwen3", 4096, Continuation::kFromStart, Rewind::kSeek};
 const ModelSpec kFromPage{"gemma4", "Gemma 4", 16384, Continuation::kFromPage, Rewind::kSeek};
@@ -74,12 +74,12 @@ void TestTheModelIsCreatedAtTheConfiguredCapacity() {
 }
 
 void TestTheSpecsLimitIsAccepted() {
-    Harness h(kSnapshot, 262144);
-    TEST_REQUIRE(S().model_max_sequence_length == 262144);
+    Harness h(kSnapshot, 131072);
+    TEST_REQUIRE(S().model_max_sequence_length == 131072);
 }
 
 void TestAMaximumOutsideTheSpecIsRefused() {
-    (void)RequireThrows([] { Harness h(kSnapshot, 262145); });
+    (void)RequireThrows([] { Harness h(kSnapshot, 131073); });
     (void)RequireThrows([] { Harness h(kSnapshot, 0); });
 }
 
