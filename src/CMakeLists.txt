@@ -173,107 +173,111 @@ else()
             set(XRT_INCLUDE_DIR /opt/xilinx/xrt/include CACHE PATH "Where XRT headers live")
             set(XRT_LIB_DIR     /opt/xilinx/xrt/lib     CACHE PATH "Where XRT libs live")
         endif()
-
-        # Portable XRT build: statically link FFmpeg (and zlib) so the self-
-        # contained tarball does not depend on the host having libavformat/
-        # libavcodec/... installed. FFmpeg and zlib are fetched and built from
-        # source; the resulting .a archives are linked into flm below. Non-
-        # portable builds keep using the system FFmpeg via pkg-config.
-        if(FLM_PORTABLE_BUILD)
-            include(FetchContent)
-            message(STATUS "Portable build: FFmpeg and zlib will be built statically")
-
-            # ——— FFmpeg (static) ———
-            set(FFMPEG_GIT_REPO "https://github.com/FFmpeg/FFmpeg.git" CACHE STRING "FFmpeg Git repository URL")
-            set(FFMPEG_GIT_TAG  "n7.1" CACHE STRING "FFmpeg Git tag/branch to fetch")
-            FetchContent_Declare(ffmpeg_source
-                GIT_REPOSITORY ${FFMPEG_GIT_REPO}
-                GIT_TAG ${FFMPEG_GIT_TAG}
-                GIT_SHALLOW TRUE)
-            message(STATUS "Fetching FFmpeg sources...")
-            FetchContent_Populate(ffmpeg_source)
-
-            set(FFMPEG_SOURCE_DIR ${ffmpeg_source_SOURCE_DIR})
-            set(FFMPEG_BUILD_DIR ${CMAKE_BINARY_DIR}/ffmpeg-build)
-            set(FFMPEG_INSTALL_DIR ${CMAKE_BINARY_DIR}/ffmpeg-install)
-            file(MAKE_DIRECTORY ${FFMPEG_BUILD_DIR})
-
-            message(STATUS "Configuring FFmpeg for static build...")
-            execute_process(
-                COMMAND ${FFMPEG_SOURCE_DIR}/configure
-                    --prefix=${FFMPEG_INSTALL_DIR}
-                    --enable-static
-                    --disable-shared
-                    --disable-programs
-                    --disable-doc
-                    --disable-htmlpages
-                    --disable-manpages
-                    --disable-podpages
-                    --disable-txtpages
-                    --enable-pic
-                    --enable-zlib
-                    --enable-avcodec
-                    --enable-avformat
-                    --enable-avutil
-                    --enable-swscale
-                    --enable-swresample
-                    --disable-vaapi
-                    --disable-libdrm
-                    --disable-bzlib
-                    --disable-lzma
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_CONFIGURE_RESULT
-                OUTPUT_FILE ${FFMPEG_BUILD_DIR}/configure.log
-                ERROR_FILE ${FFMPEG_BUILD_DIR}/configure.log)
-            if(NOT FFMPEG_CONFIGURE_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg configure failed. Check ${FFMPEG_BUILD_DIR}/configure.log")
-            endif()
-
-            message(STATUS "Building FFmpeg static libraries...")
-            # FFmpeg compilation is memory-intensive, so cap parallelism at 4.
-            if(DEFINED CMAKE_BUILD_PARALLEL_LEVEL AND CMAKE_BUILD_PARALLEL_LEVEL GREATER 4)
-                set(FFMPEG_BUILD_JOBS 4)
-            elseif(DEFINED CMAKE_BUILD_PARALLEL_LEVEL)
-                set(FFMPEG_BUILD_JOBS ${CMAKE_BUILD_PARALLEL_LEVEL})
-            else()
-                set(FFMPEG_BUILD_JOBS 2)
-            endif()
-            execute_process(
-                COMMAND make -j${FFMPEG_BUILD_JOBS}
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_BUILD_RESULT
-                OUTPUT_FILE ${FFMPEG_BUILD_DIR}/build.log
-                ERROR_FILE ${FFMPEG_BUILD_DIR}/build.log)
-            if(NOT FFMPEG_BUILD_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg build failed. Check ${FFMPEG_BUILD_DIR}/build.log")
-            endif()
-
-            message(STATUS "Installing FFmpeg static libraries...")
-            execute_process(
-                COMMAND make install
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_INSTALL_RESULT)
-            if(NOT FFMPEG_INSTALL_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg install failed")
-            endif()
-
-            set(FFMPEG_BUILT_FROM_SOURCE TRUE)
-            set(FFMPEG_INCLUDE_DIRS ${FFMPEG_INSTALL_DIR}/include)
-            set(FFMPEG_LIBRARY_DIRS ${FFMPEG_INSTALL_DIR}/lib)
-            message(STATUS "FFmpeg built successfully (static): ${FFMPEG_LIBRARY_DIRS}")
-
-            # ——— zlib (static) ———
-            message(STATUS "Fetching zlib source...")
-            FetchContent_Declare(zlib_source
-                GIT_REPOSITORY "https://github.com/madler/zlib.git"
-                GIT_TAG "v1.3.1"
-                GIT_SHALLOW TRUE)
-            FetchContent_MakeAvailable(zlib_source)
-            set(ZLIB_BUILT_FROM_SOURCE TRUE)
-            set(ZLIB_STATIC_LIB ${zlib_source_BINARY_DIR}/libz.a)
-            message(STATUS "zlib built successfully (static): ${ZLIB_STATIC_LIB}")
-        endif()
     endif()
+endif()
+
+# ———————————————————————————————————————————————
+# Portable Linux build (XRT or HRX backend): statically link FFmpeg (and zlib)
+# so the self-contained tarball neither depends on nor bundles the host's
+# libavformat/libavcodec/.... Distro FFmpeg is configured with --enable-gpl and
+# pulls in GPL codecs (x264, x265, xvid), so it must never end up in the
+# tarball; this source build is LGPL (no --enable-gpl). FFmpeg and zlib are
+# fetched and built from source; the resulting .a archives are linked into flm
+# below. Non-portable builds keep using the system FFmpeg via pkg-config.
+# ———————————————————————————————————————————————
+if(FLM_PORTABLE_BUILD AND NOT WIN32)
+    include(FetchContent)
+    message(STATUS "Portable build: FFmpeg and zlib will be built statically")
+
+    # ——— FFmpeg (static) ———
+    set(FFMPEG_GIT_REPO "https://github.com/FFmpeg/FFmpeg.git" CACHE STRING "FFmpeg Git repository URL")
+    set(FFMPEG_GIT_TAG  "n7.1" CACHE STRING "FFmpeg Git tag/branch to fetch")
+    FetchContent_Declare(ffmpeg_source
+        GIT_REPOSITORY ${FFMPEG_GIT_REPO}
+        GIT_TAG ${FFMPEG_GIT_TAG}
+        GIT_SHALLOW TRUE)
+    message(STATUS "Fetching FFmpeg sources...")
+    FetchContent_Populate(ffmpeg_source)
+
+    set(FFMPEG_SOURCE_DIR ${ffmpeg_source_SOURCE_DIR})
+    set(FFMPEG_BUILD_DIR ${CMAKE_BINARY_DIR}/ffmpeg-build)
+    set(FFMPEG_INSTALL_DIR ${CMAKE_BINARY_DIR}/ffmpeg-install)
+    file(MAKE_DIRECTORY ${FFMPEG_BUILD_DIR})
+
+    message(STATUS "Configuring FFmpeg for static build...")
+    execute_process(
+        COMMAND ${FFMPEG_SOURCE_DIR}/configure
+            --prefix=${FFMPEG_INSTALL_DIR}
+            --enable-static
+            --disable-shared
+            --disable-programs
+            --disable-doc
+            --disable-htmlpages
+            --disable-manpages
+            --disable-podpages
+            --disable-txtpages
+            --enable-pic
+            --enable-zlib
+            --enable-avcodec
+            --enable-avformat
+            --enable-avutil
+            --enable-swscale
+            --enable-swresample
+            --disable-vaapi
+            --disable-libdrm
+            --disable-bzlib
+            --disable-lzma
+        WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
+        RESULT_VARIABLE FFMPEG_CONFIGURE_RESULT
+        OUTPUT_FILE ${FFMPEG_BUILD_DIR}/configure.log
+        ERROR_FILE ${FFMPEG_BUILD_DIR}/configure.log)
+    if(NOT FFMPEG_CONFIGURE_RESULT EQUAL 0)
+        message(FATAL_ERROR "FFmpeg configure failed. Check ${FFMPEG_BUILD_DIR}/configure.log")
+    endif()
+
+    message(STATUS "Building FFmpeg static libraries...")
+    # FFmpeg compilation is memory-intensive, so cap parallelism at 4.
+    if(DEFINED CMAKE_BUILD_PARALLEL_LEVEL AND CMAKE_BUILD_PARALLEL_LEVEL GREATER 4)
+        set(FFMPEG_BUILD_JOBS 4)
+    elseif(DEFINED CMAKE_BUILD_PARALLEL_LEVEL)
+        set(FFMPEG_BUILD_JOBS ${CMAKE_BUILD_PARALLEL_LEVEL})
+    else()
+        set(FFMPEG_BUILD_JOBS 2)
+    endif()
+    execute_process(
+        COMMAND make -j${FFMPEG_BUILD_JOBS}
+        WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
+        RESULT_VARIABLE FFMPEG_BUILD_RESULT
+        OUTPUT_FILE ${FFMPEG_BUILD_DIR}/build.log
+        ERROR_FILE ${FFMPEG_BUILD_DIR}/build.log)
+    if(NOT FFMPEG_BUILD_RESULT EQUAL 0)
+        message(FATAL_ERROR "FFmpeg build failed. Check ${FFMPEG_BUILD_DIR}/build.log")
+    endif()
+
+    message(STATUS "Installing FFmpeg static libraries...")
+    execute_process(
+        COMMAND make install
+        WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
+        RESULT_VARIABLE FFMPEG_INSTALL_RESULT)
+    if(NOT FFMPEG_INSTALL_RESULT EQUAL 0)
+        message(FATAL_ERROR "FFmpeg install failed")
+    endif()
+
+    set(FFMPEG_BUILT_FROM_SOURCE TRUE)
+    set(FFMPEG_INCLUDE_DIRS ${FFMPEG_INSTALL_DIR}/include)
+    set(FFMPEG_LIBRARY_DIRS ${FFMPEG_INSTALL_DIR}/lib)
+    message(STATUS "FFmpeg built successfully (static): ${FFMPEG_LIBRARY_DIRS}")
+
+    # ——— zlib (static) ———
+    message(STATUS "Fetching zlib source...")
+    FetchContent_Declare(zlib_source
+        GIT_REPOSITORY "https://github.com/madler/zlib.git"
+        GIT_TAG "v1.3.1"
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(zlib_source)
+    set(ZLIB_BUILT_FROM_SOURCE TRUE)
+    set(ZLIB_STATIC_LIB ${zlib_source_BINARY_DIR}/libz.a)
+    message(STATUS "zlib built successfully (static): ${ZLIB_STATIC_LIB}")
 endif()
 
 # ———————————————————————————————————————————————
