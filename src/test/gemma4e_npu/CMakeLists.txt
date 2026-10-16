@@ -55,7 +55,6 @@ target_link_libraries(test_gemma4e_npu PUBLIC
     avformat
     avcodec
     avutil
-    swscale
     swresample
     zlib
 )

@@ -42,7 +42,6 @@ target_link_libraries(test_gemma4_12b PUBLIC
     avformat
     avcodec
     avutil
-    swscale
     zlib    
 )
 

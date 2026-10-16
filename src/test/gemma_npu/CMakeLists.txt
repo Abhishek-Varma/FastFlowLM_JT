@@ -19,10 +19,6 @@ add_npu_test(
 target_link_libraries(test_gemma_npu PUBLIC
     gemma_npu
     xrt_coreutil
-    avformat
-    avcodec
-    avutil
-    swscale
     zlib
 )
 

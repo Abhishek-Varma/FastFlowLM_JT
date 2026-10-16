@@ -20,6 +20,7 @@ SOURCES += ../../common/AutoModel/modeling_qwen3_8mtp_image.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
@@ -30,8 +31,8 @@ HEADERS += ../../include/AutoModel/modeling_qwen3_8mtp.hpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lqwen3_8mtp_npu
-# image_reader.cpp decodes through ffmpeg, same as the Qwen3_5VL test.
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+# image_reader.cpp decodes through libjpeg-turbo (+ vendored lodepng), same as the Qwen3_5VL test.
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

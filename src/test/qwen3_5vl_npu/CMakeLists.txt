@@ -42,10 +42,6 @@ endif()
 target_link_libraries(test_qwen3_5vl_npu PUBLIC
     qwen3_5vl_npu
     xrt_coreutil
-    avformat
-    avcodec
-    avutil
-    swscale
     zlib
 )
 

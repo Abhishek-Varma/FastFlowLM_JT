@@ -26,6 +26,7 @@ SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/audio_process_utils/audioproc.cpp
 SOURCES += ../../common/audio_process_utils/audioprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/audio/audio_reader.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
@@ -47,7 +48,7 @@ ifeq ($(WSL), 0)
 LDFLAGS += -lgemma4e_npu
 # modeling_gemma4e.cpp serves both wrappers, so both engines must be linked.
 LDFLAGS += -lgemma4e_flash
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -lavformat -lavcodec -lavutil -lswresample -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

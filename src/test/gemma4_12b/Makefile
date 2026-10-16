@@ -26,6 +26,7 @@ SOURCES += ../../common/AutoModel/modeling_gemma4_12b_audio.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/audio/audio_reader.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
@@ -36,7 +37,7 @@ HEADERS += ../../include/AutoModel/modeling_gemma4_12b.hpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lgemma4_12b_npu
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -lavformat -lavcodec -lavutil -lswresample -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

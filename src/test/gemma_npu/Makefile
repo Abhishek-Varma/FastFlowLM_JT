@@ -22,6 +22,7 @@ SOURCES += ../../common/AutoModel/automodel.cpp
 SOURCES += ../../common/AutoModel/modeling_gemma3.cpp
 SOURCES += ../../common/AutoModel/modeling_gemma3_image.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
@@ -35,7 +36,7 @@ HEADERS += ../../include/modules/dequant.hpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lgemma_npu
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

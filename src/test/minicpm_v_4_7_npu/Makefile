@@ -29,6 +29,7 @@ SOURCES += ../../common/AutoModel/modeling_minicpm_v.cpp
 # imageproc.cpp is still linked: imageprocAVX512.cpp references it regardless.
 SOURCES += ../../common/AutoModel/modeling_minicpm_v_image.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
@@ -42,7 +43,7 @@ ifeq ($(WSL), 0)
 
 LDFLAGS += -lminicpm_v_4_7_npu
 # image_reader.cpp decodes through ffmpeg, same as every other VLM harness
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))
