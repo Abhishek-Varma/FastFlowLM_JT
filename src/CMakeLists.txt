@@ -324,6 +324,15 @@ if(NOT WIN32)
 
     # Define a macro to indicate limited model support on Linux
     # add_compile_definitions(FASTFLOWLM_LINUX_LIMITED_MODELS=1)
+else()
+    # Windows cl and clang-cl need the ISA named on these files, and clang-cl
+    # ignores the GCC -m flags.
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/common/image_process_utils/imageprocAVX512.cpp
+        ${CMAKE_SOURCE_DIR}/common/audio_process_utils/audioprocAVX512.cpp
+        PROPERTIES
+        COMPILE_OPTIONS "/arch:AVX512"
+    )
 endif()
 
 
@@ -742,6 +751,10 @@ if(NOT WIN32)
 
     # Link with dl library for dlopen() support (used for preloading bundled libraries)
     target_link_libraries(flm PUBLIC dl)
+else()
+    # cl and clang-cl ignore -mavx -mavx2. /arch:AVX2 is the matching flag for
+    # the rest of flm.
+    target_compile_options(flm PUBLIC /arch:AVX2)
 endif()
 
 # ———————————————————————————————————————————————
