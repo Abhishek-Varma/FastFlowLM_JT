@@ -186,15 +186,15 @@ private:
 
     void Dispatch(const std::vector<std::int32_t>& rows, std::size_t from, bool want_logits) {
         ryzenai_corelib_model_forward_options options{};
+        options.size = sizeof(options);
         options.position =
             spec.rewind == Rewind::kSeek ? from : RYZENAI_CORELIB_POSITION_CONTINUE;
-        if (want_logits) {
-            options.logits = logits.data();
-            options.logits_capacity = logits.size();
-        }
+        float* out_logits = want_logits ? logits.data() : nullptr;
+        const std::size_t logits_capacity = want_logits ? logits.size() : 0;
         try {
             api->Check(api->functions().model_forward(model.get(), rows.data(), nullptr,
-                                                      rows.size(), nullptr, &options),
+                                                      rows.size(), nullptr, 0, &options,
+                                                      nullptr, out_logits, logits_capacity),
                        "ryzenai_corelib_model_forward");
         } catch (...) {
             Poison();

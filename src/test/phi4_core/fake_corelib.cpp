@@ -187,13 +187,15 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             state.lifetime_events.emplace_back("cleanup");
             return;
         } else if constexpr (std::is_same_v<Tag, create_stream_tag>) {
-            // 0.5.0 signature is (prefill_pdi, token_pdi, out): the PDI pair
-            // leads, so the out parameter is third. Recorded so a test can
-            // assert the pair the engine opened its stream with.
+            // 0.30.0 signature is (prefill_pdis, prefill_count, token_pdis,
+            // token_count, out). Recorded so a test can assert the lists the
+            // engine opened its stream with.
             const auto status = Status(Tag::name);
-            state.stream_prefill_pdi = std::get<0>(arguments);
-            state.stream_token_pdi = std::get<1>(arguments);
-            auto* out = std::get<2>(arguments);
+            const int* prefill = std::get<0>(arguments);
+            const int* token = std::get<2>(arguments);
+            state.stream_prefill_pdis.assign(prefill, prefill ? prefill + std::get<1>(arguments) : prefill);
+            state.stream_token_pdis.assign(token, token ? token + std::get<3>(arguments) : token);
+            auto* out = std::get<4>(arguments);
             if (out) *out = status == ryzenai_corelib_status_success ? NewObject("stream") : nullptr;
             return status;
         } else if constexpr (std::is_same_v<Tag, stream_enable_kernel_bundle_tag>) {
@@ -225,14 +227,19 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             }
             return Status(Tag::name);
         } else if constexpr (std::is_same_v<Tag, model_forward_tag>) {
-            const auto* options = std::get<5>(arguments);
+            const auto* options = std::get<6>(arguments);
+            auto* out_logits = std::get<8>(arguments);
+            // corelib refuses options whose size does not cover the struct
+            // before the model moves, so a short one is never recorded.
+            if (options && options->size < sizeof(*options))
+                return ryzenai_corelib_status_bad_argument;
             state.model_forwards.push_back(
                 {std::get<3>(arguments),
                  options ? options->position : RYZENAI_CORELIB_POSITION_CONTINUE,
-                 options && options->logits});
-            if (options && options->logits)
-                std::fill_n(options->logits,
-                            std::min<std::size_t>(options->logits_capacity,
+                 out_logits != nullptr});
+            if (out_logits)
+                std::fill_n(out_logits,
+                            std::min<std::size_t>(std::get<9>(arguments),
                                                   static_cast<std::size_t>(state.model_vocab)),
                             0.5f);
             return Status(Tag::name);
@@ -657,6 +664,8 @@ void Reset() {
     state.selftest_status = ryzenai_corelib_status_success;
     state.default_status = ryzenai_corelib_status_success;
     state.has_device_context = true;
+    state.stream_prefill_pdis.clear();
+    state.stream_token_pdis.clear();
     state.detail.clear();
     state.status_text = "success";
     state.missing_symbol.clear();

@@ -108,11 +108,11 @@ struct State {
     ///       pointer: what a test wants to say is "this box has an NPU or it
     ///       does not", and the fake has no device object worth modelling.
     bool has_device_context{true};
-    /// \brief the PDI pair the engine opened its stream with
+    /// \brief the PDI lists the engine opened its stream with
     /// \note Required from 0.5.0 and deliberately undefaulted by corelib, so
     ///       it is worth being able to assert on.
-    int stream_prefill_pdi{-1};
-    int stream_token_pdi{-1};
+    std::vector<int> stream_prefill_pdis;
+    std::vector<int> stream_token_pdis;
     std::string detail;
     std::string status_text{"success"};
     std::string missing_symbol;
