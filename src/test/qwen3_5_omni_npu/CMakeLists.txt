@@ -53,7 +53,6 @@ target_link_libraries(test_qwen3_5_omni_npu PUBLIC
     avformat
     avcodec
     avutil
-    swscale
     zlib
 )
 

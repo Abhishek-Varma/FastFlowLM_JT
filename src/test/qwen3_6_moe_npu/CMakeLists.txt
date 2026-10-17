@@ -51,10 +51,6 @@ target_link_libraries(test_qwen3_6_moe_npu PUBLIC
     xrt_coreutil
     aiebu_static
     libboost_program_options-vc143-mt-x64-1_88
-    avformat
-    avcodec
-    avutil
-    swscale
     zlib
 )
 

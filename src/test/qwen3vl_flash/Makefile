@@ -23,6 +23,7 @@ SOURCES += ../../common/AutoModel/modeling_qwen3vl_image.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
@@ -35,7 +36,7 @@ ifeq ($(WSL), 0)
 LDFLAGS += -lqwen3vl_flash
 # modeling_qwen3vl.cpp serves both wrappers, so both engines must be linked.
 LDFLAGS += -lqwen3vl_npu
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

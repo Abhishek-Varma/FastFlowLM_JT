@@ -106,6 +106,12 @@ function(add_npu_test TARGET_NAME OUTPUT_SUBDIR)
         ${CMAKE_SOURCE_DIR}/../../build/tokenizers-cpp/sentencepiece/src/Release
     )
 
+    # ImageReader decodes with libjpeg-turbo + lodepng (see src/cmake/FlmImageCodecs.cmake).
+    if(NPU_TEST_SOURCES MATCHES "image/image_reader\\.cpp")
+        include(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/FlmImageCodecs.cmake)
+        target_link_libraries(${TARGET_NAME} PRIVATE flm_image_codecs)
+    endif()
+
     target_link_libraries(${TARGET_NAME} PRIVATE
         q4_npu_eXpress
         lm_head

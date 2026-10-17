@@ -19,6 +19,7 @@ SOURCES += $(wildcard ../../common/AutoModel/modeling_qwen3_6_moe_image.cpp)
 SOURCES += $(wildcard ../../common/image_process_utils/imageproc.cpp)
 SOURCES += $(wildcard ../../common/image_process_utils/imageprocAVX512.cpp)
 SOURCES += $(wildcard ../../common/image/image_reader.cpp)
+SOURCES += $(wildcard ../../include/lodepng/lodepng.cpp)
 SOURCES += $(wildcard ../../common/tokenizer/tokenizer.cpp)
 SOURCES += $(wildcard ../../common/modules/sampler.cpp)
 SOURCES += $(wildcard test.cpp)
@@ -34,7 +35,7 @@ HEADERS += ../../include/modules/dequant.hpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lqwen3_6_moe_npu -lmha -ldequant -lgemm
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

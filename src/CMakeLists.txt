@@ -292,6 +292,9 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../third_party/tokenizers-cpp
                  ${CMAKE_BINARY_DIR}/tokenizers-cpp
                  EXCLUDE_FROM_ALL)
 
+# JPEG/PNG decoding for ImageReader: static libjpeg-turbo + vendored lodepng.
+include(${CMAKE_SOURCE_DIR}/cmake/FlmImageCodecs.cmake)
+
 # ———————————————————————————————————————————————
 # Gather your sources
 # ———————————————————————————————————————————————
@@ -746,6 +749,7 @@ endif()
 target_link_libraries(flm PRIVATE
     tokenizers_cpp
 )
+target_link_libraries(flm PRIVATE flm_image_codecs)
 
 if(WIN32)
     target_link_libraries(flm PRIVATE
