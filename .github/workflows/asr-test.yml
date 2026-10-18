@@ -120,11 +120,11 @@ concurrency:
 env:
   # Feature groups main passes on every platform, so a pull request that
   # breaks one fails. Add a group in the pull request that makes main pass it:
-  # verbose_json, timestamp_rules (needs verbose_json), window_tail, language,
-  # quiet_log. The rest are measured and reported as warnings. window_tail is
-  # not here yet because main's Linux HRX build loops on the long-form file;
-  # a pull request that adds repeats is still caught by the baseline check.
-  ASR_REQUIRE: ${{ inputs.require || 'prompt' }}
+  # window_tail, language, quiet_log. The rest are measured and reported as
+  # warnings. window_tail is not here yet because main's Linux HRX build loops
+  # on the long-form file; a pull request that adds repeats is still caught by
+  # the baseline check.
+  ASR_REQUIRE: ${{ inputs.require || 'prompt verbose_json timestamp_rules' }}
   ASR_MAX_DRIFT: ${{ inputs.max_drift || '' }}
 
 jobs:
