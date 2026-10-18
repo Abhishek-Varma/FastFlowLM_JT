@@ -69,9 +69,10 @@ from sweep_common import ASSETS_DIR, SweepTask, run_task
 FEATURE_GROUPS = [
     "verbose_json", "timestamp_rules", "window_tail", "language", "prompt", "quiet_log",
 ]
+# verbose_json's language, as OpenAI reports it: openai-whisper's lower-case names.
 LANGUAGE_NAMES = {
-    "en": "English", "de": "German", "es": "Spanish", "fr": "French",
-    "ja": "Japanese", "zh": "Chinese", "ar": "Arabic",
+    "en": "english", "de": "german", "es": "spanish", "fr": "french",
+    "ja": "japanese", "zh": "chinese", "ar": "arabic",
 }
 CHAT_PROMPT = (
     "Transcribe the speech in this audio exactly, in its original language. "
