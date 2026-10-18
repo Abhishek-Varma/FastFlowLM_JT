@@ -186,6 +186,8 @@ public:
     //void toggle_enable_think() override;
     bool load_audio(std::string& audio_path);
     bool load_audio(std::vector<uint8_t>& audio_data);
+    /// \return the loaded audio's length in seconds
+    double audio_duration() const { return (double)this->audio_buffer.size() / FS; }
     /// \param language ISO 639-1 code (e.g. "en"); empty to detect it per window
     /// \param prompt text to condition the decoder on, as OpenAI's `prompt`
     std::pair<std::string, std::string> generate(whisper_task_type_t task, bool enable_time_stamp, bool return_time_stamp, std::ostream& os,
