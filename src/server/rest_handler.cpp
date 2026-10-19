@@ -34,6 +34,20 @@ json ExceptionResponse(const std::exception& error) {
         return ModelErrorResponse(*model_error);
     return {{"error", error.what()}};
 }
+
+/// \brief Whether a request sets a field
+/// \note Some clients send null for every option they leave unset, so null
+///       counts as not set; json::value() and conversions throw on it instead.
+bool has_value(const json& request, const char* key) {
+    auto it = request.find(key);
+    return it != request.end() && !it->is_null();
+}
+
+/// \brief A request field, or the fallback when it is missing or null
+template <typename T>
+T value_or(const json& request, const char* key, T fallback) {
+    return has_value(request, key) ? request.at(key).get<T>() : fallback;
+}
 }
 
 ///@brief Normalize messages by merging consecutive user messages (like Ollama does)
@@ -218,6 +232,17 @@ static json try_parse_json_value(const std::string& s) {
     catch (...) {
         return json(s);
     }
+}
+
+///@brief Whether a streaming OpenAI request asked for usage through stream_options.include_usage.
+/// Following OpenAI, a stream reports no usage unless asked; a malformed option counts as not asked.
+static bool stream_include_usage(const json& request) {
+    auto options = request.find("stream_options");
+    if (options == request.end() || !options->is_object()) {
+        return false;
+    }
+    auto include_usage = options->find("include_usage");
+    return include_usage != options->end() && include_usage->is_boolean() && include_usage->get<bool>();
 }
 
 ///@brief Convert OpenAI-style assistant tool_calls + following tool messages into the
@@ -544,98 +569,82 @@ void RestHandler::ensure_embed_model_loaded(const std::string& model_tag) {
 ///@param options the options JSON object
 ///@param request the request JSON object
 void RestHandler::configure_chat_engine_parameters(const json& options, const json& request) {
-    if (request.contains("temperature")) {
+    if (has_value(request, "temperature")) {
         float temperature = request["temperature"];
         auto_chat_engine->set_temperature(temperature);
     }
-    if (request.contains("top_p")) {
+    if (has_value(request, "top_p")) {
         float top_p = request["top_p"];
         auto_chat_engine->set_topp(top_p);
     }
-    if (request.contains("top_k")) {
+    if (has_value(request, "top_k")) {
         int top_k = request["top_k"];
         auto_chat_engine->set_topk(top_k);
     }
-    if (request.contains("min_p")) {
+    if (has_value(request, "min_p")) {
         int min_p = request["min_p"];
         auto_chat_engine->set_minp(min_p);
     }
-    if (request.contains("presence_penalty")) {
+    if (has_value(request, "presence_penalty")) {
         float presence_penalty = request["presence_penalty"];
         auto_chat_engine->set_presence_penalty(presence_penalty);
     }
-    if (request.contains("frequency_penalty")) {
+    if (has_value(request, "frequency_penalty")) {
         float frequency_penalty = request["frequency_penalty"];
         auto_chat_engine->set_frequency_penalty(frequency_penalty);
     }
-    if (request.contains("repetition_penalty")) {
+    if (has_value(request, "repetition_penalty")) {
         float repetition_penalty = request["repetition_penalty"];
         auto_chat_engine->set_repetition_penalty(repetition_penalty);
     }
-    if (request.contains("think")) {
+    if (has_value(request, "think")) {
         bool enable_thinking = request["think"];
         auto_chat_engine->configure_parameter("enable_think", enable_thinking);
     }
-    if (request.contains("reasoning_effort")) {
+    if (has_value(request, "reasoning_effort")) {
         std::string reasoning_effort = request["reasoning_effort"];
         auto_chat_engine->configure_parameter("reasoning_effort", reasoning_effort);
     }
 
-    if (request.contains("image-max-tokens")) {
+    if (has_value(request, "image-max-tokens")) {
         int image_max_tokens = request["image-max-tokens"];
         auto_chat_engine->configure_parameter("image_max_tokens", image_max_tokens);
     }
 }
 
-json RestHandler::build_nstream_response(std::string response_text, chat_meta_info_t& meta_info) {
-    // Get tool info
-    NonStreamResult result = auto_chat_engine->parse_nstream_content(response_text);
+json RestHandler::build_nstream_response(const std::string& response_text, chat_meta_info_t& meta_info,
+                                         const chat_parse_options& parse_options) {
+    const chat_format_spec& spec = auto_chat_engine->get_chat_format();
+    chat_msg parsed = chat_parse(spec, chat_format_prefill(spec, meta_info.prompt_tail) + response_text,
+                                 false, parse_options);
 
     json message;
     message["role"] = "assistant";
-
-    bool is_reasoning = !result.reasoning_content.empty();
-    bool is_tool_call = !result.tool_calls_list.empty() || !result.tool_name.empty();
-
-    if (is_reasoning) {
-        message["reasoning_content"] = result.reasoning_content;
+    if (!parsed.reasoning.empty()) {
+        message["reasoning_content"] = parsed.reasoning;
     }
 
+    const bool is_tool_call = !parsed.tool_calls.empty();
     if (is_tool_call) {
         json tool_calls_json = json::array();
-        if (!result.tool_calls_list.empty()) {
-            int idx = 0;
-            for (const auto& tc : result.tool_calls_list) {
-                tool_calls_json.push_back({
-                    {"index", idx++},
-                    {"id", "call_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(idx)},
-                    {"type", "function"},
-                    {"function", {
-                        {"name", tc.first},
-                        {"arguments", tc.second}
-                    }}
-                });
-            }
-        } else {
+        for (size_t i = 0; i < parsed.tool_calls.size(); i++) {
             tool_calls_json.push_back({
-                {"index", 0},
-                {"id", "call_" + std::to_string(std::time(nullptr))},
+                {"index", i},
+                {"id", chat_new_tool_call_id()},
                 {"type", "function"},
                 {"function", {
-                    {"name", result.tool_name},
-                    {"arguments", result.tool_args}
+                    {"name", parsed.tool_calls[i].name},
+                    {"arguments", parsed.tool_calls[i].arguments}
                 }}
             });
         }
         message["tool_calls"] = tool_calls_json;
-        if (!result.content.empty()) {
-            message["content"] = result.content;
-        }
+        // OpenAI sends null rather than "" when the turn is only tool calls
+        message["content"] = parsed.content.empty() ? json(nullptr) : json(parsed.content);
     }
     else {
-        message["content"] = result.content;
+        message["content"] = parsed.content;
     }
-
 
     // Follow meta_info for the finish reason, same as the streaming path.
     // A tool call is only visible after parsing the generated text, so promote
@@ -1164,23 +1173,24 @@ void RestHandler::handle_openai_chat_completion(const json& request,
     try {
         // Extract OpenAI-style parameters
         json current_messages = request["messages"];
-        std::string model = request.value("model", current_model_tag);
-        const std::string request_backend = request.value("backend", std::string());
-        bool stream = request.value("stream", false);
-        int length_limit = request.value("max_tokens", request.value("max_completion_tokens", 4096));
-        json tools = request.value("tools", json::array());
-        json options = request.value("options", json::object());
+        std::string model = value_or(request, "model", current_model_tag);
+        const std::string request_backend = value_or(request, "backend", std::string());
+        bool stream = value_or(request, "stream", false);
+        int length_limit = value_or(request, "max_tokens", value_or(request, "max_completion_tokens", 4096));
+        json tools = value_or(request, "tools", json::array());
+        json options = value_or(request, "options", json::object());
 
-        // Only "auto" and "none" are honoured; "required" and the per-function
-        // object form are not implemented yet, and a request asking for one is
-        // served as "auto" rather than refused.
-        json tool_choice = request.value("tool_choice", json("auto"));
-        tool_choice_t tool_choice_mode = TOOL_CHOICE_AUTO;
-        if (tool_choice.is_string() && tool_choice.get<std::string>() == "none") {
-            tool_choice_mode = TOOL_CHOICE_NONE;
+        // tool_choice, parallel_tool_calls and response_format become a decoding constraint
+        chat_constraint_request constraint_request;
+        std::string request_error;
+        if (!chat_constraint_request_from_openai(request, tools, constraint_request, request_error)) {
+            send_response({{"error", {{"message", request_error}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
         }
-        else if (!(tool_choice.is_string() && tool_choice.get<std::string>() == "auto")) {
-            header_print("Warning", "Unsupported tool_choice " + tool_choice.dump() + ", falling back to auto.");
+        if (constraint_request.tool_choice == chat_tool_choice::NONE) {
+            // the model is not shown the tools at all: banning the call opener alone
+            // leaves it writing the call's JSON as plain text
+            tools = json::array();
         }
 
         auto load_start_time = time_utils::now();
@@ -1248,27 +1258,37 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         lm_uniform_input_t uniformed_input;
         uniformed_input.messages = current_messages;
         uniformed_input.tools = tools;
-        const std::optional<int> openai_chat_budget = request.contains("max_tokens")
+        const std::optional<int> openai_chat_budget = has_value(request, "max_tokens")
             ? std::optional<int>(request.at("max_tokens").get<int>())
-            : request.contains("max_completion_tokens")
+            : has_value(request, "max_completion_tokens")
                 ? std::optional<int>(request.at("max_completion_tokens").get<int>())
                 : std::nullopt;
         uniformed_input.requested_max_new_tokens =
             normalize_requested_max_new_tokens(openai_chat_budget);
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         meta_info.max_prefill_len = this->prefill_chunk_len;
-        meta_info.tool_choice = tool_choice_mode;
+        try {
+            meta_info.constraint = auto_chat_engine->make_constraint(constraint_request);
+        } catch (const std::invalid_argument& e) {
+            // the request asks for something this model's format cannot do, or a bad schema
+            send_response({{"error", {{"message", e.what()}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
+        // tool markup is only a tool call when the request offered tools
+        chat_parse_options parse_options;
+        parse_options.tools = &tools;
+        parse_options.parse_tool_calls = !tools.empty() && constraint_request.tool_choice != chat_tool_choice::NONE;
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
-            auto_chat_engine->reset_parser();
             bool stream_started = false;
             auto openai_stream_callback = [&send_streaming_response, &stream_started](const std::string& data, bool is_final) {
                 stream_started = true;
                 json data_json = data;
                 send_streaming_response(data_json, is_final);
                 };
-            streaming_ostream_openai_chat ostream(model, auto_chat_engine.get(), openai_stream_callback);  // streaming in chat completion format
+            streaming_ostream_openai_chat ostream(model, auto_chat_engine.get(), openai_stream_callback, parse_options,
+                                                  stream_include_usage(request));  // streaming in chat completion format
 
             header_print("FLM", "Start prefill...");
             try {
@@ -1302,6 +1322,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 this->prompt_cache.reset();
                 return;
             }
+            ostream.start(meta_info);
             header_print("FLM", "Start generating...");
             try {
                 auto_chat_engine->generate(meta_info, length_limit, ostream, [&] { return cancellation_token->cancelled(); });
@@ -1375,7 +1396,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 return;
             }
             // check response_text
-            json choices = build_nstream_response(response_text, meta_info);
+            json choices = build_nstream_response(response_text, meta_info, parse_options);
             response = {
                 {"id", "fastflowlm-chat-completion"},
                 {"object", "chat.completion"},
@@ -1595,7 +1616,7 @@ void RestHandler::handle_openai_completion(const json& request,
                 json data_json = data;
                 send_streaming_response(data_json, is_final);
                 };
-            streaming_ostream_openai ostream(model, openai_stream_callback);  // streaming in completion format
+            streaming_ostream_openai ostream(model, openai_stream_callback, stream_include_usage(request));  // streaming in completion format
             uniformed_input.prompt = prompt;
             try {
                 bool success = auto_chat_engine->insert(meta_info, uniformed_input, [&] { return cancellation_token && cancellation_token->cancelled(); });

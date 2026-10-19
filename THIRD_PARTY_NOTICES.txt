@@ -44,6 +44,9 @@ Components
   29. HRX
   30. flatcc
   31. pkgconf
+  32. XGrammar
+  33. PicoJSON
+  34. DLPack
 
 ==============================================================================
 1. libcurl
@@ -1145,6 +1148,72 @@ copyright notice and this permission notice appear in all copies.
 This software is provided 'as is' and without any warranty, express or
 implied.  In no event shall the authors be liable for any damages arising
 from the use of this software.
+
+==============================================================================
+32. XGrammar
+==============================================================================
+
+License:  Apache License 2.0
+Homepage: https://github.com/mlc-ai/xgrammar
+Used in:  Statically linked into flm (v0.2.8).
+
+Copyright (c) 2024 by XGrammar Contributors
+
+Licensed under the Apache License, Version 2.0. The license text is
+reproduced at the end of this file.
+
+XGrammar's NOTICE file reads:
+
+    XGrammar
+
+    Copyright (c) 2024 by XGrammar Contributors
+
+==============================================================================
+33. PicoJSON
+==============================================================================
+
+License:  BSD 2-Clause License
+Homepage: https://github.com/kazuho/picojson
+Used in:  Compiled into flm (via XGrammar).
+
+Copyright 2009-2010 Cybozu Labs, Inc.
+Copyright 2011-2014 Kazuho Oku
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+==============================================================================
+34. DLPack
+==============================================================================
+
+License:  Apache License 2.0
+Homepage: https://github.com/dmlc/dlpack
+Used in:  Compiled into flm (via XGrammar, header only).
+
+Copyright 2017 by Contributors
+
+Licensed under the Apache License, Version 2.0. The license text is
+reproduced at the end of this file.
 
 ==============================================================================
 Full license texts

@@ -134,6 +134,7 @@ No model rewrites, no tuning — it just works.
 - Inspired by the widely adopted [llama.cpp](https://github.com/ggml-org/llama.cpp) and [Ollama](https://github.com/ollama/ollama)
 - Tokenization accelerated with [MLC-ai/tokenizers-cpp](https://github.com/mlc-ai/tokenizers-cpp)
 - Chat formatting via [Google/minja](https://github.com/google/minja)
+- Constrained decoding (tool calls, structured output) powered by [MLC-ai/xgrammar](https://github.com/mlc-ai/xgrammar)
 - Low-level kernels optimized using the powerful [IRON](https://github.com/amd/iron)+[AIE-MLIR](https://github.com/Xilinx/mlir-aie)
 
 ---

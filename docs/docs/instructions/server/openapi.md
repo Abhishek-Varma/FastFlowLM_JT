@@ -21,6 +21,8 @@ parent: Local Server (Server Mode)
   - [Example: Multi-Modal Input](#️-example-multi-modal-input)   
   - [Example: Flash Models (Single-Turn, Pinned System Prompt)](#-example-flash-models-single-turn-pinned-system-prompt)   
 
+> 📘 **Related pages:** [Tool Calling](https://fastflowlm.com/docs/instructions/server/tool_calling/) · [Reasoning, Tool Calls & Streaming](https://fastflowlm.com/docs/instructions/server/reasoning_and_tools/) (`reasoning_content`, streamed tool call deltas, the `think` switch) · [Structured Output & tool_choice](https://fastflowlm.com/docs/instructions/server/structured_output/) (`tool_choice`, `parallel_tool_calls`, `response_format` JSON / JSON schema)
+
 ---
 
 # 📡 How Does the OpenAI Standard Work?
@@ -203,6 +205,22 @@ except Exception as e:
 #cleanup
 del stream, client
 gc.collect()
+```
+
+As with OpenAI, a stream reports no token usage unless you ask for it with `stream_options={"include_usage": True}` (`stream_usage=True` in LangChain). Then every chunk carries `usage: null`, and one last chunk before `data: [DONE]` has an empty `choices` list and the usage of the whole request. On `/v1/chat/completions` that usage also includes FLM's timing and KV cache figures (`prefill_speed_tps`, `decoding_speed_tps`, `active_kv_tokens`, ...). Since that last chunk has no choices, guard `chunk.choices` before indexing it:
+
+```python
+stream = client.chat.completions.create(
+    model="llama3.2:1b",
+    messages=[{"role": "user", "content": "Hi!"}],
+    stream=True,
+    stream_options={"include_usage": True},
+)
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+    if chunk.usage:
+        print(f"\n{chunk.usage.prompt_tokens} prompt + {chunk.usage.completion_tokens} completion tokens")
 ```
 
 ---
