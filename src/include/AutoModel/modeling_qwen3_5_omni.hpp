@@ -61,6 +61,11 @@ public:
     std::string show_profile() override;
     std::pair<std::string, std::vector<int>> get_history() override;
 
+    /// \note generate() always feeds an empty think block, so thinking is never on
+    bool thinking_enabled() const override {
+        return false;
+    }
+
         /// \brief Configure a parameter with type-erased value
 	/// \param parameter_name the name of the parameter
 	/// \param value the value to set (can be any type)
