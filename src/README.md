@@ -63,7 +63,7 @@ cmake --build build --target check_dependencies
 
 ### Static Build (Portable Binary)
 
-FastFlowLM can be built as a portable static binary with XRT and FFmpeg bundled in. This eliminates the need for system dependencies and creates a truly self-contained executable.
+FastFlowLM can be built as a portable static binary with XRT bundled in. This eliminates the need for system dependencies and creates a truly self-contained executable.
 
 **Simple static build:**
 
@@ -74,16 +74,13 @@ cmake --build build -j$(nproc)
 ```
 
 This will:
-1. Check if XRT and FFmpeg are installed via pkg-config
-2. If not found, automatically fetch from source:
-   - XRT (v2.21.75)
-   - FFmpeg (v7.1)
-3. Build both as static libraries
-4. Link them into the flm binary
+1. Check if XRT is installed via pkg-config
+2. If not found, automatically fetch it from source (v2.21.75)
+3. Build it as a static library
+4. Link it into the flm binary
 
 **What gets statically linked:**
 - ✅ XRT (Xilinx Runtime)
-- ✅ FFmpeg (libavformat, libavcodec, libavutil, libswscale, libswresample)
 
 **What remains dynamic:**
 - XDNA driver plugin (runtime plugin - see below)
@@ -102,14 +99,13 @@ cmake --build build -j$(nproc)
 
 ```bash
 cmake --preset linux-static \
-  -DXRT_GIT_TAG=2.21.75 \
-  -DFFMPEG_GIT_TAG=n7.1
+  -DXRT_GIT_TAG=2.21.75
 cmake --build build -j$(nproc)
 ```
 
 **Benefits:**
 - ✅ Maximum portability - fewer system dependencies
-- ✅ No system XRT or FFmpeg installation required
+- ✅ No system XRT installation required
 - ✅ Reproducible builds with pinned versions
 - ✅ Simpler deployment
 - ✅ Works across different Linux distributions

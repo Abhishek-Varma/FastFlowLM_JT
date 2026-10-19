@@ -31,16 +31,11 @@ RUN apt update && apt install -y \
     dpkg-dev \
     fakeroot \
     git \
-    libavcodec-dev \
-    libavformat-dev \
-    libavutil-dev \
     libboost-dev \
     libboost-program-options-dev \
     libcurl4-openssl-dev \
     libdrm-dev \
     libedit-dev \
-    libswresample-dev \
-    libswscale-dev \
     libxrt-dev \
     nasm \
     ninja-build \

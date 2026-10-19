@@ -86,19 +86,6 @@ All steps in Win11 (powershell where needed).
     git clone https://github.com/microsoft/vcpkg.git
     ``` 
 
-7. Install ffmpeg.
-    ```
-    # install Chocolatey (if you haven't already)
-    Set-ExecutionPolicy Bypass -Scope Process -Force; `
-    [System.Net.ServicePointManager]::SecurityProtocol = `
-    [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
-    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    
-    # Using Chocolatey
-    choco install ffmpeg[zlib]
-    ```
-
-
 ## Quick Start
 
 1. Open a powershell
