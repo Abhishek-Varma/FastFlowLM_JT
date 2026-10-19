@@ -6,21 +6,38 @@
 
 using json = nlohmann::ordered_json;
 
+namespace {
+
+/// \brief A field of a request object, null when it is missing
+/// \note Some clients send null for every option they leave unset, so null
+///       has to read as missing; json::value() throws on it instead.
+const json& field(const json& object, const char* key) {
+    static const json missing;
+    auto it = object.find(key);
+    return it == object.end() ? missing : *it;
+}
+
+} // namespace
+
 bool chat_constraint_request_from_openai(const json& request, const json& tools,
                                          chat_constraint_request& out, std::string& error) {
     out = chat_constraint_request();
     out.tools = &tools;
-    out.parallel_tool_calls = request.value("parallel_tool_calls", true);
+    const json& parallel = field(request, "parallel_tool_calls");
+    if (!parallel.is_null() && !parallel.is_boolean()) {
+        error = "parallel_tool_calls must be a boolean";
+        return false;
+    }
+    out.parallel_tool_calls = parallel.is_null() || parallel.get<bool>();
     // thinking turned off: some models still get an empty think block fed in, but
     // the grammar must not offer room to reason
-    if (request.contains("think") && request["think"].is_boolean() && !request["think"].get<bool>()) {
-        out.allow_reasoning = false;
-    }
-    if (request.value("reasoning_effort", "") == "none") {
+    const json& think = field(request, "think");
+    if ((think.is_boolean() && !think.get<bool>()) || field(request, "reasoning_effort") == "none") {
         out.allow_reasoning = false;
     }
 
-    const json choice = request.value("tool_choice", json("auto"));
+    const json& choice_field = field(request, "tool_choice");
+    const json choice = choice_field.is_null() ? json("auto") : choice_field;
     if (choice.is_string()) {
         const std::string mode = choice.get<std::string>();
         if (mode == "auto") {
@@ -33,8 +50,8 @@ bool chat_constraint_request_from_openai(const json& request, const json& tools,
             error = "tool_choice must be \"auto\", \"none\", \"required\" or a function, got \"" + mode + "\"";
             return false;
         }
-    } else if (choice.is_object() && choice.value("type", "") == "function" && choice.contains("function") &&
-               choice["function"].is_object() && choice["function"].contains("name")) {
+    } else if (choice.is_object() && field(choice, "type") == "function" &&
+               field(field(choice, "function"), "name").is_string()) {
         out.tool_choice = chat_tool_choice::FUNCTION;
         out.function_name = choice["function"]["name"].get<std::string>();
     } else {
@@ -51,7 +68,8 @@ bool chat_constraint_request_from_openai(const json& request, const json& tools,
     if (out.tool_choice == chat_tool_choice::FUNCTION) {
         bool found = false;
         for (const auto& tool : tools) {
-            if (tool.contains("function") && tool["function"].value("name", "") == out.function_name) {
+            const json& name = field(field(tool, "function"), "name");
+            if (name.is_string() && name.get<std::string>() == out.function_name) {
                 found = true;
             }
         }
@@ -63,7 +81,8 @@ bool chat_constraint_request_from_openai(const json& request, const json& tools,
 
     if (request.contains("response_format") && request["response_format"].is_object()) {
         const json& format = request["response_format"];
-        const std::string type = format.value("type", "text");
+        const json& type_field = field(format, "type");
+        const std::string type = type_field.is_null() ? "text" : type_field.is_string() ? type_field.get<std::string>() : "";
         if (type == "json_object") {
             out.json_object = true;
         } else if (type == "json_schema") {

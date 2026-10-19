@@ -33,6 +33,20 @@ json ExceptionResponse(const std::exception& error) {
         return ModelErrorResponse(*model_error);
     return {{"error", error.what()}};
 }
+
+/// \brief Whether a request sets a field
+/// \note Some clients send null for every option they leave unset, so null
+///       counts as not set; json::value() and conversions throw on it instead.
+bool has_value(const json& request, const char* key) {
+    auto it = request.find(key);
+    return it != request.end() && !it->is_null();
+}
+
+/// \brief A request field, or the fallback when it is missing or null
+template <typename T>
+T value_or(const json& request, const char* key, T fallback) {
+    return has_value(request, key) ? request.at(key).get<T>() : fallback;
+}
 }
 
 ///@brief Normalize messages by merging consecutive user messages (like Ollama does)
@@ -554,44 +568,44 @@ void RestHandler::ensure_embed_model_loaded(const std::string& model_tag) {
 ///@param options the options JSON object
 ///@param request the request JSON object
 void RestHandler::configure_chat_engine_parameters(const json& options, const json& request) {
-    if (request.contains("temperature")) {
+    if (has_value(request, "temperature")) {
         float temperature = request["temperature"];
         auto_chat_engine->set_temperature(temperature);
     }
-    if (request.contains("top_p")) {
+    if (has_value(request, "top_p")) {
         float top_p = request["top_p"];
         auto_chat_engine->set_topp(top_p);
     }
-    if (request.contains("top_k")) {
+    if (has_value(request, "top_k")) {
         int top_k = request["top_k"];
         auto_chat_engine->set_topk(top_k);
     }
-    if (request.contains("min_p")) {
+    if (has_value(request, "min_p")) {
         int min_p = request["min_p"];
         auto_chat_engine->set_minp(min_p);
     }
-    if (request.contains("presence_penalty")) {
+    if (has_value(request, "presence_penalty")) {
         float presence_penalty = request["presence_penalty"];
         auto_chat_engine->set_presence_penalty(presence_penalty);
     }
-    if (request.contains("frequency_penalty")) {
+    if (has_value(request, "frequency_penalty")) {
         float frequency_penalty = request["frequency_penalty"];
         auto_chat_engine->set_frequency_penalty(frequency_penalty);
     }
-    if (request.contains("repetition_penalty")) {
+    if (has_value(request, "repetition_penalty")) {
         float repetition_penalty = request["repetition_penalty"];
         auto_chat_engine->set_repetition_penalty(repetition_penalty);
     }
-    if (request.contains("think")) {
+    if (has_value(request, "think")) {
         bool enable_thinking = request["think"];
         auto_chat_engine->configure_parameter("enable_think", enable_thinking);
     }
-    if (request.contains("reasoning_effort")) {
+    if (has_value(request, "reasoning_effort")) {
         std::string reasoning_effort = request["reasoning_effort"];
         auto_chat_engine->configure_parameter("reasoning_effort", reasoning_effort);
     }
 
-    if (request.contains("image-max-tokens")) {
+    if (has_value(request, "image-max-tokens")) {
         int image_max_tokens = request["image-max-tokens"];
         auto_chat_engine->configure_parameter("image_max_tokens", image_max_tokens);
     }
@@ -1158,12 +1172,12 @@ void RestHandler::handle_openai_chat_completion(const json& request,
     try {
         // Extract OpenAI-style parameters
         json current_messages = request["messages"];
-        std::string model = request.value("model", current_model_tag);
-        const std::string request_backend = request.value("backend", std::string());
-        bool stream = request.value("stream", false);
-        int length_limit = request.value("max_tokens", request.value("max_completion_tokens", 4096));
-        json tools = request.value("tools", json::array());
-        json options = request.value("options", json::object());
+        std::string model = value_or(request, "model", current_model_tag);
+        const std::string request_backend = value_or(request, "backend", std::string());
+        bool stream = value_or(request, "stream", false);
+        int length_limit = value_or(request, "max_tokens", value_or(request, "max_completion_tokens", 4096));
+        json tools = value_or(request, "tools", json::array());
+        json options = value_or(request, "options", json::object());
 
         // tool_choice, parallel_tool_calls and response_format become a decoding constraint
         chat_constraint_request constraint_request;
@@ -1243,9 +1257,9 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         lm_uniform_input_t uniformed_input;
         uniformed_input.messages = current_messages;
         uniformed_input.tools = tools;
-        const std::optional<int> openai_chat_budget = request.contains("max_tokens")
+        const std::optional<int> openai_chat_budget = has_value(request, "max_tokens")
             ? std::optional<int>(request.at("max_tokens").get<int>())
-            : request.contains("max_completion_tokens")
+            : has_value(request, "max_completion_tokens")
                 ? std::optional<int>(request.at("max_completion_tokens").get<int>())
                 : std::nullopt;
         uniformed_input.requested_max_new_tokens =

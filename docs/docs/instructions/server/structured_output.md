@@ -406,6 +406,8 @@ In the OpenAI Python SDK this raises `openai.BadRequestError`.
 | `"required"` / function form on a model without tool syntax | `this model's chat format (content_only) has no tool call syntax to constrain` |
 | `"required"` / function form on a model too small to be shown tools | `this model does not support tool calling; tool_choice must be "auto" or "none"` |
 
+Options sent as `null`, as some clients do for the ones they leave unset, are treated as unset, not as errors.
+
 ---
 
 ## ⚡ Performance

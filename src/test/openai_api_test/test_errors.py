@@ -88,6 +88,15 @@ def uncompilable_schema(api: Api) -> None:
 
 
 @case
+def null_options_are_unset(api: Api) -> None:
+    """Options sent as null, as some clients do for unset ones, are not an error."""
+    body = api.body(user("Say hi."), max_tokens=16, tools=WEATHER_TOOLS, tool_choice=None,
+                    parallel_tool_calls=None, response_format=None, reasoning_effort=None,
+                    presence_penalty=None, stream=None, max_completion_tokens=None)
+    flm_api.check_message_contract(api.ok(body))
+
+
+@case
 def server_still_serves(api: Api) -> None:
     """After the rejections a normal request still succeeds."""
     flm_api.check_message_contract(api.ok(api.body(user("Say hi."), max_tokens=16)))
