@@ -168,7 +168,8 @@ The EBNF argument grammars (`argument_list_rules()`) put declared properties in 
 - `start(prefill)` feeds the prefill (Harmony drops the leading `assistant` role) into the matcher;
 - `fill_mask()` fills a `uint32` bitset over the vocabulary;
 - `accept(token)` advances; `rollback(n)` undoes;
-- `accept_forced(token)` handles a token the model is *made* to emit. If thinking was off in the grammar but a thinking-only model is forced to open `<think>`, the constraint switches to a precompiled grammar that has reasoning and replays its history into it;
+- `accept_forced(token)` handles a token the model is *made* to emit;
+- if thinking was off in the grammar but the model reasons anyway, because the template opened `<think>` in the prefill or the model is forced to emit it, `start()` / `accept_forced()` switch to a precompiled grammar that has reasoning and replay the prefill and history into it;
 - if the matcher ever rejects a token, `give_up()` logs `Constrained decoding disabled for this request: …` and stops masking. A desynchronised grammar would only produce garbage.
 
 ### The decode loop

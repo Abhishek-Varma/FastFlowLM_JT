@@ -466,7 +466,12 @@ public:
             text = text.substr(skip_.size());
         }
         prefill_ = text;
-        if (!text.empty() && !matcher_.AcceptString(text)) {
+        if (text.empty() || matcher_.AcceptString(text)) {
+            return;
+        }
+        // the template opened a reasoning block although the request turned thinking
+        // off (a model without a thinking switch): the answer still has to follow it
+        if (!use_reasoning_grammar()) {
             give_up("the grammar does not accept the prompt's prefill \"" + text + "\"");
         }
     }
@@ -507,23 +512,11 @@ public:
             history_.push_back(token);
             return;
         }
-        if (!with_reasoning_) {
+        // the model is made to reason although the request turned thinking off
+        if (!use_reasoning_grammar() || !matcher_.AcceptToken(token)) {
             give_up("the grammar rejected forced token " + std::to_string(token));
             return;
         }
-        // the model is made to reason although the request turned thinking off:
-        // carry on with the grammar that has the reasoning block, from the same point
-        xgrammar::GrammarMatcher reasoning(*with_reasoning_, std::nullopt, false, MAX_ROLLBACK);
-        with_reasoning_.reset();
-        bool ok = prefill_.empty() || reasoning.AcceptString(prefill_);
-        for (size_t i = 0; ok && i < history_.size(); i++) {
-            ok = reasoning.AcceptToken(history_[i]);
-        }
-        if (!ok || !reasoning.AcceptToken(token)) {
-            give_up("the grammar rejected forced token " + std::to_string(token));
-            return;
-        }
-        matcher_ = std::move(reasoning);
         history_.push_back(token);
     }
 
@@ -536,6 +529,24 @@ public:
 
 private:
     static constexpr int MAX_ROLLBACK = 8;
+
+    /// \brief Carry on with the grammar that has the reasoning block, from the same point
+    /// \return false when there is none, or it does not accept what came so far either
+    bool use_reasoning_grammar() {
+        if (!with_reasoning_) {
+            return false;
+        }
+        xgrammar::GrammarMatcher reasoning(*with_reasoning_, std::nullopt, false, MAX_ROLLBACK);
+        with_reasoning_.reset();
+        bool ok = prefill_.empty() || reasoning.AcceptString(prefill_);
+        for (size_t i = 0; ok && i < history_.size(); i++) {
+            ok = reasoning.AcceptToken(history_[i]);
+        }
+        if (ok) {
+            matcher_ = std::move(reasoning);
+        }
+        return ok;
+    }
 
     void give_up(const std::string& why) {
         // a desynchronised grammar would only produce garbage; let the model finish free
