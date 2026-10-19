@@ -13,6 +13,7 @@ SOURCES += ../../common/tokenizer/tokenizer.cpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -ld3_npu
+CXX_FLAGS += -DFLM_HAS_D3_NPU=1
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))
