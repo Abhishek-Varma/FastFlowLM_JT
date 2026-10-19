@@ -5,6 +5,7 @@
 /// \version 0.9.24
 /// \note This is a source file for the main entry point
 #pragma once
+#include "AutoDecisionModel/auto_decision_model.hpp"
 #include "runner.hpp"
 #include "server.hpp"
 #include "model_list.hpp"
@@ -770,6 +771,11 @@ int main(int argc, char* argv[]) {
             embedding_size = 300000000;
             header_print_g("FLM", "Embedding mode enabled: reserving additional 300MB of memory");
         }
+        if (!parsed_args.decision.empty()) {
+            // d3:lite: 0.56 GB of weights, scratch for a 4096-row pass, the fp32 readout
+            embedding_size += 1000000000;
+            header_print_g("FLM", "Decision model enabled: reserving additional 1GB of memory");
+        }
 
         // Add 512MB overhead for working memory beyond the model itself
         rlim_t required = model_size + asr_size + embedding_size + (512ULL * 1024 * 1024);
@@ -804,6 +810,13 @@ int main(int argc, char* argv[]) {
             std::filesystem::create_directories(models_dir);
         }
 
+        // A decision model answers System One requests over HTTP only; it is not a chat model.
+        if ((parsed_args.command == "run" || parsed_args.command == "serve" || parsed_args.command == "bench") &&
+            decisionModelTags.count(parsed_args.model_tag)) {
+            header_print("FLM", parsed_args.model_tag << " is a decision model: serve it with `flm serve --decision "
+                                << parsed_args.model_tag << "` (optionally next to a chat model) and POST /v1/systemone");
+            return 1;
+        }
         if (parsed_args.command == "bench") {
             benchmarking::BenchmarkResults_t results = benchmarking::run_benchmarks(parsed_args.model_tag, parsed_args.input_file_name, availble_models, parsed_args.iterations, npu_device, parsed_args.backend, parsed_args.ctx_length);
         }

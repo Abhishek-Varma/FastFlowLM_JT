@@ -406,6 +406,10 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
     }
 #endif
 
+    if (!args.decision.empty()) {
+        ensure_decision_model_loaded(args.decision);
+    }
+
     if (default_model_tag != "model-faker") {
         if (!supported_models.is_model_supported(default_model_tag)) {
             header_print("Warning", "Default model tag '" << default_model_tag << "' is not supported. Falling back to 'llama3.2:1b'.");
@@ -538,6 +542,63 @@ void RestHandler::ensure_asr_model_loaded(const std::string& model_tag) {
 #else
     throw std::runtime_error("ASR models are not supported in this build");
 #endif
+}
+
+///@brief Load the --decision model (download it first if needed); exits when it cannot load,
+///       like the other sidecars, so a server never runs without the model it was asked for
+void RestHandler::ensure_decision_model_loaded(const std::string& model_tag) {
+    if (!decisionModelTags.count(model_tag)) {
+        header_print("ERROR", "Unknown decision model '" << model_tag << "' (supported: d3:lite)");
+        exit(EXIT_FAILURE);
+    }
+    std::string ensure_tag = model_tag;
+    switch (this->downloader.is_model_downloaded(ensure_tag, false, /*fast_check=*/true)) {
+        case ModelDownloader::ModelStatus::Ready:
+            break;
+        case ModelDownloader::ModelStatus::Outdated:
+        case ModelDownloader::ModelStatus::Missing:
+            this->downloader.pull_model(ensure_tag, this->modelscope);
+            break;
+        case ModelDownloader::ModelStatus::Incompatible:
+            header_print("ERROR", model_tag << " is incompatible with this version of FastFlowLM");
+            exit(EXIT_FAILURE);
+    }
+    auto [resolved_tag, model_info] = this->supported_models.get_model_info(ensure_tag);
+    std::string model_path = this->supported_models.get_model_path(resolved_tag);
+    try {
+        this->decision_engine = std::make_unique<AutoDecisionModel>(this->npu_device_inst, resolved_tag);
+        this->decision_engine->load_model(model_path, model_info, this->preemption);
+        this->decision_engine->warmup();
+    }
+    catch (const std::exception& e) {
+        header_print("ERROR", "Failed to load decision model: " + std::string(e.what()));
+        exit(EXIT_FAILURE);
+    }
+}
+
+///@brief POST /v1/systemone (and /v1/decisions)
+///@param raw_body the request body, parsed here with Python json semantics
+///@param send_response the response callback
+void RestHandler::handle_systemone(const std::string& raw_body,
+                                   std::function<void(const json&)> send_response) {
+    json reply;
+    if (!this->decision_engine) {
+        reply["__http_status"] = 404;
+        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite"}};
+        send_response(reply);
+        return;
+    }
+    try {
+        DecisionReply r = this->decision_engine->system_one(raw_body);
+        reply["__http_status"] = r.status;
+        reply["__http_body"] = std::move(r.body);
+    }
+    catch (const std::exception& e) {
+        header_print("ERROR", "System One request failed: " << e.what());
+        reply["__http_status"] = 500;
+        reply["__http_body"] = {{"detail", std::string("the server failed on this request (") + e.what() + ")"}};
+    }
+    send_response(reply);
 }
 
 ///@brief Ensure the embed model is loaded

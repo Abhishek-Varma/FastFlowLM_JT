@@ -657,7 +657,7 @@ bool WebServer::handle_request(http::request<http::string_body>& req,
         json request_json;
         try {
             if (!req_ref.body().empty()) {
-                if(is_json)
+                if(is_json && !reads_raw_body(std::string(req_ref.method_string()), std::string(req_ref.target())))
                     request_json = json::parse(req_ref.body());
                 //else 
                     //do some parse to the MultiPart request?
@@ -706,8 +706,19 @@ bool WebServer::handle_request(http::request<http::string_body>& req,
                 }
             }
 
+            // A handler that owns its status (System One: 422 {"detail": ...}) wraps its reply as
+            // {"__http_status": code, "__http_body": body}.
+            const json* body_data = &response_data;
+            if (response_data.is_object() && response_data.contains("__http_status")) {
+                status = static_cast<http::status>(response_data["__http_status"].get<int>());
+                body_data = &response_data["__http_body"];
+            }
             response_ref.result(status);
-            if (response_data.is_string()) {
+            if (body_data != &response_data) {
+                response_ref.body() = body_data->dump(-1, ' ', false, json::error_handler_t::replace);
+                response_ref.set(http::field::content_type, "application/json");
+            }
+            else if (response_data.is_string()) {
                 // A plain-text body: the text, srt and vtt transcription formats.
                 response_ref.body() = response_data.get<std::string>();
                 response_ref.set(http::field::content_type, "text/plain; charset=utf-8");
@@ -962,6 +973,19 @@ std::unique_ptr<WebServer> create_lm_server(model_list& models, ModelDownloader&
                 }
                 rest_handler->handle_embeddings(request_json, send_response, send_streaming_response);
         });
+
+    // System One decisions (d3:lite via --decision); /v1/decisions is the alias vLLM Semantic
+    // Router also accepts. The handler parses the raw body itself.
+    for (const char* path : {"/v1/systemone", "/v1/decisions"}) {
+        server->register_handler("POST", path,
+            [rest_handler](const http::request<http::string_body>& req,
+                std::function<void(const json&)> send_response,
+                std::function<void(const json&, bool)> send_streaming_response,
+                std::shared_ptr<HttpSession> session,
+                std::shared_ptr<CancellationToken> cancellation_token) {
+                    rest_handler->handle_systemone(req.body(), send_response);
+            });
+    }
 
     server->register_handler("POST", "/v1/chat/completions",
         [rest_handler](const http::request<http::string_body>& req,
