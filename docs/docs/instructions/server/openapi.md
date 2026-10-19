@@ -21,6 +21,8 @@ parent: Local Server (Server Mode)
   - [Example: Multi-Modal Input](#️-example-multi-modal-input)   
   - [Example: Flash Models (Single-Turn, Pinned System Prompt)](#-example-flash-models-single-turn-pinned-system-prompt)   
 
+> 📘 **Related pages:** [Tool Calling](https://fastflowlm.com/docs/instructions/server/tool_calling/) · [Reasoning, Tool Calls & Streaming](https://fastflowlm.com/docs/instructions/server/reasoning_and_tools/) (`reasoning_content`, streamed tool call deltas, the `think` switch) · [Structured Output & tool_choice](https://fastflowlm.com/docs/instructions/server/structured_output/) (`tool_choice`, `parallel_tool_calls`, `response_format` JSON / JSON schema)
+
 ---
 
 # 📡 How Does the OpenAI Standard Work?
