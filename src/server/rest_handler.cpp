@@ -576,6 +576,15 @@ void RestHandler::ensure_decision_model_loaded(const std::string& model_tag) {
     }
 }
 
+///@brief GET /v1/systemone/models
+void RestHandler::handle_systemone_models(std::function<void(const json&)> send_response) {
+    json data = json::array();
+    if (this->decision_engine) {
+        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"}});
+    }
+    send_response({{"object", "list"}, {"data", data}});
+}
+
 ///@brief POST /v1/systemone (and /v1/decisions)
 ///@param raw_body the request body, parsed here with Python json semantics
 ///@param send_response the response callback

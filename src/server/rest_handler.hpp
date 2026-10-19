@@ -107,6 +107,10 @@ public:
                                       std::function<void(const json&)> send_response,
                                       StreamResponseCallback send_streaming_response,
                                       std::shared_ptr<CancellationToken> cancellation_token = nullptr);
+    /// GET /v1/systemone/models: the served decision model, in vLLM Semantic Router's
+    /// System One list format ({"object": "list", "data": [{"id", "object", "api"}]})
+    void handle_systemone_models(std::function<void(const json&)> send_response);
+
     /// POST /v1/systemone: a System One request for the --decision model
     void handle_systemone(const std::string& raw_body,
                           std::function<void(const json&)> send_response);
