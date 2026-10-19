@@ -82,16 +82,9 @@ Source: "mha.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vcruntime140.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "vcruntime140_1.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "abseil_dll.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "avcodec-61.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "avdevice-61.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "avfilter-10.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "avformat-61.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "avutil-59.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "libprotobuf-lite.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "libprotobuf.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "libprotoc.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "swresample-5.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "swscale-8.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "zlib1.dll"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Application icon (used for shortcuts)

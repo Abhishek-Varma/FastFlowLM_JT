@@ -122,7 +122,7 @@ In short: if 1.1 firmware breaks probing on stock 6.19, do not keep forcing the 
 1. Ensure all required development packages are installed:
    ```sh
    sudo apt install ninja
-   sudo apt install libavformat-dev  libavutil-dev libavcodec-dev libswresample-dev libswscale-dev libxrt-dev uuid-dev libdrm-dev
+   sudo apt install libedit-dev libxrt-dev uuid-dev libdrm-dev
    ```
 
 2. Clone the repository and pull all submodules:

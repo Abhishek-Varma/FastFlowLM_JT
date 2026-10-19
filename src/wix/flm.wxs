@@ -221,21 +221,6 @@
       <Component Id="Comp_abseil_dll.dll" Guid="*">
         <File Id="File_abseil_dll.dll" Source="$(SourceDir)\abseil_dll.dll" KeyPath="yes" />
       </Component>
-      <Component Id="Comp_avcodec_61.dll" Guid="*">
-        <File Id="File_avcodec_61.dll" Source="$(SourceDir)\avcodec-61.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_avdevice_61.dll" Guid="*">
-        <File Id="File_avdevice_61.dll" Source="$(SourceDir)\avdevice-61.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_avfilter_10.dll" Guid="*">
-        <File Id="File_avfilter_10.dll" Source="$(SourceDir)\avfilter-10.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_avformat_61.dll" Guid="*">
-        <File Id="File_avformat_61.dll" Source="$(SourceDir)\avformat-61.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_avutil_59.dll" Guid="*">
-        <File Id="File_avutil_59.dll" Source="$(SourceDir)\avutil-59.dll" KeyPath="yes" />
-      </Component>
       <Component Id="Comp_libprotobuf_lite.dll" Guid="*">
         <File Id="File_libprotobuf_lite.dll" Source="$(SourceDir)\libprotobuf-lite.dll" KeyPath="yes" />
       </Component>
@@ -244,12 +229,6 @@
       </Component>
       <Component Id="Comp_libprotoc.dll" Guid="*">
         <File Id="File_libprotoc.dll" Source="$(SourceDir)\libprotoc.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_swresample_5.dll" Guid="*">
-        <File Id="File_swresample_5.dll" Source="$(SourceDir)\swresample-5.dll" KeyPath="yes" />
-      </Component>
-      <Component Id="Comp_swscale_8.dll" Guid="*">
-        <File Id="File_swscale_8.dll" Source="$(SourceDir)\swscale-8.dll" KeyPath="yes" />
       </Component>
       <Component Id="Comp_zlib1.dll" Guid="*">
         <File Id="File_zlib1.dll" Source="$(SourceDir)\zlib1.dll" KeyPath="yes" />
