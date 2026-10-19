@@ -25,7 +25,7 @@ public:
     int max_length() override;
     int hidden_size() override;
 
-    /// \brief rows packed into one pass (default 512, the array GEMM's row tile); 0 = one prompt per pass
+    /// \brief rows packed into one pass (default 2048, four array GEMM row tiles); 0 = one prompt per pass
     void set_pack_rows(int rows);
     /// \brief rig only: run the full-attention layers causally (the stock-engine comparison baseline)
     void set_causal(bool causal);
