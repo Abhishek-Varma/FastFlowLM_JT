@@ -511,7 +511,12 @@ list(APPEND FLM_ENGINE_LINK_LIBS
 # The d3 decision engine (--decision d3:lite). Linked where its library is vendored; elsewhere
 # (a Windows build before d3_npu.dll ships) AutoDecisionModel compiles without the engine and
 # refuses to load.
-if(EXISTS "${FLM_ENGINE_LIB_DIR}/libd3_npu.so" OR EXISTS "${FLM_ENGINE_LIB_DIR}/d3_npu.lib")
+if(WIN32)
+    set(_d3_npu_lib "${FLM_ENGINE_LIB_DIR}/d3_npu.lib")
+else()
+    set(_d3_npu_lib "${FLM_ENGINE_LIB_DIR}/libd3_npu.so")
+endif()
+if(EXISTS "${_d3_npu_lib}")
     list(APPEND FLM_ENGINE_LINK_LIBS d3_npu)
     target_compile_definitions(flm PRIVATE FLM_HAS_D3_NPU=1)
 endif()
