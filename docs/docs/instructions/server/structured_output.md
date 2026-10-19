@@ -92,7 +92,8 @@ resp = client.chat.completions.create(
 Notes:
 
 - `"required"` and the function form need a model whose format has a tool call syntax (every format except `content_only`, see [the format table](https://fastflowlm.com/docs/instructions/server/reasoning_and_tools/#️-supported-model-formats)). On other models they're rejected with HTTP 400 rather than silently ignored.
-- `"auto"` on a model without a tool call syntax is accepted, but nothing is constrained or parsed.
+- They're also rejected on models too small to be shown tools (`qwen3:0.6b`, `qwen3:1.7b`, `qwen3.5:0.8b`). These leave `tools` out of the prompt, so a forced call would have arguments made up for a tool the model never saw.
+- `"auto"` on a model without a tool call syntax, or one that isn't shown tools, is accepted, but nothing is constrained.
 - With `"required"`, small models sometimes keep writing after their call, for example a made-up answer to their own question. Look at `tool_calls`. `content` may hold this extra text.
 
 ---
@@ -403,6 +404,7 @@ In the OpenAI Python SDK this raises `openai.BadRequestError`.
 | `json_schema` without `schema` | `response_format json_schema needs json_schema.schema` |
 | A schema xgrammar can't compile (e.g. a dangling `$ref`) | `cannot build the decoding grammar: …` with xgrammar's reason |
 | `"required"` / function form on a model without tool syntax | `this model's chat format (content_only) has no tool call syntax to constrain` |
+| `"required"` / function form on a model too small to be shown tools | `this model does not support tool calling; tool_choice must be "auto" or "none"` |
 
 ---
 

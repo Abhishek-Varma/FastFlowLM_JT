@@ -95,6 +95,7 @@ void load_model(std::string model_path, json model_info,
 chat_template_type_t get_chat_template_type() override;   // chat_ml | harmony | gemma4
 bool configure_parameter(std::string name, const std::any& value) override;
 bool thinking_enabled() const override;                    // models with a thinking switch, or always off
+bool tools_enabled() const override;                       // models that may leave tools out of the prompt
 ```
 
 Also declare the private helper the base class expects you to supply:

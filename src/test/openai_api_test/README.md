@@ -39,7 +39,7 @@ Each case prints `PASS`, `FAIL` or `SKIP`. The exit code is non-zero if anything
 
 Some cases skip by design:
 
-- **Tool cases** skip on models whose chat format has no tool call syntax (the server answers `has no tool call syntax`).
+- **Tool cases** skip on models whose chat format has no tool call syntax (the server answers `has no tool call syntax`), and on models too small to be shown tools (`does not support tool calling`).
 - **Thinking-on cases** skip on models that never reason.
 - **Multi-turn cases** skip on single-turn (flash) models.
 - **Stream/non-stream parity** compares greedy outputs. Greedy decoding on the NPU isn't always bit-reproducible between identical requests (mostly over long outputs), so the check retries and only fails if the non-streaming output reproduced itself while the stream never matched it. Otherwise it skips.

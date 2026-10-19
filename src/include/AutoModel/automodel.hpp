@@ -504,9 +504,15 @@ public:
 	virtual bool thinking_enabled() const {
 		return true;
 	}
+	/// \brief Whether the chat template is shown the request's tools
+	/// \note Models too small for tool calling leave them out of the prompt
+	virtual bool tools_enabled() const {
+		return true;
+	}
 
 	/// \brief Build the sampling constraint a request asks for
 	/// \return null when the request needs no constraint
+	/// \throws std::invalid_argument when the model cannot do what the request asks
 	std::shared_ptr<decode_constraint> make_constraint(const chat_constraint_request& request);
 	/// \brief Insert the tokens
 	/// \param tokens the tokens

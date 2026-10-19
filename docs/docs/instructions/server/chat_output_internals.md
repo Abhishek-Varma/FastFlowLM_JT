@@ -127,7 +127,7 @@ The non-streaming path (`RestHandler::build_nstream_response`) calls `chat_parse
 
 `chat_constraint_request_from_openai()` validates and normalizes `tool_choice`, `parallel_tool_calls`, `response_format` and thinking (`think: false` or `reasoning_effort: "none"` → `allow_reasoning = false`). Errors become HTTP 400.
 
-`AutoModel::make_constraint()` also clears `allow_reasoning` when the *model* has thinking off (`thinking_enabled()`), builds a `chat_vocab`, and calls `chat_make_constraint()`, which returns one of:
+`AutoModel::make_constraint()` also clears `allow_reasoning` when the *model* has thinking off (`thinking_enabled()`). When the model leaves tools out of its prompt (`tools_enabled()` false, e.g. Qwen3 up to 1.7B), it rejects `required` and the function form with a 400 and drops the tools for `auto`. It then builds a `chat_vocab` and calls `chat_make_constraint()`, which returns one of:
 
 - an **xgrammar constraint** when `chat_structural_tag()` returns a grammar;
 - a **`token_ban_constraint`** for `tool_choice: "none"` when the tool opener is a single token;

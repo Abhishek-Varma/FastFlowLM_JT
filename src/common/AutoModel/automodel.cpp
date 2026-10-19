@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <limits>
+#include <stdexcept>
 
 namespace {
 
@@ -621,6 +622,13 @@ std::shared_ptr<decode_constraint> AutoModel::make_constraint(const chat_constra
     chat_constraint_request effective = request;
     if (!this->thinking_enabled()) {
         effective.allow_reasoning = false;
+    }
+    // a model never shown the tools would make up the arguments of a call it is forced into
+    if (!this->tools_enabled()) {
+        if (request.tool_choice == chat_tool_choice::REQUIRED || request.tool_choice == chat_tool_choice::FUNCTION) {
+            throw std::invalid_argument("this model does not support tool calling; tool_choice must be \"auto\" or \"none\"");
+        }
+        effective.tools = nullptr;
     }
     return chat_make_constraint(this->chat_format, effective, vocab, engine);
 }

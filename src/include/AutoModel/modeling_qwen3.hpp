@@ -39,6 +39,9 @@ public:
     bool thinking_enabled() const override {
         return this->enable_think;
     }
+    bool tools_enabled() const override {
+        return this->enable_tool;
+    }
 
     /// \brief Override configure_parameter to handle Qwen3-specific parameters
     bool configure_parameter(std::string parameter_name, const std::any& value) override {

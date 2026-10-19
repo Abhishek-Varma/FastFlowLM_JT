@@ -177,6 +177,8 @@ def raise_for_capability(message: str) -> None:
     """Turn a 'this model cannot do that' rejection into a skip."""
     if "has no tool call syntax" in message:
         raise Skip("the model's chat format has no tool call syntax")
+    if "does not support tool calling" in message:
+        raise Skip("the model is not shown tools")
     if "only supports single-turn" in message:
         raise Skip("the model only supports single-turn requests")
 

@@ -68,6 +68,9 @@ public:
     bool thinking_enabled() const override {
         return this->enable_think;
     }
+    bool tools_enabled() const override {
+        return this->enable_tool;
+    }
 
     /// \brief Configure a parameter with type-erased value
 	/// \param parameter_name the name of the parameter
