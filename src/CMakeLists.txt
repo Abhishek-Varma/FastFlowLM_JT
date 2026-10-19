@@ -878,25 +878,20 @@ elseif(NOT FLM_USE_HRX)
     # ${shlibs:Depends}. Nothing is bundled here.
     install(TARGETS flm RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
 else()
-    # HRX: bundle flm's third-party runtime dependencies into
-    # ${CMAKE_INSTALL_LIBDIR} (libhrx plus the engine .so private deps).
+    # HRX: bundle the NPU runtime (libhrx) and Boost.Program_options into
+    # ${CMAKE_INSTALL_LIBDIR} -- the same two third-party libraries the portable
+    # XRT build bundles. Everything else flm and the engine .so link (libcurl and
+    # its TLS/IDN/Kerberos stack, the GCC runtime, glibc's libmvec/libresolv)
+    # resolves from the host, as it does for XRT. Copying the whole closure
+    # shipped LGPL libraries (GnuTLS, nettle, GMP, libidn2, librtmp, ...) that
+    # THIRD_PARTY_NOTICES.txt does not cover, plus glibc pieces that have to
+    # match the host's libc anyway.
     #
-    # Subtlety: some private dependencies (libgomp, libmvec, ...) are pulled in
-    # ONLY by the prebuilt engine .so, not by flm itself. The engine .so are
-    # installed and RUNPATH-patched explicitly into FLM_ENGINE_LIB_DESTINATION
-    # above, so the resolver must NOT emit a second, unpatched copy of them
-    # (which would retain the absolute build-machine RUNPATH) — but their private
-    # deps DO need to be in the closure.
-    #
-    # A RUNTIME_DEPENDENCY_SET rooted only at flm cannot express this: listing
-    # the engine .so in POST_EXCLUDE_REGEXES also stops traversal INTO them, so
-    # their private deps silently drop out of the bundle (that is exactly how
-    # libgomp/libmvec went missing). Instead, scan flm together with the engine
-    # .so as ROOTS via file(GET_RUNTIME_DEPENDENCIES): roots are traversed for
-    # their dependencies but are never themselves emitted, so libgomp/libmvec are
-    # captured while the engine .so stay solely under the patched install above.
-    # The engine names are still POST_EXCLUDEd as a belt-and-suspenders guard for
-    # the case of one engine lib depending on another.
+    # The closure is still resolved, rooted at flm together with the engine .so
+    # (roots are traversed but never emitted, so the engine .so stay solely under
+    # the RUNPATH-patched install above), so a dependency the build host cannot
+    # resolve still fails the install. The engine names are still POST_EXCLUDEd
+    # as a guard for the case of one engine lib depending on another.
     install(TARGETS flm RUNTIME DESTINATION "${FLM_BIN_DESTINATION}")
     install(CODE "
         set(_flm_engine_libs \"${so_libs}\")
@@ -921,12 +916,22 @@ else()
             message(FATAL_ERROR
                 \"FastFlowLM runtime dependency closure is incomplete; unresolved: \${_flm_unresolved}\")
         endif()
+        set(_flm_bundled \"\")
+        foreach(_flm_dep \${_flm_resolved})
+            get_filename_component(_flm_dep_name \"\${_flm_dep}\" NAME)
+            if(_flm_dep_name MATCHES \"^lib(hrx|boost_program_options)[.]so\")
+                list(APPEND _flm_bundled \"\${_flm_dep}\")
+            endif()
+        endforeach()
+        if(NOT _flm_bundled MATCHES \"libhrx[.]so\")
+            message(FATAL_ERROR \"libhrx is not in the flm dependency closure: \${_flm_resolved}\")
+        endif()
         # file(INSTALL) prepends \$ENV{DESTDIR} itself, so DESTINATION must not.
         file(INSTALL
             DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\"
             TYPE SHARED_LIBRARY
             FOLLOW_SYMLINK_CHAIN
-            FILES \${_flm_resolved})
+            FILES \${_flm_bundled})
     ")
 endif()
 
