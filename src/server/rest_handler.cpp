@@ -11,6 +11,7 @@
 #include "streaming_ostream.hpp"
 #include "streaming_ostream_openai.hpp"
 #include "image/image_reader.hpp"
+#include "whisper/transcript_format.hpp"
 #include <sstream>
 #include <iostream>
 #include <thread>
@@ -1447,44 +1448,108 @@ void RestHandler::handle_openai_audio_transcriptions(const json& request,
         std::string model = request["model"];
         std::string file_content = request["file"].get<std::string>();
         std::vector<uint8_t> audio_raw(file_content.begin(), file_content.end());
+        std::string language = request.value("language", "");
+        std::string prompt = request.value("prompt", "");
+        std::string response_format = request.value("response_format", "json");
         bool stream = request.value("stream", false);
         json response;
+        if (response_format != "json" && response_format != "text" && response_format != "verbose_json" &&
+            response_format != "srt" && response_format != "vtt") {
+            throw std::invalid_argument("unsupported response_format: " + response_format +
+                                        " (json, text, verbose_json, srt or vtt)");
+        }
+        // Segments need the timestamps; json and text are the same transcript without them.
+        const bool timed = response_format == "verbose_json" || response_format == "srt" || response_format == "vtt";
         if (this->asr) {
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
             this->whisper_engine->load_audio(audio_raw);
             header_print("FLM", "Transforming audio to text...");
-            // Show text
-            std::cout << "Audio content: " << std::flush;
-            std::pair<std::string, std::string> audio_result = this->whisper_engine->generate(Whisper::whisper_task_type_t::e_transcribe, true, false, std::cout);
+            // Transcripts are user speech: log them only when FLM_LOG_RAW_OUTPUT asks.
+            const char* log_env = std::getenv("FLM_LOG_RAW_OUTPUT");
+            const bool log_transcript = log_env != nullptr && log_env[0] != '\0' && std::strcmp(log_env, "0") != 0;
+            std::ostream no_log(nullptr);
+            std::ostream& transcript_log = log_transcript ? std::cout : no_log;
+            transcript_log << "Audio content: " << std::flush;
+            std::pair<std::string, std::string> audio_result = this->whisper_engine->generate(Whisper::whisper_task_type_t::e_transcribe, true, timed, transcript_log, language, prompt);
             std::string audio_context = audio_result.first;
-            std::cout << std::endl;
+            std::string language_name = audio_result.second;
+            double duration = this->whisper_engine->audio_duration();
+            transcript_log << std::endl;
 #else
             throw std::runtime_error("ASR models are not supported in this build");
             std::string audio_context;
+            std::string language_name;
+            double duration = 0.0;
 #endif
 
-            response = {
-                {"model", model},
-                {"text", audio_context}
-                //{"usage", {
-                //    {"type", "tokens"},
-                //    {"input_tokens", 0},
-                //    {"input_tokens_details", json::array({
-                //        {
-                //            {"text_tokens", 0},
-                //            {"audio_tokens", 0}
-                //        }
-                //    })},
-                //    {"output_tokens", 0},
-                //    {"total_tokens", 0}
-                //}}
-            };
+            if (response_format == "json") {
+                response = {
+                    {"model", model},
+                    {"text", audio_context}
+                };
+            }
+            else if (response_format == "text") {
+                response = audio_context;  // a string goes out as a text/plain body
+            }
+            else {
+                std::vector<transcript::Segment> segments = transcript::split_segments(audio_context, duration);
+                if (response_format == "srt") {
+                    response = transcript::to_srt(segments);
+                }
+                else if (response_format == "vtt") {
+                    response = transcript::to_vtt(segments);
+                }
+                else {
+                    // Whisper's decoder keeps no per-segment statistics: tokens,
+                    // avg_logprob, compression_ratio and no_speech_prob are
+                    // placeholders that no client filter drops a segment on.
+                    json segments_json = json::array();
+                    std::string text;
+                    for (const transcript::Segment& segment : segments) {
+                        segments_json.push_back({
+                            {"id", (int)segments_json.size()},
+                            {"seek", 0},
+                            {"start", segment.start},
+                            {"end", segment.end},
+                            {"text", segment.text},
+                            {"tokens", json::array()},
+                            {"temperature", 0.0},
+                            {"avg_logprob", 0.0},
+                            {"compression_ratio", 0.0},
+                            {"no_speech_prob", 0.0}
+                        });
+                        text += segment.text;
+                    }
+                    // OpenAI names the language in lower case, as openai-whisper's LANGUAGES.
+                    std::transform(language_name.begin(), language_name.end(), language_name.begin(),
+                                   [](unsigned char c) { return (char)std::tolower(c); });
+                    response = {
+                        {"task", "transcribe"},
+                        {"language", language_name},
+                        {"duration", duration},
+                        {"text", text},
+                        {"segments", segments_json},
+                        {"model", model}
+                    };
+                }
+            }
         }
         else {
             header_print("Warning", "No asr model loaded, cannot load audio file");
         }
         send_response(response);
         //this->whisper_engine->clear_context();
+    }
+    catch (const std::invalid_argument& e) {
+        // A bad language or response_format. A 400, as OpenAI's: clients retry a 500.
+        json error_response = {
+            {"error", {
+                {"message", e.what()},
+                {"type", "invalid_request_error"},
+                {"code", 400}
+            }}
+        };
+        send_response(error_response);
     }
     catch (const std::exception& e) {
         json error_response = {

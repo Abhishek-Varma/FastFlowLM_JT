@@ -78,6 +78,13 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version
 
+      # The build-environment image is rebuilt nightly from main's Dockerfile, so
+      # a Build-Depends change reaches it only after merge. Install the ones the
+      # image may still lack so dpkg-checkbuilddeps passes in the meantime.
+      - name: Install build dependencies missing from the image
+        run: |
+          apt-get install -y --no-install-recommends libedit-dev
+
       - name: Build Debian package
         working-directory: ${{ github.workspace }}
         env:
@@ -88,6 +95,8 @@ jobs:
           dpkg-buildpackage -b -us -uc
           mv ../fastflowlm_${DEB_VERSION}_amd64.deb ./fastflowlm_${DEB_VERSION}_${{ matrix.distro }}${{ matrix.version }}_amd64.deb
           ls -lah ./fastflowlm_${DEB_VERSION}_${{ matrix.distro }}${{ matrix.version }}_amd64.deb
+          .github/script/check_no_copyleft_libs.sh \
+            ./fastflowlm_${DEB_VERSION}_${{ matrix.distro }}${{ matrix.version }}_amd64.deb
 
       - name: Upload Debian package artifact
         uses: actions/upload-artifact@v4

@@ -707,8 +707,15 @@ bool WebServer::handle_request(http::request<http::string_body>& req,
             }
 
             response_ref.result(status);
-            response_ref.body() = response_data.dump();
-            response_ref.set(http::field::content_type, "application/json");
+            if (response_data.is_string()) {
+                // A plain-text body: the text, srt and vtt transcription formats.
+                response_ref.body() = response_data.get<std::string>();
+                response_ref.set(http::field::content_type, "text/plain; charset=utf-8");
+            }
+            else {
+                response_ref.body() = response_data.dump();
+                response_ref.set(http::field::content_type, "application/json");
+            }
             response_ref.prepare_payload();
             cancellation_token->complete();
             unregister_active_request(request_id);
@@ -979,6 +986,12 @@ std::unique_ptr<WebServer> create_lm_server(model_list& models, ModelDownloader&
                 json request_json;
                 request_json["model"] = parts["model"].content;
                 request_json["file"] = parts["file"].content;
+                for (const char* field : {"language", "prompt", "response_format"}) {
+                    auto it = parts.find(field);
+                    if (it != parts.end()) {
+                        request_json[field] = it->second.content;
+                    }
+                }
                 rest_handler->handle_openai_audio_transcriptions(request_json, send_response, send_streaming_response, cancellation_token);
         });
 

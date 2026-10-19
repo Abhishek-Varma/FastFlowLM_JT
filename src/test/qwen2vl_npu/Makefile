@@ -24,6 +24,7 @@ SOURCES += ../../common/AutoModel/modeling_qwen2vl_image.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 SOURCES += test.cpp
@@ -35,7 +36,7 @@ ifeq ($(WSL), 0)
 # Use g++-13 directly without CMake
 
 LDFLAGS += -lqwen2vl_npu
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg
 	
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))

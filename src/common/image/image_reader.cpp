@@ -13,21 +13,19 @@
 #include <filesystem>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <mutex>
 #include "utils/debug_utils.hpp"
-// FFmpeg includes for image processing only
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/frame.h>
-#include <libavutil/pixfmt.h>
-#include <libavutil/pixdesc.h>
-}
+#include <csetjmp>
+#include <cstdio>
+#include <jpeglib.h>
+#include "lodepng/lodepng.h"
 
 namespace {
+enum class ImageCodec { None, Jpeg, Png };
+
 static uint32_t read_be32(const uint8_t* ptr) {
     return (static_cast<uint32_t>(ptr[0]) << 24) |
            (static_cast<uint32_t>(ptr[1]) << 16) |
@@ -148,51 +146,289 @@ static bool has_valid_jpeg_structure(const uint8_t* data, size_t size) {
     return false;
 }
 
-static bool has_basic_image_integrity(const uint8_t* data, size_t size, int codec_id) {
+static bool has_basic_image_integrity(const uint8_t* data, size_t size, ImageCodec codec) {
     if (!data || size == 0) {
         return false;
     }
 
-    if (codec_id == AV_CODEC_ID_PNG) {
+    if (codec == ImageCodec::Png) {
         return has_valid_png_structure(data, size);
     }
-    if (codec_id == AV_CODEC_ID_MJPEG) {
+    if (codec == ImageCodec::Jpeg) {
         return has_valid_jpeg_structure(data, size);
     }
     return false;
 }
 
-static void resolve_source_format_and_range(AVPixelFormat input_format,
-                                            AVPixelFormat& resolved_format,
-                                            int& src_full_range,
-                                            AVColorRange frame_color_range,
-                                            AVCodecID codec_id) {
-    resolved_format = input_format;
-    src_full_range = 0;
+static ImageCodec detect_codec(const uint8_t* data, size_t size) {
+    if (!data || size < 8) {
+        return ImageCodec::None;
+    }
+    if (data[0] == 0xFF && data[1] == 0xD8) {
+        return ImageCodec::Jpeg;
+    }
+    if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) {
+        return ImageCodec::Png;
+    }
+    return ImageCodec::None;
+}
 
-    if (frame_color_range == AVCOL_RANGE_JPEG || codec_id == AV_CODEC_ID_MJPEG) {
-        src_full_range = 1;
+// Same limit as Pillow's DecompressionBombError (2 * Image.MAX_IMAGE_PIXELS):
+// a few bytes of header can otherwise request a multi-gigabyte allocation.
+constexpr size_t kMaxImagePixels = 178956970;
+
+// libjpeg reports fatal errors through error_exit, whose default calls exit();
+// jump back to the caller instead. Warnings (e.g. extraneous bytes) are muted:
+// libjpeg still produces a full image for them, as the previous decoder did.
+struct JpegErrorManager {
+    jpeg_error_mgr pub;
+    std::jmp_buf jump;
+    char message[JMSG_LENGTH_MAX];
+};
+
+static void jpeg_error_exit(j_common_ptr cinfo) {
+    auto* err = reinterpret_cast<JpegErrorManager*>(cinfo->err);
+    (*cinfo->err->format_message)(cinfo, err->message);
+    std::longjmp(err->jump, 1);
+}
+
+static void jpeg_output_message(j_common_ptr) {}
+
+// Thin wrapper so that no object with a destructor lives inside the setjmp
+// regions. Decodes with libjpeg's defaults (accurate integer IDCT, smooth
+// chroma upsampling), which is what PIL uses.
+class JpegDecoder {
+public:
+    JpegDecoder() {
+        cinfo_.err = jpeg_std_error(&err_.pub);
+        err_.pub.error_exit = jpeg_error_exit;
+        err_.pub.output_message = jpeg_output_message;
+        err_.message[0] = '\0';
+    }
+    ~JpegDecoder() {
+        if (created_) {
+            jpeg_destroy_decompress(&cinfo_);
+        }
+    }
+    JpegDecoder(const JpegDecoder&) = delete;
+    JpegDecoder& operator=(const JpegDecoder&) = delete;
+
+    bool read_header(const uint8_t* data, size_t size) {
+        if (setjmp(err_.jump)) {
+            return false;
+        }
+        jpeg_create_decompress(&cinfo_);
+        created_ = true;
+        jpeg_mem_src(&cinfo_, data, static_cast<unsigned long>(size));
+        jpeg_read_header(&cinfo_, TRUE);
+        cmyk_ = cinfo_.jpeg_color_space == JCS_CMYK || cinfo_.jpeg_color_space == JCS_YCCK;
+        cinfo_.out_color_space = cmyk_ ? JCS_CMYK : JCS_RGB;
+        return true;
     }
 
-    switch (input_format) {
-        case AV_PIX_FMT_YUVJ420P:
-            resolved_format = AV_PIX_FMT_YUV420P;
-            src_full_range = 1;
-            break;
-        case AV_PIX_FMT_YUVJ422P:
-            resolved_format = AV_PIX_FMT_YUV422P;
-            src_full_range = 1;
-            break;
-        case AV_PIX_FMT_YUVJ444P:
-            resolved_format = AV_PIX_FMT_YUV444P;
-            src_full_range = 1;
-            break;
-        case AV_PIX_FMT_YUVJ440P:
-            resolved_format = AV_PIX_FMT_YUV440P;
-            src_full_range = 1;
-            break;
-        default:
-            break;
+    // Writes width*height pixels: RGB24 into rgb, or CMYK into cmyk for
+    // CMYK/YCCK images (libjpeg can't convert those to RGB itself).
+    bool read_pixels(uint8_t* rgb, uint8_t* cmyk) {
+        if (setjmp(err_.jump)) {
+            return false;
+        }
+        jpeg_start_decompress(&cinfo_);
+        uint8_t* base = cmyk_ ? cmyk : rgb;
+        const size_t stride = static_cast<size_t>(cinfo_.output_width) * cinfo_.output_components;
+        while (cinfo_.output_scanline < cinfo_.output_height) {
+            JSAMPROW row = base + static_cast<size_t>(cinfo_.output_scanline) * stride;
+            jpeg_read_scanlines(&cinfo_, &row, 1);
+        }
+        jpeg_finish_decompress(&cinfo_);
+        return true;
+    }
+
+    int width() const { return static_cast<int>(cinfo_.image_width); }
+    int height() const { return static_cast<int>(cinfo_.image_height); }
+    bool cmyk() const { return cmyk_; }
+    // Adobe CMYK/YCCK JPEGs store inverted ink values; PIL undoes that.
+    bool adobe() const { return cinfo_.saw_Adobe_marker != 0; }
+    const char* error() const { return err_.message; }
+
+private:
+    jpeg_decompress_struct cinfo_{};
+    JpegErrorManager err_{};
+    bool created_ = false;
+    bool cmyk_ = false;
+};
+
+// Pillow's CMYK -> RGB conversion (libImaging/Convert.c: cmyk2rgb).
+static inline uint8_t muldiv255(int a, int b) {
+    const int tmp = a * b + 128;
+    return static_cast<uint8_t>(((tmp >> 8) + tmp) >> 8);
+}
+
+static void cmyk_to_rgb(const uint8_t* cmyk, uint8_t* rgb, size_t pixel_count, bool inverted) {
+    for (size_t i = 0; i < pixel_count; ++i) {
+        int c = cmyk[4 * i + 0];
+        int m = cmyk[4 * i + 1];
+        int y = cmyk[4 * i + 2];
+        int k = cmyk[4 * i + 3];
+        if (inverted) {
+            c = 255 - c;
+            m = 255 - m;
+            y = 255 - y;
+            k = 255 - k;
+        }
+        const int nk = 255 - k;
+        rgb[3 * i + 0] = static_cast<uint8_t>(std::clamp(nk - muldiv255(c, nk), 0, 255));
+        rgb[3 * i + 1] = static_cast<uint8_t>(std::clamp(nk - muldiv255(m, nk), 0, 255));
+        rgb[3 * i + 2] = static_cast<uint8_t>(std::clamp(nk - muldiv255(y, nk), 0, 255));
+    }
+}
+
+// ———————————————————————————————————————————————
+// Bicubic resampling, ported from Pillow (libImaging/Resample.c) so resized
+// pixels match PIL.Image.resize(..., Image.BICUBIC), which the HF image
+// processors use: separable convolution with an antialiasing support that grows
+// with the downscale factor, 22-bit fixed-point coefficients, horizontal pass
+// first, and rounding to 8 bits between the passes.
+// ———————————————————————————————————————————————
+constexpr int kResamplePrecisionBits = 32 - 8 - 2;
+
+static double bicubic_filter(double x) {
+    constexpr double a = -0.5;
+    if (x < 0.0) {
+        x = -x;
+    }
+    if (x < 1.0) {
+        return ((a + 2.0) * x - (a + 3.0)) * x * x + 1.0;
+    }
+    if (x < 2.0) {
+        return (((x - 5.0) * x + 8.0) * x - 4.0) * a;
+    }
+    return 0.0;
+}
+
+struct ResampleCoeffs {
+    int ksize = 0;
+    std::vector<int> bounds;   // per output index: first input index, tap count
+    std::vector<int32_t> kk;   // ksize fixed-point taps per output index
+};
+
+static ResampleCoeffs precompute_coeffs(int in_size, int out_size) {
+    constexpr double support_unscaled = 2.0;
+    const double scale = static_cast<double>(in_size) / out_size;
+    const double filterscale = scale < 1.0 ? 1.0 : scale;
+    const double support = support_unscaled * filterscale;
+
+    ResampleCoeffs c;
+    c.ksize = static_cast<int>(std::ceil(support)) * 2 + 1;
+    c.bounds.resize(static_cast<size_t>(out_size) * 2);
+    c.kk.assign(static_cast<size_t>(out_size) * c.ksize, 0);
+
+    std::vector<double> k(c.ksize);
+    for (int xx = 0; xx < out_size; ++xx) {
+        const double center = (xx + 0.5) * scale;
+        const double ss = 1.0 / filterscale;
+        int xmin = static_cast<int>(center - support + 0.5);
+        if (xmin < 0) {
+            xmin = 0;
+        }
+        int xmax = static_cast<int>(center + support + 0.5);
+        if (xmax > in_size) {
+            xmax = in_size;
+        }
+        xmax -= xmin;
+
+        double ww = 0.0;
+        for (int x = 0; x < xmax; ++x) {
+            const double w = bicubic_filter((x + xmin - center + 0.5) * ss);
+            k[x] = w;
+            ww += w;
+        }
+        int32_t* out = &c.kk[static_cast<size_t>(xx) * c.ksize];
+        for (int x = 0; x < xmax; ++x) {
+            const double w = ww != 0.0 ? k[x] / ww : k[x];
+            const double scaled = w * (1 << kResamplePrecisionBits);
+            out[x] = static_cast<int32_t>(w < 0 ? -0.5 + scaled : 0.5 + scaled);
+        }
+        c.bounds[static_cast<size_t>(xx) * 2] = xmin;
+        c.bounds[static_cast<size_t>(xx) * 2 + 1] = xmax;
+    }
+    return c;
+}
+
+static inline uint8_t clip8(int32_t v) {
+    v >>= kResamplePrecisionBits;
+    return static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+}
+
+// RGB24 in, RGB24 out. Mirrors ImagingResampleInner for a full-image box.
+static void resample_bicubic_rgb(const uint8_t* src, int in_w, int in_h,
+                                 uint8_t* dst, int out_w, int out_h) {
+    const bool need_horizontal = out_w != in_w;
+    const bool need_vertical = out_h != in_h;
+    const ResampleCoeffs horiz = precompute_coeffs(in_w, out_w);
+    ResampleCoeffs vert = precompute_coeffs(in_h, out_h);
+
+    // Rows of the source the vertical pass actually reads.
+    const int ybox_first = vert.bounds[0];
+    const int ybox_last = vert.bounds[static_cast<size_t>(out_h) * 2 - 2] + vert.bounds[static_cast<size_t>(out_h) * 2 - 1];
+
+    std::vector<uint8_t> temp;
+    const uint8_t* rows = src;
+    int rows_w = in_w;
+
+    if (need_horizontal) {
+        for (int i = 0; i < out_h; ++i) {
+            vert.bounds[static_cast<size_t>(i) * 2] -= ybox_first;
+        }
+        const int temp_h = ybox_last - ybox_first;
+        uint8_t* out = dst;
+        if (need_vertical) {
+            temp.resize(static_cast<size_t>(out_w) * temp_h * 3);
+            out = temp.data();
+        }
+        for (int yy = 0; yy < temp_h; ++yy) {
+            const uint8_t* in_row = src + static_cast<size_t>(yy + ybox_first) * in_w * 3;
+            uint8_t* out_row = out + static_cast<size_t>(yy) * out_w * 3;
+            for (int xx = 0; xx < out_w; ++xx) {
+                const int xmin = horiz.bounds[static_cast<size_t>(xx) * 2];
+                const int xmax = horiz.bounds[static_cast<size_t>(xx) * 2 + 1];
+                const int32_t* k = &horiz.kk[static_cast<size_t>(xx) * horiz.ksize];
+                int32_t s0 = 1 << (kResamplePrecisionBits - 1);
+                int32_t s1 = s0;
+                int32_t s2 = s0;
+                for (int x = 0; x < xmax; ++x) {
+                    const uint8_t* p = in_row + static_cast<size_t>(x + xmin) * 3;
+                    s0 += p[0] * k[x];
+                    s1 += p[1] * k[x];
+                    s2 += p[2] * k[x];
+                }
+                out_row[xx * 3 + 0] = clip8(s0);
+                out_row[xx * 3 + 1] = clip8(s1);
+                out_row[xx * 3 + 2] = clip8(s2);
+            }
+        }
+        if (!need_vertical) {
+            return;
+        }
+        rows = temp.data();
+        rows_w = out_w;
+    }
+
+    if (need_vertical) {
+        for (int yy = 0; yy < out_h; ++yy) {
+            const int ymin = vert.bounds[static_cast<size_t>(yy) * 2];
+            const int ymax = vert.bounds[static_cast<size_t>(yy) * 2 + 1];
+            const int32_t* k = &vert.kk[static_cast<size_t>(yy) * vert.ksize];
+            uint8_t* out_row = dst + static_cast<size_t>(yy) * out_w * 3;
+            for (int xx = 0; xx < out_w * 3; ++xx) {
+                int32_t s = 1 << (kResamplePrecisionBits - 1);
+                for (int y = 0; y < ymax; ++y) {
+                    s += rows[static_cast<size_t>(y + ymin) * rows_w * 3 + xx] * k[y];
+                }
+                out_row[xx] = clip8(s);
+            }
+        }
+    } else {
+        std::memcpy(dst, src, static_cast<size_t>(out_w) * out_h * 3);
     }
 }
 }
@@ -267,257 +503,107 @@ void ImageMemoryPool::recycle(bytes&& block) {
 
 ImageReader::ImageReader(size_t max_cached_per_size)
     : memory_pool_(max_cached_per_size) {
-    initialize_ffmpeg();
 }
 
-ImageReader::~ImageReader() {
-    reset_decode_resources();
-}
+ImageReader::~ImageReader() = default;
 
-bool ImageReader::ensure_decode_resources(int codec_id) {
-    if (!packet_) {
-        packet_ = av_packet_alloc();
+bool ImageReader::decode_jpeg(const uint8_t* data, size_t size, image_data_t& out_image) {
+    JpegDecoder decoder;
+    if (!decoder.read_header(data, size)) {
+        std::cerr << "Error: Could not read JPEG header: " << decoder.error() << std::endl;
+        return false;
     }
-    if (!frame_) {
-        frame_ = av_frame_alloc();
-    }
-    if (!rgb_frame_) {
-        rgb_frame_ = av_frame_alloc();
-    }
-    if (!packet_ || !frame_ || !rgb_frame_) {
+    const int width = decoder.width();
+    const int height = decoder.height();
+    const size_t pixel_count = static_cast<size_t>(width) * height;
+    if (width <= 0 || height <= 0 || pixel_count > kMaxImagePixels) {
+        std::cerr << "Error: Unsupported JPEG dimensions " << width << "x" << height << std::endl;
         return false;
     }
 
-    if (!codec_ctx_ || cached_codec_id_ != codec_id) {
-        if (codec_ctx_) {
-            avcodec_free_context(&codec_ctx_);
-        }
+    bytes buffer = memory_pool_.acquire(pixel_count * 3);
+    if (buffer.size() == 0) {
+        std::cerr << "Error: Could not allocate output image buffer" << std::endl;
+        return false;
+    }
+    std::vector<uint8_t> cmyk_pixels(decoder.cmyk() ? pixel_count * 4 : 0);
 
-        const AVCodec* codec = avcodec_find_decoder(static_cast<AVCodecID>(codec_id));
-        if (!codec) {
-            return false;
-        }
-
-        codec_ctx_ = avcodec_alloc_context3(codec);
-        if (!codec_ctx_) {
-            return false;
-        }
-
-        codec_ctx_->thread_count = 1;
-        codec_ctx_->thread_type = 0;
-
-        if (avcodec_open2(codec_ctx_, codec, nullptr) < 0) {
-            avcodec_free_context(&codec_ctx_);
-            return false;
-        }
-
-        cached_codec_id_ = codec_id;
+    if (!decoder.read_pixels(buffer.data(), cmyk_pixels.data())) {
+        std::cerr << "Error: Could not decode JPEG image: " << decoder.error() << std::endl;
+        memory_pool_.recycle(std::move(buffer));
+        return false;
+    }
+    if (decoder.cmyk()) {
+        cmyk_to_rgb(cmyk_pixels.data(), buffer.data(), pixel_count, decoder.adobe());
     }
 
+    recycle(out_image);
+    out_image.width = width;
+    out_image.height = height;
+    out_image.pixels = std::move(buffer);
     return true;
 }
 
-void ImageReader::reset_decode_resources() {
-    if (sws_ctx_) {
-        sws_freeContext(sws_ctx_);
-        sws_ctx_ = nullptr;
+bool ImageReader::decode_png(const uint8_t* data, size_t size, image_data_t& out_image) {
+    // lodepng converts every PNG color type to 8-bit RGB the way PIL's
+    // convert("RGB") does for the common cases: palette expanded, gray
+    // replicated, alpha/tRNS dropped (not composited), 16-bit reduced to the
+    // high byte. Gamma/ICC chunks are ignored, as PIL does by default.
+    unsigned width = 0;
+    unsigned height = 0;
+    lodepng::State state;
+    state.info_raw.colortype = LCT_RGB;
+    state.info_raw.bitdepth = 8;
+    if (lodepng_inspect(&width, &height, &state, data, size) != 0 || width == 0 || height == 0) {
+        std::cerr << "Error: Could not read PNG header" << std::endl;
+        return false;
     }
-    sws_src_w_ = 0;
-    sws_src_h_ = 0;
-    sws_src_fmt_ = -1;
-    sws_src_range_ = -1;
-
-    if (rgb_frame_) {
-        av_frame_free(&rgb_frame_);
-    }
-    if (frame_) {
-        av_frame_free(&frame_);
-    }
-    if (packet_) {
-        av_packet_free(&packet_);
-    }
-    if (codec_ctx_) {
-        avcodec_free_context(&codec_ctx_);
-    }
-    cached_codec_id_ = -1;
-}
-
-void ImageReader::initialize_ffmpeg() {
-    static std::once_flag init_once;
-    std::call_once(init_once, []() {});
-}
-
-bool ImageReader::parse_image_header(const uint8_t* data, size_t size, int& codec_id) {
-    codec_id = AV_CODEC_ID_NONE;
-    if (!data || size < 8) {
+    if (static_cast<size_t>(width) * height > kMaxImagePixels) {
+        std::cerr << "Error: Unsupported PNG dimensions " << width << "x" << height << std::endl;
         return false;
     }
 
-    if (data[0] == 0xFF && data[1] == 0xD8) {
-        codec_id = AV_CODEC_ID_MJPEG;
-        return true;
+    bytes buffer = memory_pool_.acquire(static_cast<size_t>(width) * height * 3);
+    if (buffer.size() == 0) {
+        std::cerr << "Error: Could not allocate output image buffer" << std::endl;
+        return false;
     }
-    if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) {
-        codec_id = AV_CODEC_ID_PNG;
-        return true;
+
+    unsigned char* decoded = nullptr;
+    const unsigned err = lodepng_decode(&decoded, &width, &height, &state, data, size);
+    if (err != 0 || !decoded) {
+        std::cerr << "Error: Could not decode PNG image: " << lodepng_error_text(err) << std::endl;
+        std::free(decoded);
+        memory_pool_.recycle(std::move(buffer));
+        return false;
     }
-    return false;
+    std::memcpy(buffer.data(), decoded, static_cast<size_t>(width) * height * 3);
+    std::free(decoded);
+
+    recycle(out_image);
+    out_image.width = static_cast<int>(width);
+    out_image.height = static_cast<int>(height);
+    out_image.pixels = std::move(buffer);
+    return true;
 }
 
 bool ImageReader::decode_bytes(const uint8_t* data, size_t size, image_data_t& out_image) {
-    int codec_id = AV_CODEC_ID_NONE;
-    // header_print_g("DEBUG", "Decoding image of size: " << std::to_string(size) << " bytes");
-    if (!parse_image_header(data, size, codec_id)) {
+    const ImageCodec codec = detect_codec(data, size);
+    if (codec == ImageCodec::None) {
         std::cerr << "Error: Unsupported image format (only JPEG/JPG and PNG supported)" << std::endl;
         return false;
     }
 
-    if (!has_basic_image_integrity(data, size, codec_id)) {
+    if (!has_basic_image_integrity(data, size, codec)) {
         std::cerr << "Error: Image payload failed integrity check" << std::endl;
         return false;
     }
 
-    reset_decode_resources();
-
-    if (!ensure_decode_resources(codec_id)) {
-        std::cerr << "Error: Could not initialize FFmpeg decode objects" << std::endl;
-        return false;
-    }
-
-    bool ok = false;
-    do {
-        av_frame_unref(frame_);
-        av_frame_unref(rgb_frame_);
-        av_packet_unref(packet_);
-
-        packet_->data = const_cast<uint8_t*>(data);
-        packet_->size = static_cast<int>(size);
-
-        if (avcodec_send_packet(codec_ctx_, packet_) < 0) {
-            std::cerr << "Error: Could not send packet for decoding" << std::endl;
-            break;
-        }
-
-        if (avcodec_receive_frame(codec_ctx_, frame_) < 0) {
-            std::cerr << "Error: Could not decode image frame" << std::endl;
-            break;
-        }
-
-        AVPixelFormat src_fmt = AV_PIX_FMT_NONE;
-        int src_full_range = 0;
-        resolve_source_format_and_range(static_cast<AVPixelFormat>(frame_->format),
-                                        src_fmt,
-                                        src_full_range,
-                                        frame_->color_range,
-                                        codec_ctx_->codec_id);
-
-        const bool need_rebuild_sws = !sws_ctx_ ||
-                                      sws_src_w_ != frame_->width ||
-                                      sws_src_h_ != frame_->height ||
-                                      sws_src_fmt_ != static_cast<int>(src_fmt) ||
-                                      sws_src_range_ != src_full_range;
-        if (need_rebuild_sws) {
-            if (sws_ctx_) {
-                sws_freeContext(sws_ctx_);
-                sws_ctx_ = nullptr;
-            }
-
-            sws_ctx_ = sws_getContext(frame_->width,
-                                      frame_->height,
-                                      src_fmt,
-                                      frame_->width,
-                                      frame_->height,
-                                      AV_PIX_FMT_RGB24,
-                                      SWS_BILINEAR,
-                                      nullptr,
-                                      nullptr,
-                                      nullptr);
-            if (sws_ctx_) {
-                sws_src_w_ = frame_->width;
-                sws_src_h_ = frame_->height;
-                sws_src_fmt_ = static_cast<int>(src_fmt);
-                sws_src_range_ = src_full_range;
-            }
-        }
-
-        if (!sws_ctx_) {
-            std::cerr << "Error: Could not create scaling context" << std::endl;
-            break;
-        }
-
-        const AVPixFmtDescriptor* src_desc = av_pix_fmt_desc_get(src_fmt);
-        const bool src_is_rgb = src_desc && ((src_desc->flags & AV_PIX_FMT_FLAG_RGB) != 0);
-        if (!src_is_rgb) {
-            const int* src_coeffs = sws_getCoefficients(SWS_CS_DEFAULT);
-            const int* dst_coeffs = sws_getCoefficients(SWS_CS_DEFAULT);
-            const int dst_full_range = 1;
-            if (sws_setColorspaceDetails(sws_ctx_,
-                                         src_coeffs,
-                                         src_full_range,
-                                         dst_coeffs,
-                                         dst_full_range,
-                                         0,
-                                         1 << 16,
-                                         1 << 16) < 0) {
-                std::cerr << "Error: Could not configure colorspace conversion" << std::endl;
-                break;
-            }
-        }
-
-        const int rgb_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, frame_->width, frame_->height, 1);
-        if (rgb_size <= 0) {
-            std::cerr << "Error: Invalid decoded RGB buffer size" << std::endl;
-            break;
-        }
-        // header_print_g("DEBUG", "Decoded image dimensions: " << frame_->width << "x" << frame_->height);
-        bytes buffer = memory_pool_.acquire(static_cast<size_t>(rgb_size));
-        if (buffer.size() == 0) {
-            std::cerr << "Error: Could not allocate output image buffer" << std::endl;
-            break;
-        }
-        // header_print_g("DEBUG", "Acquired buffer of size: " << std::to_string(buffer.size()) << " bytes from memory pool");
-        if (av_image_fill_arrays(rgb_frame_->data,
-                                 rgb_frame_->linesize,
-                                 buffer.data(),
-                                 AV_PIX_FMT_RGB24,
-                                 frame_->width,
-                                 frame_->height,
-                                 1) < 0) {
-            std::cerr << "Error: Could not initialize RGB output frame" << std::endl;
-            memory_pool_.recycle(std::move(buffer));
-            break;
-        }
-        // header_print_g("DEBUG", "Filling RGB image arrays");
-        if (sws_scale(sws_ctx_,
-                      frame_->data,
-                      frame_->linesize,
-                      0,
-                      frame_->height,
-                      rgb_frame_->data,
-                      rgb_frame_->linesize) <= 0) {
-            std::cerr << "Error: Could not convert decoded frame to RGB24" << std::endl;
-            memory_pool_.recycle(std::move(buffer));
-            break;
-        }
-        // header_print_g("DEBUG", "Successfully converted image to RGB24 format");
-        recycle(out_image);
-        // header_print_g("DEBUG", "Recycling previous output image data if any");
-        out_image.width = frame_->width;
-        out_image.height = frame_->height;
-        out_image.pixels = std::move(buffer);
-        
-        // header_print_g("DEBUG", "Image decoding successful!");
-        ok = true;
-    } while (false);
-
-    av_packet_unref(packet_);
-
-    return ok;
+    return codec == ImageCodec::Jpeg ? decode_jpeg(data, size, out_image)
+                                     : decode_png(data, size, out_image);
 }
 
 bool ImageReader::load_image(const std::string& filename, image_data_t& out_image) {
-    initialize_ffmpeg();
-
     if (!std::filesystem::exists(filename)) {
         std::cerr << "Error: File does not exist: " << filename << std::endl;
         return false;
@@ -546,8 +632,6 @@ bool ImageReader::load_image(const std::string& filename, image_data_t& out_imag
 }
 
 bool ImageReader::load_image_base64(const std::string& base64_string, image_data_t& out_image) {
-    initialize_ffmpeg();
-
     std::string payload = base64_string;
     const std::size_t comma_pos = payload.find(',');
     if (comma_pos != std::string::npos) {
@@ -567,52 +651,18 @@ bool ImageReader::resize_image(const image_data_t& input, int target_width, int 
     if (input.pixels.size() == 0 || input.width <= 0 || input.height <= 0 || target_width <= 0 || target_height <= 0) {
         return false;
     }
-
-    SwsContext* sws_ctx = sws_getContext(input.width,
-                                         input.height,
-                                         AV_PIX_FMT_RGB24,
-                                         target_width,
-                                         target_height,
-                                         AV_PIX_FMT_RGB24,
-                                         SWS_BICUBIC,
-                                         nullptr,
-                                         nullptr,
-                                         nullptr);
-    if (!sws_ctx) {
-        std::cerr << "Error: Could not create resize context" << std::endl;
+    if (input.pixels.size() < static_cast<size_t>(input.width) * input.height * 3) {
         return false;
     }
 
-    const int out_size = av_image_get_buffer_size(AV_PIX_FMT_RGB24, target_width, target_height, 1);
-    if (out_size <= 0) {
-        sws_freeContext(sws_ctx);
-        return false;
-    }
-
-    bytes out_buffer = memory_pool_.acquire(static_cast<size_t>(out_size));
+    const size_t out_size = static_cast<size_t>(target_width) * target_height * 3;
+    bytes out_buffer = memory_pool_.acquire(out_size);
     if (out_buffer.size() == 0) {
-        sws_freeContext(sws_ctx);
         return false;
     }
 
-    uint8_t* src_data[4] = { input.pixels.data(), nullptr, nullptr, nullptr };
-    int src_linesize[4] = { input.width * 3, 0, 0, 0 };
-    uint8_t* dst_data[4] = { out_buffer.data(), nullptr, nullptr, nullptr };
-    int dst_linesize[4] = { target_width * 3, 0, 0, 0 };
-
-    bool ok = sws_scale(sws_ctx,
-                        src_data,
-                        src_linesize,
-                        0,
-                        input.height,
-                        dst_data,
-                        dst_linesize) > 0;
-    sws_freeContext(sws_ctx);
-
-    if (!ok) {
-        memory_pool_.recycle(std::move(out_buffer));
-        return false;
-    }
+    resample_bicubic_rgb(input.pixels.data(), input.width, input.height,
+                         out_buffer.data(), target_width, target_height);
 
     recycle(output);
     output.width = target_width;
@@ -659,77 +709,22 @@ bool ImageReader::save_png(const std::string& filename, const image_data_t& imag
         return false;
     }
 
-    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PNG);
-    if (!codec) {
-        std::cerr << "Error: PNG encoder not available" << std::endl;
+    std::vector<unsigned char> png;
+    const unsigned err = lodepng::encode(png, image.pixels.data(),
+                                         static_cast<unsigned>(image.width),
+                                         static_cast<unsigned>(image.height), LCT_RGB, 8);
+    if (err != 0) {
+        std::cerr << "Error: Could not encode PNG: " << lodepng_error_text(err) << std::endl;
         return false;
     }
 
-    AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
-    AVFrame* frame = av_frame_alloc();
-    AVPacket* pkt = av_packet_alloc();
-
-    if (!codec_ctx || !frame || !pkt) {
-        if (pkt) av_packet_free(&pkt);
-        if (frame) av_frame_free(&frame);
-        if (codec_ctx) avcodec_free_context(&codec_ctx);
+    std::ofstream out(filename, std::ios::binary);
+    if (!out.is_open()) {
+        std::cerr << "Error: Could not open output file: " << filename << std::endl;
         return false;
     }
-
-    bool ok = false;
-    do {
-        codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
-        codec_ctx->codec_id = AV_CODEC_ID_PNG;
-        codec_ctx->width = image.width;
-        codec_ctx->height = image.height;
-        codec_ctx->pix_fmt = AV_PIX_FMT_RGB24;
-        codec_ctx->time_base = AVRational{1, 25};
-
-        if (avcodec_open2(codec_ctx, codec, nullptr) < 0) {
-            std::cerr << "Error: Could not open PNG encoder" << std::endl;
-            break;
-        }
-
-        frame->format = codec_ctx->pix_fmt;
-        frame->width = codec_ctx->width;
-        frame->height = codec_ctx->height;
-
-        if (av_frame_get_buffer(frame, 1) < 0) {
-            std::cerr << "Error: Could not allocate frame buffer" << std::endl;
-            break;
-        }
-
-        const uint8_t* src = image.pixels.data();
-        for (int y = 0; y < image.height; ++y) {
-            std::memcpy(frame->data[0] + y * frame->linesize[0],
-                        src + static_cast<size_t>(y) * image.width * 3,
-                        static_cast<size_t>(image.width) * 3);
-        }
-
-        if (avcodec_send_frame(codec_ctx, frame) < 0) {
-            std::cerr << "Error: Could not send frame to PNG encoder" << std::endl;
-            break;
-        }
-
-        if (avcodec_receive_packet(codec_ctx, pkt) < 0) {
-            std::cerr << "Error: Could not receive PNG packet" << std::endl;
-            break;
-        }
-
-        std::ofstream out(filename, std::ios::binary);
-        if (!out.is_open()) {
-            std::cerr << "Error: Could not open output file: " << filename << std::endl;
-            break;
-        }
-
-        out.write(reinterpret_cast<const char*>(pkt->data), pkt->size);
-        ok = out.good();
-    } while (false);
-
-    av_packet_free(&pkt);
-    av_frame_free(&frame);
-    avcodec_free_context(&codec_ctx);
-    return ok;
+    out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+    return out.good();
 }
 
 void ImageReader::recycle(image_data_t& image) {

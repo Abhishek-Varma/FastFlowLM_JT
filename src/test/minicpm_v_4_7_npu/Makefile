@@ -19,7 +19,7 @@ SOURCES += $(CHAT_SOURCES)
 SOURCES += ../../common/AutoModel/model_backend.cpp
 SOURCES += ../../common/AutoModel/modeling_minicpm_v.cpp
 # Image support. modeling_minicpm_v_image.cpp holds the slicing, the PIL-exact
-# resize and image_placeholder(); image_reader.cpp decodes the file via ffmpeg;
+# resize and image_placeholder(); image_reader.cpp decodes the file (libjpeg-turbo/lodepng);
 # imageprocAVX512.cpp supplies rescale_and_normalize_avx512(), and pulls in
 # imageproc.cpp for resize_bicubic_* at link time.
 # Same file list as the other VLM harnesses. MiniCPM does NOT call the shared
@@ -30,6 +30,7 @@ SOURCES += ../../common/AutoModel/modeling_minicpm_v.cpp
 # imageproc.cpp is still linked: imageprocAVX512.cpp references it regardless.
 SOURCES += ../../common/AutoModel/modeling_minicpm_v_image.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/image_process_utils/imageproc.cpp
 SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
@@ -42,8 +43,8 @@ HEADERS += ../../include/AutoModel/modeling_minicpm_v.hpp
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lminicpm_v_4_7_npu
-# image_reader.cpp decodes through ffmpeg, same as every other VLM harness
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+# image_reader.cpp decodes through libjpeg-turbo (+ vendored lodepng), same as every other VLM harness
+LDFLAGS += -ljpeg
 
 CPP_SOURCES := $(filter %.cpp,$(SOURCES))
 OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(CPP_SOURCES:.cpp=.o)))

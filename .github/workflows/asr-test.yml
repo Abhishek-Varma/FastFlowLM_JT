@@ -16,13 +16,12 @@ name: ASR Test
 # platform) and the same 5 points per set.
 #
 # The trigger paths are the Whisper engine, its NPU kernels and prebuilt NPU
-# libraries, the FFmpeg, audio front end and FFT code, the audio front ends of
+# libraries, the audio decoders, front end and FFT code, the audio front ends of
 # the chat models that transcribe, and the server files that host
 # /v1/audio/transcriptions. Those server files also hold every other endpoint,
 # so any change to them runs this test too. The pull_request and push path
-# lists must stay identical. Shared files such as src/CMakeLists.txt (the Linux
-# FFmpeg version) and lm_config.hpp are left out, since every change touches
-# them.
+# lists must stay identical. Shared files such as src/CMakeLists.txt and
+# lm_config.hpp are left out, since every change touches them.
 #
 # The weekly run catches what no commit changes: Whisper weights republished
 # on Hugging Face, and NPU driver or firmware updates on the runners.
@@ -45,11 +44,9 @@ on:
       - 'src/include/audio/**'
       - 'src/common/AutoModel/*_audio.cpp'
       - 'src/detail/gemma4e_npu/gemma4e_audio*'
-      - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
-      - 'src/lib/libfftw3*'
-      - 'src/lib/av*'
-      - 'src/lib/sw*'
+      - 'src/include/dr_libs/**'
+      - 'src/cmake/FlmAudioCodecs.cmake'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
       - 'src/server/multipart.cpp'
@@ -74,11 +71,9 @@ on:
       - 'src/include/audio/**'
       - 'src/common/AutoModel/*_audio.cpp'
       - 'src/detail/gemma4e_npu/gemma4e_audio*'
-      - 'src/include/fftw3.h'
       - 'src/include/pocketfft/**'
-      - 'src/lib/libfftw3*'
-      - 'src/lib/av*'
-      - 'src/lib/sw*'
+      - 'src/include/dr_libs/**'
+      - 'src/cmake/FlmAudioCodecs.cmake'
       - 'src/server/rest_handler.cpp'
       - 'src/server/server.cpp'
       - 'src/server/multipart.cpp'
@@ -120,11 +115,11 @@ concurrency:
 env:
   # Feature groups main passes on every platform, so a pull request that
   # breaks one fails. Add a group in the pull request that makes main pass it:
-  # verbose_json, timestamp_rules (needs verbose_json), window_tail, language,
-  # quiet_log. The rest are measured and reported as warnings. window_tail is
-  # not here yet because main's Linux HRX build loops on the long-form file;
-  # a pull request that adds repeats is still caught by the baseline check.
-  ASR_REQUIRE: ${{ inputs.require || 'prompt' }}
+  # window_tail, language, quiet_log. The rest are measured and reported as
+  # warnings. window_tail is not here yet because main's Linux HRX build loops
+  # on the long-form file; a pull request that adds repeats is still caught by
+  # the baseline check.
+  ASR_REQUIRE: ${{ inputs.require || 'prompt verbose_json timestamp_rules' }}
   ASR_MAX_DRIFT: ${{ inputs.max_drift || '' }}
 
 jobs:

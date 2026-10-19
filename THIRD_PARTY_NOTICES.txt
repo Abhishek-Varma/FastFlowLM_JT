@@ -13,57 +13,40 @@ and the MIT License appear at the end of this file.
 
 Components
 ------------------------------------------------------------------------------
-   1. FFmpeg
-   2. libcurl
-   3. zlib
-   4. Abseil
-   5. Protocol Buffers
-   6. Boost.Program_options
-   7. Xilinx Runtime (XRT)
-   8. aiebu
-   9. tokenizers-cpp
-  10. Hugging Face Tokenizers
-  11. SentencePiece
-  12. Darts-clone
-  13. esaxx
-  14. msgpack-c
-  15. Oniguruma
-  16. Rust crates
-  17. pocketfft
-  18. JSON for Modern C++ (nlohmann/json)
-  19. Minja
-  20. base64
-  21. biovault_bfloat16
-  22. Unicode data (unicode-ident Rust crate)
-  23. Microsoft Visual C++ Runtime
-  24. XGrammar
-  25. PicoJSON
-  26. DLPack
+   1. libcurl
+   2. zlib
+   3. Abseil
+   4. Protocol Buffers
+   5. Boost.Program_options
+   6. Xilinx Runtime (XRT)
+   7. aiebu
+   8. tokenizers-cpp
+   9. Hugging Face Tokenizers
+  10. SentencePiece
+  11. Darts-clone
+  12. esaxx
+  13. msgpack-c
+  14. Oniguruma
+  15. Rust crates
+  16. pocketfft
+  17. JSON for Modern C++ (nlohmann/json)
+  18. Minja
+  19. base64
+  20. biovault_bfloat16
+  21. Unicode data (unicode-ident Rust crate)
+  22. Microsoft Visual C++ Runtime
+  23. libjpeg-turbo
+  24. LodePNG
+  25. Opus (libopus)
+  26. libogg
+  27. libvorbis
+  28. dr_libs (dr_wav, dr_flac, dr_mp3)
+  29. XGrammar
+  30. PicoJSON
+  31. DLPack
 
 ==============================================================================
-1. FFmpeg
-==============================================================================
-
-License:  GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)
-Homepage: https://ffmpeg.org
-Used in:  libavcodec, libavdevice, libavfilter, libavformat, libavutil,
-          libswresample and libswscale. Windows: shared libraries
-          (avcodec-61.dll, avdevice-61.dll, avfilter-10.dll, avformat-61.dll,
-          avutil-59.dll, swresample-5.dll, swscale-8.dll), FFmpeg 7.x
-          configured without --enable-gpl or --enable-nonfree. Linux portable
-          package: FFmpeg n7.1 built from source without --enable-gpl or
-          --enable-nonfree. Source code is available from
-          https://ffmpeg.org/download.html and
-          https://github.com/FFmpeg/FFmpeg.
-
-Copyright (c) 2000-2024 the FFmpeg developers
-
-Licensed under the GNU Lesser General Public License, version 2.1 or
-(at your option) any later version. The license text is reproduced at
-the end of this file.
-
-==============================================================================
-2. libcurl
+1. libcurl
 ==============================================================================
 
 License:  curl License
@@ -94,13 +77,13 @@ be used in advertising or otherwise to promote the sale, use or other dealings
 in this Software without prior written authorization of the copyright holder.
 
 ==============================================================================
-3. zlib
+2. zlib
 ==============================================================================
 
 License:  zlib License
 Homepage: https://zlib.net
-Used in:  Windows: zlib1.dll (1.3.1). Linux portable package: statically
-          linked.
+Used in:  Windows: zlib1.dll (1.3.1), used by libcurl.dll. Linux HRX
+          portable package: libz.so.1, bundled as a dependency of libcurl.
 
 Copyright notice:
 
@@ -126,7 +109,7 @@ Copyright notice:
   jloup@gzip.org          madler@alumni.caltech.edu
 
 ==============================================================================
-4. Abseil
+3. Abseil
 ==============================================================================
 
 License:  Apache License 2.0
@@ -140,7 +123,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-5. Protocol Buffers
+4. Protocol Buffers
 ==============================================================================
 
 License:  BSD 3-Clause License
@@ -183,7 +166,7 @@ standalone and requires a support library to be linked with it.  This
 support library is itself covered by the above license.
 
 ==============================================================================
-6. Boost.Program_options
+5. Boost.Program_options
 ==============================================================================
 
 License:  Boost Software License 1.0
@@ -197,7 +180,7 @@ Distributed under the Boost Software License, Version 1.0. The license
 text is reproduced at the end of this file.
 
 ==============================================================================
-7. Xilinx Runtime (XRT)
+6. Xilinx Runtime (XRT)
 ==============================================================================
 
 License:  Apache License 2.0
@@ -211,7 +194,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-8. aiebu
+7. aiebu
 ==============================================================================
 
 License:  MIT License
@@ -242,7 +225,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-9. tokenizers-cpp
+8. tokenizers-cpp
 ==============================================================================
 
 License:  Apache License 2.0
@@ -255,7 +238,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-10. Hugging Face Tokenizers
+9. Hugging Face Tokenizers
 ==============================================================================
 
 License:  Apache License 2.0
@@ -268,7 +251,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-11. SentencePiece
+10. SentencePiece
 ==============================================================================
 
 License:  Apache License 2.0
@@ -281,7 +264,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-12. Darts-clone
+11. Darts-clone
 ==============================================================================
 
 License:  BSD 2-Clause License
@@ -300,7 +283,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-13. esaxx
+12. esaxx
 ==============================================================================
 
 License:  MIT License
@@ -333,7 +316,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-14. msgpack-c
+13. msgpack-c
 ==============================================================================
 
 License:  Boost Software License 1.0
@@ -347,7 +330,7 @@ Copyright (C) 2008-2015 FURUHASHI Sadayuki
    http://www.boost.org/LICENSE_1_0.txt)
 
 ==============================================================================
-15. Oniguruma
+14. Oniguruma
 ==============================================================================
 
 License:  BSD 2-Clause License
@@ -382,7 +365,7 @@ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 SUCH DAMAGE.
 
 ==============================================================================
-16. Rust crates
+15. Rust crates
 ==============================================================================
 
 License:  Various permissive licenses (listed below)
@@ -557,7 +540,7 @@ Used in:  Statically linked into flm as dependencies of Hugging Face
       Copyright (c) David Tolnay <dtolnay@gmail.com>
 
 ==============================================================================
-17. pocketfft
+16. pocketfft
 ==============================================================================
 
 License:  BSD 3-Clause License
@@ -605,7 +588,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-18. JSON for Modern C++ (nlohmann/json)
+17. JSON for Modern C++ (nlohmann/json)
 ==============================================================================
 
 License:  MIT License
@@ -635,7 +618,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-19. Minja
+18. Minja
 ==============================================================================
 
 License:  MIT License
@@ -663,7 +646,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-20. base64
+19. base64
 ==============================================================================
 
 License:  MIT License
@@ -693,7 +676,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-21. biovault_bfloat16
+20. biovault_bfloat16
 ==============================================================================
 
 License:  Apache License 2.0
@@ -707,7 +690,7 @@ Licensed under the Apache License, Version 2.0. The license text is
 reproduced at the end of this file.
 
 ==============================================================================
-22. Unicode data (unicode-ident Rust crate)
+21. Unicode data (unicode-ident Rust crate)
 ==============================================================================
 
 License:  Unicode License v3
@@ -755,7 +738,7 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
 ==============================================================================
-23. Microsoft Visual C++ Runtime
+22. Microsoft Visual C++ Runtime
 ==============================================================================
 
 License:  Microsoft Software License Terms
@@ -764,7 +747,319 @@ Used in:  Windows: msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll,
           redistributed under the Visual Studio redistributable terms.
 
 ==============================================================================
-24. XGrammar
+23. libjpeg-turbo
+==============================================================================
+
+License:  IJG License (libjpeg API library); BSD 3-Clause License (build
+          system); zlib License (SIMD extensions)
+Homepage: https://libjpeg-turbo.org
+Used in:  Compiled into flm (JPEG decoding), libjpeg-turbo 3.2.0 built as a
+          static library with only the libjpeg API.
+
+This software is based in part on the work of the Independent JPEG Group.
+
+IJG License (from README.ijg):
+
+In plain English:
+
+1. We don't promise that this software works.  (But if you find any bugs,
+   please let us know!)
+2. You can use this software for whatever you want.  You don't have to pay us.
+3. You may not pretend that you wrote this software.  If you use it in a
+   program, you must acknowledge somewhere in your documentation that
+   you've used the IJG code.
+
+In legalese:
+
+The authors make NO WARRANTY or representation, either express or implied,
+with respect to this software, its quality, accuracy, merchantability, or
+fitness for a particular purpose.  This software is provided "AS IS", and you,
+its user, assume the entire risk as to its quality and accuracy.
+
+This software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding.
+All Rights Reserved except as specified below.
+
+Permission is hereby granted to use, copy, modify, and distribute this
+software (or portions thereof) for any purpose, without fee, subject to these
+conditions:
+(1) If any part of the source code for this software is distributed, then this
+README file must be included, with this copyright and no-warranty notice
+unaltered; and any additions, deletions, or changes to the original files
+must be clearly indicated in accompanying documentation.
+(2) If only executable code is distributed, then the accompanying
+documentation must state that "this software is based in part on the work of
+the Independent JPEG Group".
+(3) Permission for use of this software is granted only if the user accepts
+full responsibility for any undesirable consequences; the authors accept
+NO LIABILITY for damages of any kind.
+
+These conditions apply to any software derived from or based on the IJG code,
+not just to the unmodified library.  If you use our work, you ought to
+acknowledge us.
+
+Permission is NOT granted for the use of any IJG author's name or company name
+in advertising or publicity relating to this software or products derived from
+it.  This software may be referred to only as "the Independent JPEG Group's
+software".
+
+We specifically permit and encourage the use of this software as the basis of
+commercial products, provided that all warranty or liability claims are
+assumed by the product vendor.
+
+Modified (3-clause) BSD License (from LICENSE.md):
+
+Copyright (C) 2009-2026 D. R. Commander
+Copyright (C) 2018-2023 Randy <randy408@protonmail.com>
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+- Neither the name of the libjpeg-turbo Project nor the names of its
+  contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS",
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+The libjpeg-turbo SIMD source code is covered by the zlib License, which is
+subsumed by the IJG License in the context of the libjpeg API library.
+
+==============================================================================
+24. LodePNG
+==============================================================================
+
+License:  zlib License
+Homepage: https://github.com/lvandeve/lodepng
+Used in:  Compiled into flm (PNG decoding and encoding), vendored in
+          src/include/lodepng from commit e584a849 (2026-10-06).
+
+Copyright (c) 2005-2018 Lode Vandevenne
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+    claim that you wrote the original software. If you use this software
+    in a product, an acknowledgment in the product documentation would be
+    appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source
+    distribution.
+
+==============================================================================
+25. Opus (libopus)
+==============================================================================
+
+License:  BSD 3-Clause License
+Homepage: https://opus-codec.org
+Used in:  Compiled into flm (Opus audio decoding), libopus 1.6.1 built as a static
+          library.
+
+Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+                    Jean-Marc Valin, Timothy B. Terriberry,
+                    CSIRO, Gregory Maxwell, Mark Borgerding,
+                    Erik de Castro Lopo, Mozilla, Amazon
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of Internet Society, IETF or IETF Trust, nor the
+names of specific contributors, may be used to endorse or promote
+products derived from this software without specific prior written
+permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Opus is subject to the royalty-free patent licenses which are
+specified at:
+
+Xiph.Org Foundation:
+https://datatracker.ietf.org/ipr/1524/
+
+Microsoft Corporation:
+https://datatracker.ietf.org/ipr/1914/
+
+Broadcom Corporation:
+https://datatracker.ietf.org/ipr/1526/
+
+==============================================================================
+26. libogg
+==============================================================================
+
+License:  BSD 3-Clause License
+Homepage: https://xiph.org/ogg/
+Used in:  Compiled into flm (Ogg container for Vorbis decoding), libogg 1.3.6 built
+          as a static library.
+
+Copyright (c) 2002, Xiph.org Foundation
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of the Xiph.org Foundation nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==============================================================================
+27. libvorbis
+==============================================================================
+
+License:  BSD 3-Clause License
+Homepage: https://xiph.org/vorbis/
+Used in:  Compiled into flm (Ogg Vorbis audio decoding), libvorbis/libvorbisfile
+          1.3.7 built as static libraries.
+
+Copyright (c) 2002-2020 Xiph.org Foundation
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of the Xiph.org Foundation nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==============================================================================
+28. dr_libs (dr_wav, dr_flac, dr_mp3)
+==============================================================================
+
+License:  Public Domain (Unlicense) or MIT No Attribution (MIT-0), at the
+          licensee's choice
+Homepage: https://github.com/mackron/dr_libs
+Used in:  Compiled into flm (WAV/AIFF, FLAC and MP3 audio decoding), vendored in
+          src/include/dr_libs from commit dfe83776 (2026-08-31), which includes
+          hardening fixes made after the dr_wav 0.14.5, dr_flac 0.13.3 and
+          dr_mp3 0.7.3 releases.
+
+This software is available as a choice of the following licenses. Choose
+whichever you prefer.
+
+===============================================================================
+ALTERNATIVE 1 - Public Domain (www.unlicense.org)
+===============================================================================
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+
+===============================================================================
+ALTERNATIVE 2 - MIT No Attribution
+===============================================================================
+Copyright 2020 David Reid
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+29. XGrammar
 ==============================================================================
 
 License:  Apache License 2.0
@@ -783,7 +1078,7 @@ XGrammar's NOTICE file reads:
     Copyright (c) 2024 by XGrammar Contributors
 
 ==============================================================================
-25. PicoJSON
+30. PicoJSON
 ==============================================================================
 
 License:  BSD 2-Clause License
@@ -817,7 +1112,7 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-26. DLPack
+31. DLPack
 ==============================================================================
 
 License:  Apache License 2.0

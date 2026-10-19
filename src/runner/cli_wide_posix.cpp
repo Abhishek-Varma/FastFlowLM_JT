@@ -20,8 +20,8 @@
 #include <unistd.h>
 #endif
 #ifdef FASTFLOWLM_USE_READLINE
-#include <readline/readline.h>
-#include <readline/history.h>
+// readline-compatible API from libedit (BSD-3-Clause), not GNU readline (GPL-3).
+#include <editline/readline.h>
 #endif
 
 #ifndef _WIN32
@@ -347,6 +347,13 @@ std::string CLIWide::get_interactive_input() {
 void CLIWide::add_to_history(const std::string& command) {
     if (command.empty()) return;
 
+#ifdef FASTFLOWLM_USE_READLINE
+    // command_history.back() always mirrors the newest line-editor entry, so
+    // use it to skip consecutive duplicates rather than history_get(), whose
+    // indexing differs between libedit releases.
+    const bool same_as_last = !command_history.empty() && command_history.back() == command;
+#endif
+
     auto it = std::find(command_history.begin(), command_history.end(), command);
     if (it != command_history.end()) {
         command_history.erase(it);
@@ -359,8 +366,7 @@ void CLIWide::add_to_history(const std::string& command) {
     history_index = -1;
 
 #ifdef FASTFLOWLM_USE_READLINE
-    HIST_ENTRY* latest = (history_length > 0) ? history_get(history_length) : nullptr;
-    if (!latest || !latest->line || command != latest->line) {
+    if (!same_as_last) {
         add_history(command.c_str());
     }
 #endif

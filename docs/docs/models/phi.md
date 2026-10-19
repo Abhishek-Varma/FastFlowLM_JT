@@ -69,7 +69,7 @@ cmake --preset linux-core -DFLM_ENABLE_CORE=ON     # builds into src/build-core
 cmake --build --preset linux-core
 ```
 
-Both presets read `RYZENAI_CORELIB_INCLUDE_DIR` and `RYZENAI_CORELIB_LIBRARY` from the environment, so set both before configuring. They ship with `FLM_ENABLE_CORE` off so that the preset still configures on a machine without corelib, which is why the option is passed on the command line above. The configure step additionally locates a Boost include directory on Windows only — XRT's `xrt/detail/any.h` reaches for `boost::any` when `__cplusplus` reads below 201703L, which MSVC does unless it is handed `/Zc:__cplusplus`; GCC and Clang report C++20 honestly, so nothing there needs Boost. Everything else — XRT, FFmpeg, curl — is the ordinary FastFlowLM dependency set; the core option does not relax any of it.
+Both presets read `RYZENAI_CORELIB_INCLUDE_DIR` and `RYZENAI_CORELIB_LIBRARY` from the environment, so set both before configuring. They ship with `FLM_ENABLE_CORE` off so that the preset still configures on a machine without corelib, which is why the option is passed on the command line above. The configure step additionally locates a Boost include directory on Windows only — XRT's `xrt/detail/any.h` reaches for `boost::any` when `__cplusplus` reads below 201703L, which MSVC does unless it is handed `/Zc:__cplusplus`; GCC and Clang report C++20 honestly, so nothing there needs Boost. Everything else — XRT, curl — is the ordinary FastFlowLM dependency set; the core option does not relax any of it.
 
 The `src/test/phi4_core` suite is still Windows-only and is not configured on Linux; a Linux build is a compile-and-link path, not a tested one.
 

@@ -173,106 +173,6 @@ else()
             set(XRT_INCLUDE_DIR /opt/xilinx/xrt/include CACHE PATH "Where XRT headers live")
             set(XRT_LIB_DIR     /opt/xilinx/xrt/lib     CACHE PATH "Where XRT libs live")
         endif()
-
-        # Portable XRT build: statically link FFmpeg (and zlib) so the self-
-        # contained tarball does not depend on the host having libavformat/
-        # libavcodec/... installed. FFmpeg and zlib are fetched and built from
-        # source; the resulting .a archives are linked into flm below. Non-
-        # portable builds keep using the system FFmpeg via pkg-config.
-        if(FLM_PORTABLE_BUILD)
-            include(FetchContent)
-            message(STATUS "Portable build: FFmpeg and zlib will be built statically")
-
-            # ——— FFmpeg (static) ———
-            set(FFMPEG_GIT_REPO "https://github.com/FFmpeg/FFmpeg.git" CACHE STRING "FFmpeg Git repository URL")
-            set(FFMPEG_GIT_TAG  "n7.1" CACHE STRING "FFmpeg Git tag/branch to fetch")
-            FetchContent_Declare(ffmpeg_source
-                GIT_REPOSITORY ${FFMPEG_GIT_REPO}
-                GIT_TAG ${FFMPEG_GIT_TAG}
-                GIT_SHALLOW TRUE)
-            message(STATUS "Fetching FFmpeg sources...")
-            FetchContent_Populate(ffmpeg_source)
-
-            set(FFMPEG_SOURCE_DIR ${ffmpeg_source_SOURCE_DIR})
-            set(FFMPEG_BUILD_DIR ${CMAKE_BINARY_DIR}/ffmpeg-build)
-            set(FFMPEG_INSTALL_DIR ${CMAKE_BINARY_DIR}/ffmpeg-install)
-            file(MAKE_DIRECTORY ${FFMPEG_BUILD_DIR})
-
-            message(STATUS "Configuring FFmpeg for static build...")
-            execute_process(
-                COMMAND ${FFMPEG_SOURCE_DIR}/configure
-                    --prefix=${FFMPEG_INSTALL_DIR}
-                    --enable-static
-                    --disable-shared
-                    --disable-programs
-                    --disable-doc
-                    --disable-htmlpages
-                    --disable-manpages
-                    --disable-podpages
-                    --disable-txtpages
-                    --enable-pic
-                    --enable-zlib
-                    --enable-avcodec
-                    --enable-avformat
-                    --enable-avutil
-                    --enable-swscale
-                    --enable-swresample
-                    --disable-vaapi
-                    --disable-libdrm
-                    --disable-bzlib
-                    --disable-lzma
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_CONFIGURE_RESULT
-                OUTPUT_FILE ${FFMPEG_BUILD_DIR}/configure.log
-                ERROR_FILE ${FFMPEG_BUILD_DIR}/configure.log)
-            if(NOT FFMPEG_CONFIGURE_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg configure failed. Check ${FFMPEG_BUILD_DIR}/configure.log")
-            endif()
-
-            message(STATUS "Building FFmpeg static libraries...")
-            # FFmpeg compilation is memory-intensive, so cap parallelism at 4.
-            if(DEFINED CMAKE_BUILD_PARALLEL_LEVEL AND CMAKE_BUILD_PARALLEL_LEVEL GREATER 4)
-                set(FFMPEG_BUILD_JOBS 4)
-            elseif(DEFINED CMAKE_BUILD_PARALLEL_LEVEL)
-                set(FFMPEG_BUILD_JOBS ${CMAKE_BUILD_PARALLEL_LEVEL})
-            else()
-                set(FFMPEG_BUILD_JOBS 2)
-            endif()
-            execute_process(
-                COMMAND make -j${FFMPEG_BUILD_JOBS}
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_BUILD_RESULT
-                OUTPUT_FILE ${FFMPEG_BUILD_DIR}/build.log
-                ERROR_FILE ${FFMPEG_BUILD_DIR}/build.log)
-            if(NOT FFMPEG_BUILD_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg build failed. Check ${FFMPEG_BUILD_DIR}/build.log")
-            endif()
-
-            message(STATUS "Installing FFmpeg static libraries...")
-            execute_process(
-                COMMAND make install
-                WORKING_DIRECTORY ${FFMPEG_BUILD_DIR}
-                RESULT_VARIABLE FFMPEG_INSTALL_RESULT)
-            if(NOT FFMPEG_INSTALL_RESULT EQUAL 0)
-                message(FATAL_ERROR "FFmpeg install failed")
-            endif()
-
-            set(FFMPEG_BUILT_FROM_SOURCE TRUE)
-            set(FFMPEG_INCLUDE_DIRS ${FFMPEG_INSTALL_DIR}/include)
-            set(FFMPEG_LIBRARY_DIRS ${FFMPEG_INSTALL_DIR}/lib)
-            message(STATUS "FFmpeg built successfully (static): ${FFMPEG_LIBRARY_DIRS}")
-
-            # ——— zlib (static) ———
-            message(STATUS "Fetching zlib source...")
-            FetchContent_Declare(zlib_source
-                GIT_REPOSITORY "https://github.com/madler/zlib.git"
-                GIT_TAG "v1.3.1"
-                GIT_SHALLOW TRUE)
-            FetchContent_MakeAvailable(zlib_source)
-            set(ZLIB_BUILT_FROM_SOURCE TRUE)
-            set(ZLIB_STATIC_LIB ${zlib_source_BINARY_DIR}/libz.a)
-            message(STATUS "zlib built successfully (static): ${ZLIB_STATIC_LIB}")
-        endif()
     endif()
 endif()
 
@@ -287,6 +187,11 @@ endif()
 add_subdirectory(${CMAKE_SOURCE_DIR}/../third_party/tokenizers-cpp
                  ${CMAKE_BINARY_DIR}/tokenizers-cpp
                  EXCLUDE_FROM_ALL)
+
+# JPEG/PNG decoding for ImageReader: static libjpeg-turbo + vendored lodepng.
+include(${CMAKE_SOURCE_DIR}/cmake/FlmImageCodecs.cmake)
+# Audio decoding for AudioReader: static libopus/libogg/libvorbis + vendored dr_libs.
+include(${CMAKE_SOURCE_DIR}/cmake/FlmAudioCodecs.cmake)
 
 # ———————————————————————————————————————————————
 # xgrammar: the grammar engine behind constrained decoding (tool_choice,
@@ -396,17 +301,17 @@ endif()
 # ———————————————————————————————————————————————
 # Opt-in Windows dependency prefix.
 #
-# Windows otherwise has exactly two routes for Boost/curl/FFmpeg: a vcpkg
+# Windows otherwise has exactly two routes for Boost/curl: a vcpkg
 # toolchain, or the bare CI runner's hardcoded C:/dev paths and CI-specific
 # library names. A developer box with neither can point this at one prefix
 # laid out as <prefix>/include + <prefix>/lib -- in practice a conda env's
-# Library dir (conda-forge boost, libcurl, ffmpeg) -- and each block that
+# Library dir (conda-forge boost, libcurl) -- and each block that
 # applies the CI runner's include dirs, definitions, link dirs and library
 # names switches to it.
 # Empty (the default) leaves both existing routes exactly as they were.
 # ———————————————————————————————————————————————
 set(FLM_WIN_DEPS_PREFIX "" CACHE PATH
-    "Windows only: take Boost/curl/FFmpeg from <prefix>/include and <prefix>/lib (e.g. a conda env's Library dir) instead of the CI runner's C:/dev paths")
+    "Windows only: take Boost/curl from <prefix>/include and <prefix>/lib (e.g. a conda env's Library dir) instead of the CI runner's C:/dev paths")
 if(FLM_WIN_DEPS_PREFIX)
     if(NOT WIN32)
         message(FATAL_ERROR "FLM_WIN_DEPS_PREFIX is a Windows-only route")
@@ -416,9 +321,9 @@ if(FLM_WIN_DEPS_PREFIX)
                             "different dependency routes; use one")
     endif()
     # The library names a conda-forge Library dir ships: unversioned Boost and
-    # curl import libs (both are DLL builds), FFmpeg import libs.
+    # curl import libs (both are DLL builds).
     set(FLM_WIN_DEPS_PREFIX_LIBS
-        avformat avcodec avutil swscale swresample libcurl boost_program_options)
+        libcurl boost_program_options)
     foreach(_flm_dep IN LISTS FLM_WIN_DEPS_PREFIX_LIBS)
         if(NOT EXISTS "${FLM_WIN_DEPS_PREFIX}/lib/${_flm_dep}.lib")
             message(FATAL_ERROR "FLM_WIN_DEPS_PREFIX: missing "
@@ -437,35 +342,28 @@ if(WIN32)
         # installed Boost version.
         find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
         find_package(CURL CONFIG REQUIRED)
-        find_package(FFMPEG REQUIRED)
     endif()
-    # A third, opt-in route (FLM_WIN_DEPS_PREFIX, declared above) takes Boost,
-    # curl and FFmpeg from one local prefix, wired next to each CI-runner block.
+    # A third, opt-in route (FLM_WIN_DEPS_PREFIX, declared above) takes Boost
+    # and curl from one local prefix, wired next to each CI-runner block.
     # Otherwise (the bare self-hosted CI runner) there is no vcpkg toolchain and
     # no Boost in vcpkg: Boost is a standalone b2 build under C:/dev/boost_1_88_0
-    # and curl/ffmpeg are linked by raw name from the vcpkg lib dir. That
+    # and curl is linked by raw name from the vcpkg lib dir. That
     # path is wired via the include/link dirs and raw library names guarded by
     # NOT VCPKG_TOOLCHAIN below.
 else()
     find_package(Boost CONFIG REQUIRED COMPONENTS program_options)
     # The Linux build environment installs these via apt, which provides the
     # CMake FindCURL module and pkg-config files rather than CMake package
-    # configs. Resolve CURL via the module and FFmpeg via pkg-config.
+    # configs. Resolve CURL via the module and libedit via pkg-config.
     find_package(CURL REQUIRED)
     find_package(Threads REQUIRED)
     find_package(PkgConfig REQUIRED)
-    # Portable builds link FFmpeg statically (built from source above), so the
-    # system FFmpeg is only resolved via pkg-config for non-portable builds.
-    if(NOT FFMPEG_BUILT_FROM_SOURCE)
-        pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-            libavformat libavcodec libavutil libswscale libswresample)
-    endif()
-    # readline is GPL; skip it for portable builds (the CLI falls back to a
-    # plain line reader via the FASTFLOWLM_USE_READLINE guard) so the portable
-    # tarball carries no readline/ncurses runtime dependency.
+    # Line editing comes from libedit (BSD-3-Clause), which implements the
+    # readline API; GNU readline is GPL-3 and must not be linked. Portable builds
+    # skip it (the CLI falls back to a plain line reader via the
+    # FASTFLOWLM_USE_READLINE guard) so the tarball needs no libedit at runtime.
     if(NOT FLM_PORTABLE_BUILD)
-        pkg_check_modules(readline REQUIRED IMPORTED_TARGET readline)
-        pkg_check_modules(ncurses REQUIRED IMPORTED_TARGET ncursesw)
+        pkg_check_modules(libedit REQUIRED IMPORTED_TARGET libedit)
     endif()
 endif()
 
@@ -477,7 +375,6 @@ target_include_directories(flm PUBLIC
     ${CMAKE_SOURCE_DIR}/runner
     ${CMAKE_SOURCE_DIR}/server
     ${CMAKE_SOURCE_DIR}/pull
-    ${FFMPEG_INCLUDE_DIRS}
 )
 
 # XRT backend: add the XRT headers (HRX carries its own via the hrx::hrx target).
@@ -543,8 +440,7 @@ endif()
 
 target_link_directories(flm PUBLIC
     ${FLM_ENGINE_LIB_DIR}       # per-backend prebuilt engine libs (lib/xrt or lib/hrx)
-    ${CMAKE_SOURCE_DIR}/lib     # shared third-party runtime libs (ffmpeg/curl/... on Windows)
-    ${FFMPEG_LIBRARY_DIRS}
+    ${CMAKE_SOURCE_DIR}/lib     # shared third-party runtime libs (curl/... on Windows)
 )
 
 # XRT backend: add the XRT runtime library dir (aiebu ships in lib/<backend>).
@@ -675,7 +571,6 @@ if(WIN32 AND VCPKG_TOOLCHAIN)
     # Local/managed vcpkg: link the imported targets from the CONFIG packages
     # found above (versioned import-lib names resolved automatically).
     target_link_libraries(flm PUBLIC
-        ${FFMPEG_LIBRARIES}
         Boost::program_options
         CURL::libcurl
     )
@@ -688,35 +583,11 @@ elseif(WIN32)
     # Bare CI runner: link the native deps by raw name from the standalone Boost
     # + vcpkg lib dirs wired above (no CMake package configs there).
     target_link_libraries(flm PUBLIC
-        avformat
-        avcodec
-        avutil
-        swscale
-        swresample
         libcurl
         libboost_program_options-vc143-mt-x64-1_88
     )
-elseif(FFMPEG_BUILT_FROM_SOURCE)
-    # Portable Linux: link the static FFmpeg archives built above (plus zlib) so
-    # flm carries no libav*/libsw* runtime dependency.
-    if(ZLIB_BUILT_FROM_SOURCE)
-        set(_flm_zlib_lib ${ZLIB_STATIC_LIB})
-    else()
-        set(_flm_zlib_lib z)
-    endif()
-    target_link_libraries(flm PUBLIC
-        ${FFMPEG_LIBRARY_DIRS}/libavformat.a
-        ${FFMPEG_LIBRARY_DIRS}/libavcodec.a
-        ${FFMPEG_LIBRARY_DIRS}/libavutil.a
-        ${FFMPEG_LIBRARY_DIRS}/libswscale.a
-        ${FFMPEG_LIBRARY_DIRS}/libswresample.a
-        ${_flm_zlib_lib}
-        Boost::program_options
-        CURL::libcurl
-    )
 else()
     target_link_libraries(flm PUBLIC
-        ${FFMPEG_LIBRARIES}
         Boost::program_options
         CURL::libcurl
     )
@@ -725,11 +596,12 @@ endif()
 if(NOT WIN32)
     target_compile_options(flm PUBLIC -mavx -mavx2)
 
-    # readline is only linked for non-portable builds (see the discovery block);
-    # the CLI compiles a plain line-reader fallback when the macro is undefined.
+    # libedit (readline API) is only linked for non-portable builds (see the
+    # discovery block); the CLI compiles a plain line-reader fallback when the
+    # macro is undefined.
     if(NOT FLM_PORTABLE_BUILD)
         target_compile_definitions(flm PUBLIC FASTFLOWLM_USE_READLINE=1)
-        target_link_libraries(flm PUBLIC PkgConfig::readline PkgConfig::ncurses)
+        target_link_libraries(flm PUBLIC PkgConfig::libedit)
     endif()
 
     # Link with dl library for dlopen() support (used for preloading bundled libraries)
@@ -750,6 +622,7 @@ endif()
 target_link_libraries(flm PRIVATE
     tokenizers_cpp
 )
+target_link_libraries(flm PRIVATE flm_image_codecs flm_audio_codecs)
 
 if(WIN32)
     target_link_libraries(flm PRIVATE

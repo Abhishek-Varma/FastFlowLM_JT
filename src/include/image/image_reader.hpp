@@ -46,25 +46,11 @@ public:
 	void recycle(image_data_t& image);
 
 private:
-	static void initialize_ffmpeg();
-	static bool parse_image_header(const uint8_t* data, size_t size, int& codec_id);
 	bool decode_bytes(const uint8_t* data, size_t size, image_data_t& out_image);
-	bool ensure_decode_resources(int codec_id);
-	void reset_decode_resources();
+	bool decode_jpeg(const uint8_t* data, size_t size, image_data_t& out_image);
+	bool decode_png(const uint8_t* data, size_t size, image_data_t& out_image);
 
 	ImageMemoryPool memory_pool_;
-
-	struct AVCodecContext* codec_ctx_ = nullptr;
-	struct AVPacket* packet_ = nullptr;
-	struct AVFrame* frame_ = nullptr;
-	struct AVFrame* rgb_frame_ = nullptr;
-	struct SwsContext* sws_ctx_ = nullptr;
-
-	int cached_codec_id_ = -1;
-	int sws_src_w_ = 0;
-	int sws_src_h_ = 0;
-	int sws_src_fmt_ = -1;
-	int sws_src_range_ = -1;
 };
 
 bool save_image(const std::string& filename, const bytes& image);

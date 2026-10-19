@@ -29,7 +29,10 @@ SOURCES += ../../common/image_process_utils/imageprocAVX512.cpp
 SOURCES += ../../common/audio_process_utils/audioproc.cpp
 SOURCES += ../../common/audio_process_utils/audioprocAVX512.cpp
 SOURCES += ../../common/image/image_reader.cpp
+SOURCES += ../../include/lodepng/lodepng.cpp
 SOURCES += ../../common/audio/audio_reader.cpp
+SOURCES += ../../common/audio/audio_decoder.cpp
+SOURCES += ../../common/audio/audio_resampler.cpp
 SOURCES += ../../common/tokenizer/tokenizer.cpp
 SOURCES += ../../common/modules/sampler.cpp
 
@@ -47,7 +50,7 @@ TYPE ?= 0
 ifeq ($(WSL), 0)
 
 LDFLAGS += -lqwen3_5_omni_npu
-LDFLAGS += -lavformat -lavcodec -lavutil -lswscale -lswresample
+LDFLAGS += -ljpeg -lvorbisfile -lvorbis -logg -lopus
 
 # Map each source to an object file in BUILD_DIR (basenames are unique across
 # the source set). VPATH lets the pattern rule locate sources in their dirs.

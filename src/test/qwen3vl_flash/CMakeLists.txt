@@ -43,10 +43,6 @@ target_link_libraries(test_qwen3vl_flash PUBLIC
     qwen3vl_flash
     qwen3vl_npu
     xrt_coreutil
-    avformat
-    avcodec
-    avutil
-    swscale
     zlib
 )
 
