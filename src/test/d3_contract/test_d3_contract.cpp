@@ -195,6 +195,35 @@ int main(int argc, char** argv) {
         }
     }
 
+    // json.loads(bytes): encoding detection and UnicodeDecodeError texts (from CPython 3.12)
+    {
+        struct Case { std::string body; std::string want; };   // want: "" = parses
+        const std::vector<Case> cases = {
+            {"\xef\xbb\xbf{\"a\": 1}", ""},
+            {std::string("{\"a\": 1}", 8), ""},
+            {"{\"a\": \"x\xffy\"}", "'utf-8' codec can't decode byte 0xff in position 8: invalid start byte"},
+            {"{\"a\": \"\xe2\x28\xa1\"}", "'utf-8' codec can't decode byte 0xe2 in position 7: invalid continuation byte"},
+            {"{\"a\": \"x\"}\xe2\x82", "'utf-8' codec can't decode bytes in position 10-11: unexpected end of data"},
+            {"{\"a\": 1}\xc3", "'utf-8' codec can't decode byte 0xc3 in position 8: unexpected end of data"},
+            {"{\"a\": \"\xc0\xaf\"}", "'utf-8' codec can't decode byte 0xc0 in position 7: invalid start byte"},
+            {"{\"a\": \"\xe0\x80\x80\"}", "'utf-8' codec can't decode byte 0xe0 in position 7: invalid continuation byte"},
+            {"\xe2\x82\x28", "'utf-8' codec can't decode bytes in position 0-1: invalid continuation byte"},
+            {"\xf0\x9f\x98\x28", "'utf-8' codec can't decode bytes in position 0-2: invalid continuation byte"},
+            {"\xf4\x90\x80\x80", "'utf-8' codec can't decode byte 0xf4 in position 0: invalid continuation byte"},
+            {std::string("\xff\xfe{\0\"\0a\0\"\0:\0 \0""1\0}\0", 18), ""},   // UTF-16-LE with BOM
+        };
+        for (const auto& c : cases) {
+            checks++;
+            std::string got;
+            try {
+                flm::d3::parse_json(c.body);
+            } catch (const flm::d3::JsonError& e) {
+                got = e.what();
+            }
+            if (got != c.want) fail("bytes", "'" + got + "' vs '" + c.want + "'");
+        }
+    }
+
     // the readout against a hand-computed case
     {
         float hidden[4] = {1.0f, -2.0f, 0.5f, 0.0f};

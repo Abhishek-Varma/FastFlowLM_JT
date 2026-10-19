@@ -271,11 +271,95 @@ struct Parser {
 
 }  // namespace
 
-PyValue parse_json(const std::string& text) {
-    if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
-        static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF) {
-        throw JsonError("Unexpected UTF-8 BOM (decode using utf-8-sig)");
+namespace {
+
+void put_cp(std::string& out, uint32_t cp) {
+    Parser::put_utf8(out, cp);
+}
+
+/// UTF-16 / UTF-32 bodies (json.detect_encoding found no UTF-8) re-encoded as UTF-8
+std::string from_wide(const std::string& b, size_t skip, int width, bool big) {
+    std::string out;
+    size_t i = skip;
+    auto unit = [&](size_t at) -> uint32_t {
+        uint32_t v = 0;
+        for (int k = 0; k < width; k++) {
+            uint32_t byte = static_cast<unsigned char>(b[at + (big ? k : width - 1 - k)]);
+            v = (v << 8) | byte;
+        }
+        return v;
+    };
+    while (i + width <= b.size()) {
+        uint32_t cp = unit(i);
+        i += width;
+        if (width == 2 && cp >= 0xD800 && cp <= 0xDBFF && i + 2 <= b.size()) {
+            uint32_t lo = unit(i);
+            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                i += 2;
+            }
+        }
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            throw JsonError(std::string("'utf-") + (width == 2 ? "16" : "32") + "' codec can't decode the body");
+        }
+        put_cp(out, cp);
     }
+    if (i != b.size()) throw JsonError(std::string("'utf-") + (width == 2 ? "16" : "32") + "' codec can't decode the body: truncated data");
+    return out;
+}
+
+/// The byte-level step of `json.loads(bytes)`: detect the encoding the way json.detect_encoding does
+/// (UTF-8 with or without BOM, UTF-16/32 by BOM or by NUL pattern), then decode with
+/// 'surrogatepass', raising Python's UnicodeDecodeError text on invalid UTF-8.
+std::string decode_body(const std::string& b) {
+    auto at = [&](size_t i) { return static_cast<unsigned char>(b[i]); };
+    const size_t n = b.size();
+    if (n >= 4 && ((at(0) == 0x00 && at(1) == 0x00 && at(2) == 0xFE && at(3) == 0xFF) ||
+                   (at(0) == 0xFF && at(1) == 0xFE && at(2) == 0x00 && at(3) == 0x00))) {
+        return from_wide(b, 4, 4, at(0) == 0x00);
+    }
+    if (n >= 2 && ((at(0) == 0xFE && at(1) == 0xFF) || (at(0) == 0xFF && at(1) == 0xFE))) {
+        return from_wide(b, 2, 2, at(0) == 0xFE);
+    }
+    size_t start = 0;
+    if (n >= 3 && at(0) == 0xEF && at(1) == 0xBB && at(2) == 0xBF) start = 3;
+    else if (n >= 4 && at(0) == 0) return from_wide(b, 0, at(1) ? 2 : 4, true);
+    else if (n >= 4 && at(1) == 0) return from_wide(b, 0, (at(2) || at(3)) ? 2 : 4, false);
+    else if (n == 2 && at(0) == 0) return from_wide(b, 0, 2, true);
+    else if (n == 2 && at(1) == 0) return from_wide(b, 0, 2, false);
+    // UTF-8 validation with CPython's messages: the error covers the lead byte and the
+    // continuation bytes that were valid ("byte 0xNN in position P" or "bytes in position P-Q")
+    auto fail = [&](size_t s, size_t e, const char* why) {
+        char buf[160];
+        if (e - s <= 1) std::snprintf(buf, sizeof(buf), "'utf-8' codec can't decode byte 0x%02x in position %zu: %s", at(s), s - start, why);
+        else std::snprintf(buf, sizeof(buf), "'utf-8' codec can't decode bytes in position %zu-%zu: %s", s - start, e - 1 - start, why);
+        throw JsonError(buf);
+    };
+    for (size_t i = start; i < n;) {
+        const unsigned char c = at(i);
+        if (c < 0x80) { i++; continue; }
+        int len;
+        unsigned char lo = 0x80, hi = 0xBF;   // allowed range of the second byte
+        if (c >= 0xC2 && c <= 0xDF) len = 2;
+        else if (c >= 0xE0 && c <= 0xEF) { len = 3; if (c == 0xE0) lo = 0xA0; }   // ED: surrogatepass
+        else if (c >= 0xF0 && c <= 0xF4) { len = 4; if (c == 0xF0) lo = 0x90; if (c == 0xF4) hi = 0x8F; }
+        else fail(i, i + 1, "invalid start byte");
+        size_t k = 1;
+        for (; k < static_cast<size_t>(len); k++) {
+            if (i + k >= n) fail(i, i + k, "unexpected end of data");
+            const unsigned char cc = at(i + k);
+            const bool ok = k == 1 ? (cc >= lo && cc <= hi) : (cc >= 0x80 && cc <= 0xBF);
+            if (!ok) fail(i, i + k, "invalid continuation byte");
+        }
+        i += len;
+    }
+    return start ? b.substr(start) : b;
+}
+
+}  // namespace
+
+PyValue parse_json(const std::string& raw) {
+    const std::string text = decode_body(raw);
     Parser p{text};
     PyValue v = p.value();
     p.ws();
