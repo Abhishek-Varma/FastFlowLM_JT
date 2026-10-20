@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 
 namespace flm::d3 {
 
@@ -220,6 +221,10 @@ struct Parser {
             out = PyValue::object();
             ws();
             if (i < s.size() && s[i] == '}') { i++; depth--; return out; }
+            // key -> position in members: a repeated key keeps its first position and takes the
+            // last value (Python's dict), in O(1) per key. PyValue::set() scans and would make a
+            // large object quadratic (200k keys: 25 s, under the NPU queue).
+            std::unordered_map<std::string, size_t> index;
             while (true) {
                 ws();
                 if (i >= s.size() || s[i] != '"') fail("Expecting property name enclosed in double quotes");
@@ -228,7 +233,9 @@ struct Parser {
                 if (i >= s.size() || s[i] != ':') fail("Expecting ':' delimiter");
                 i++;
                 PyValue v = value();
-                out.set(key, std::move(v));
+                auto slot = index.emplace(key, out.members.size());
+                if (slot.second) out.members.emplace_back(std::move(key), std::move(v));
+                else out.members[slot.first->second].second = std::move(v);
                 ws();
                 if (i < s.size() && s[i] == ',') { i++; continue; }
                 if (i < s.size() && s[i] == '}') { i++; break; }
