@@ -8,9 +8,11 @@ Per model (served with `--decision <tag>`):
   two-letter  a 27-option choice (the 27th option's code is "AA")
   invalid     a malformed question -> 422 {"detail": {"invalid_questions": ...}}, nothing run
   too-long    a prompt over the input limit -> max_length_exceeded inside a 200 reply
-  docs        the example request of docs/docs/models/d3.md, so the docs cannot drift from the server
+  docs        the example request of docs/docs/models/d3.md: the server's reply must decide what the documented
+              reply decides (choice, noul side, most likely score), so the docs cannot drift from the server
 
-Decision models are absent from /v1/models, so the model set comes from `flm list` (family "d3").
+Decision models are absent from /v1/models, so the model set comes from `flm list` (family "d3"). Each decision
+model gets its own server (--decision takes one tag).
 """
 
 from __future__ import annotations
@@ -47,7 +49,8 @@ class DecisionSweep(SweepTask):
 
     def __init__(self, args):
         super().__init__(args)
-        # One server per decision model: the tag is the server's --decision argument.
+        # One server per decision model: the tag is the server's --decision argument. run() restarts
+        # the server for every further model.
         self.needs_decision = (args.models or ["d3:lite"])[0]
 
     @staticmethod
@@ -62,6 +65,17 @@ class DecisionSweep(SweepTask):
 
     # -- http -------------------------------------------------------------
 
+    @staticmethod
+    def _json_or_raw(raw: bytes) -> dict:
+        """The reply body as JSON; a body that is not JSON (a proxy's or crash page's 5xx) becomes
+        {"_raw": its start}, so the case fails instead of the whole sweep."""
+        text = raw.decode("utf-8", errors="replace")
+        try:
+            body = json.loads(text or "{}")
+        except ValueError:
+            return {"_raw": text[:200]}
+        return body if isinstance(body, dict) else {"_raw": text[:200]}
+
     def post(self, body) -> tuple[int, dict, float]:
         data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/systemone", data=data,
@@ -69,9 +83,9 @@ class DecisionSweep(SweepTask):
         started = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=self.args.request_timeout) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8")), time.monotonic() - started
+                return resp.status, self._json_or_raw(resp.read()), time.monotonic() - started
         except urllib.error.HTTPError as err:
-            return err.code, json.loads(err.read().decode("utf-8") or "{}"), time.monotonic() - started
+            return err.code, self._json_or_raw(err.read()), time.monotonic() - started
 
     def case(self, writer, model: str, case: str, ok: bool, detail: str, elapsed: float, error: str = "") -> None:
         self.record(writer, [model, case, detail, f"{elapsed:.2f}", "ok" if ok else "error", "" if ok else error],
@@ -147,23 +161,44 @@ class DecisionSweep(SweepTask):
         ok = status == 200 and a.get("error") == "max_length_exceeded" and body["usage"]["input_tokens"] == 0
         self.case(writer, model, "too-long", ok, f"status {status}, {a.get('error')}", t, json.dumps(body)[:200])
 
+    @staticmethod
+    def _decision(answer: dict):
+        """What an answer decides: the choice, the side of a noul, the most likely score level."""
+        if answer.get("type") == "noul":
+            return answer.get("noul", 0) >= 0.5
+        probabilities = answer.get("probabilities") or {}
+        return max(probabilities, key=probabilities.get) if probabilities else None
+
     def _docs(self, writer, model: str) -> None:
         doc = (REPO / "docs/docs/models/d3.md").read_text(encoding="utf-8")
         m = re.search(r"-d '(\{.*?\})'", doc, re.S)
-        if not m:
-            self.case(writer, model, "docs", False, "no example request in docs/docs/models/d3.md", 0.0, "missing")
+        r = re.search(r"```json\s*(\{.*?\})\s*```", doc[m.end():], re.S) if m else None
+        if not m or not r:
+            self.case(writer, model, "docs", False, "no example request and reply in docs/docs/models/d3.md", 0.0, "missing")
             return
-        request = json.loads(m.group(1))
+        request, documented = json.loads(m.group(1)), json.loads(r.group(1))
         status, body, t = self.post(request)
-        ok = (status == 200 and list(body.get("answers", {})) == list(request["questions"])
-              and all(answer_shape_ok(a) and "error" not in a for a in body["answers"].values()))
-        self.case(writer, model, "docs", ok, f"status {status}", t, json.dumps(body)[:200])
+        answers = body.get("answers", {})
+        ok = (status == 200 and list(answers) == list(request["questions"])
+              and all(answer_shape_ok(a) and "error" not in a for a in answers.values()))
+        # the documented reply must decide what the server decides; its numbers are rounded
+        drift = [k for k, a in documented.get("answers", {}).items()
+                 if self._decision(a) != self._decision(answers.get(k, {}))]
+        ok = ok and not drift
+        self.case(writer, model, "docs", ok, f"status {status}" + (f", docs decide differently on {drift}" if drift else ""),
+                  t, json.dumps(body)[:200])
 
     def run(self) -> None:
         models = self.resolve_models()
+        if self.args.no_server and len(models) > 1:
+            raise SystemExit("--no-server attaches to one server, which serves one decision model; pass --models <tag>")
         handle, writer = self.open_csv()
         try:
             for model in self.iter_models(models):
+                if model != self.needs_decision:   # each decision model needs its own server
+                    self.stop_server()
+                    self.needs_decision = model
+                    self.start_server(append_log=True)
                 print(f"\n--- Decision: {model} ---")
                 self._goldens(writer, model)
                 self._types(writer, model)
