@@ -193,11 +193,18 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
 }
 
 void AutoDecisionModel::warmup() {
-    // one pass per GEMM row bucket a typical request lands in (512 and 1024 rows); the engine keeps
-    // its sequences and buffers per bucket, so these are what the first requests would pay for
+    // One pass per GEMM row bucket typical requests land in: 2,048 rows (several questions packed),
+    // 1,024 and 512 (one question). The engine keeps each bucket's instruction sequences for its
+    // lifetime and the scratch of buckets that fit one 4,096-row pass together (these three do), so
+    // the first requests in each bucket run at steady-state speed.
     std::lock_guard<std::mutex> lock(turn_);
-    for (int len : {330, 700}) {
-        auto warm = engine_->encode_batch({std::vector<int>(len, 32)});
+    const std::vector<std::vector<std::vector<int>>> passes = {
+        std::vector<std::vector<int>>(4, std::vector<int>(500, 32)),   // 2,000 rows -> 2,048
+        {std::vector<int>(700, 32)},                                   // 1,024
+        {std::vector<int>(330, 32)},                                   // 512
+    };
+    for (const auto& ids : passes) {
+        auto warm = engine_->encode_batch(ids);
         (void)warm;
     }
 }

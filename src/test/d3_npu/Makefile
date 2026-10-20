@@ -1,5 +1,5 @@
 # =============================================================================
-# d3 NPU harness: System One requests through AutoDecisionModel (plan 4.8)
+# d3 NPU harness: System One requests through AutoDecisionModel, no HTTP
 #   make && make test   (needs the d3:lite package in the FLM model dir)
 # =============================================================================
 -include ../common.mk

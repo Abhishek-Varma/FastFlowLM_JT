@@ -1,11 +1,11 @@
 /// \file test.cpp
-/// \brief d3 NPU harness (plan 4.8): System One requests through AutoDecisionModel, no HTTP.
+/// \brief d3 NPU harness: System One requests through AutoDecisionModel, no HTTP.
 ///
 ///   test_d3_npu -m d3:lite -i requests.jsonl -o replies.jsonl [--reps N] [--warmup 1]
 ///
 /// requests.jsonl: one object per line, {"id": ..., "body": "<raw JSON text>"} or {"id": ..., "request": {...}}.
 /// replies.jsonl:  {"id", "status", "body", "ms"} per request, in input order. The same driver is the
-///                 engine-level perf probe for d3rig (latency per request without the HTTP stack).
+///                 engine-level perf probe (latency per request without the HTTP stack).
 #include <fstream>
 #include <iostream>
 

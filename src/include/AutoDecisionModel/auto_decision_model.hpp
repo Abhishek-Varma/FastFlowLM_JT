@@ -31,7 +31,7 @@ struct DecisionReply {
 
 class AutoDecisionModel {
 public:
-    /// Prompts longer than this get `max_length_exceeded` (never truncated); plan D6.
+    /// Prompts longer than this get `max_length_exceeded`, as upstream does; nothing is truncated.
     static constexpr int MAX_INPUT_TOKENS = 4096;
 
     AutoDecisionModel(flm_rt::device* npu_device_inst, std::string model_tag);
@@ -48,7 +48,7 @@ public:
     /// The in-process path without HTTP checks of media: probabilities per runnable question.
     std::map<std::string, std::vector<double>> run(const flm::d3::Prepared& prepared);
 
-    /// Encode a few prompts so the first request runs at steady-state speed (P13).
+    /// Encode a few prompts so the first request in each common row bucket runs at steady-state speed.
     void warmup();
 
     const std::string& model_name() const { return name_; }
