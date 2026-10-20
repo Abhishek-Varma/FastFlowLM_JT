@@ -42,7 +42,7 @@ on:
       gen_lim:
         description: "max_completion_tokens per request (0 or less leaves it unset)"
         type: string
-        default: "512"
+        default: "1024"
       request_timeout:
         description: "Per-request timeout in seconds"
         type: string
@@ -66,7 +66,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GEN_LIM: ${{ inputs.gen_lim || '512' }}
+  GEN_LIM: ${{ inputs.gen_lim || '1024' }}
   REQUEST_TIMEOUT: ${{ inputs.request_timeout || '600' }}
   # 0 unless dispatched, so the cap only exists when someone asks for one.
   MODEL_LIMIT: ${{ inputs.limit || '0' }}

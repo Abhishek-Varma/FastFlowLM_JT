@@ -912,6 +912,8 @@ void RestHandler::handle_chat(const json& request,
                 this->auto_chat_engine->clear_context();
                 return;
             }
+            // A character the generation stopped partway through can never be finished
+            response_text.resize(response_text.size() - incomplete_utf8_tail(response_text));
             //std::string response_text = chat_engine->generate_with_prompt(meta_info, prompts, length_limit, std::cout, payload);
             auto total_end_time = time_utils::now();
             meta_info.total_duration = (uint64_t)time_utils::duration_ns(total_start_time, total_end_time).first;
@@ -1289,6 +1291,17 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 };
             streaming_ostream_openai_chat ostream(model, auto_chat_engine.get(), openai_stream_callback, parse_options,
                                                   stream_include_usage(request));  // streaming in chat completion format
+            // Once a chunk is out the headers are sent, so an error can only go
+            // out as one more event, and the stream still has to be ended or the
+            // client waits on it until its own timeout
+            auto send_stream_error = [&](const json& error_response) {
+                if (stream_started) {
+                    send_streaming_response(json("data: " + error_response.dump() + "\n\n"), false);
+                    send_streaming_response(json("data: [DONE]\n\n"), true);
+                } else {
+                    send_response(error_response);
+                }
+                };
 
             header_print("FLM", "Start prefill...");
             try {
@@ -1327,18 +1340,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             try {
                 auto_chat_engine->generate(meta_info, length_limit, ostream, [&] { return cancellation_token->cancelled(); });
             } catch (const ModelRequestError& error) {
-                const json error_response = ModelErrorResponse(error);
-                if (stream_started) {
-                    send_streaming_response(json("data: " + error_response.dump() + "\n\n"), false);
-                    send_streaming_response(json("data: [DONE]\n\n"), true);
-                } else {
-                    send_response(error_response);
-                }
+                send_stream_error(ModelErrorResponse(error));
                 if (error.session_cleared()) this->prompt_cache.reset();
                 return;
             } catch (const std::exception& e) {
-                json error_response = ExceptionResponse(e);
-                send_response(error_response);
+                send_stream_error(ExceptionResponse(e));
                 this->auto_chat_engine->clear_context();
                 this->prompt_cache.reset();
                 return;
@@ -1347,8 +1353,13 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 header_print("❌ ", "Generation Cancelled!");
                 this->prompt_cache.reset();
             }
-                        
-            ostream.finalize(meta_info);
+
+            try {
+                ostream.finalize(meta_info);
+            } catch (const std::exception& e) {
+                header_print("ERROR", std::string("Finishing the stream failed: ") + e.what());
+                send_stream_error(ExceptionResponse(e));
+            }
         }
         else {
             nullstream nstream;
@@ -1395,6 +1406,8 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 this->prompt_cache.reset();
                 return;
             }
+            // A character the generation stopped partway through can never be finished
+            response_text.resize(response_text.size() - incomplete_utf8_tail(response_text));
             // check response_text
             json choices = build_nstream_response(response_text, meta_info, parse_options);
             response = {
@@ -1617,6 +1630,17 @@ void RestHandler::handle_openai_completion(const json& request,
                 send_streaming_response(data_json, is_final);
                 };
             streaming_ostream_openai ostream(model, openai_stream_callback, stream_include_usage(request));  // streaming in completion format
+            // Once a chunk is out the headers are sent, so an error can only go
+            // out as one more event, and the stream still has to be ended or the
+            // client waits on it until its own timeout
+            auto send_stream_error = [&](const json& error_response) {
+                if (stream_started) {
+                    send_streaming_response(json("data: " + error_response.dump() + "\n\n"), false);
+                    send_streaming_response(json("data: [DONE]\n\n"), true);
+                } else {
+                    send_response(error_response);
+                }
+                };
             uniformed_input.prompt = prompt;
             try {
                 bool success = auto_chat_engine->insert(meta_info, uniformed_input, [&] { return cancellation_token && cancellation_token->cancelled(); });
@@ -1635,21 +1659,19 @@ void RestHandler::handle_openai_completion(const json& request,
             try {
                 auto_chat_engine->generate(meta_info, length_limit, ostream, [&] { return cancellation_token && cancellation_token->cancelled(); });
             } catch (const ModelRequestError& error) {
-                const json error_response = ModelErrorResponse(error);
-                if (stream_started) {
-                    send_streaming_response(json("data: " + error_response.dump() + "\n\n"), false);
-                    send_streaming_response(json("data: [DONE]\n\n"), true);
-                } else {
-                    send_response(error_response);
-                }
+                send_stream_error(ModelErrorResponse(error));
                 return;
             } catch (const std::exception& e) {
-                json error_response = ExceptionResponse(e);
-                send_response(error_response);
+                send_stream_error(ExceptionResponse(e));
                 this->auto_chat_engine->clear_context();
                 return;
             }
-            ostream.finalize(meta_info);
+            try {
+                ostream.finalize(meta_info);
+            } catch (const std::exception& e) {
+                header_print("ERROR", std::string("Finishing the stream failed: ") + e.what());
+                send_stream_error(ExceptionResponse(e));
+            }
 
             this->auto_chat_engine->clear_context();
         }

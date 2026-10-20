@@ -69,11 +69,12 @@ protected:
 public:
     ///@brief Call this when generation is complete
     void finalize(chat_meta_info_t& meta_info) {
-        // Send all remaining content, including incomplete sequences
-        if (!buffer.empty()) {
-            send_response(buffer, true);
-            buffer.clear();
-        }
+        // Send the remaining content but not an incomplete UTF-8 sequence at
+        // its end: a generation cut off by the length limit or a cancel can
+        // stop partway through a multi-byte character, the missing bytes will
+        // never come, and invalid UTF-8 makes json::dump() throw
+        flush_complete_utf8_sequences(false);
+        buffer.clear();
         send_final_response(meta_info);
     }
  
@@ -331,10 +332,14 @@ protected:
 public:
     ///@brief Call this when generation is complete
     void finalize(chat_meta_info_t& meta_info) {
-        // Send all remaining content, including incomplete sequences, and let
-        // the parser release whatever it held back
-        send_response(buffer, true);
+        // Send the remaining content but not an incomplete UTF-8 sequence at
+        // its end: a generation cut off by the length limit or a cancel can
+        // stop partway through a multi-byte character, the missing bytes will
+        // never come, and invalid UTF-8 makes json::dump() throw
+        flush_complete_utf8_sequences();
         buffer.clear();
+        // Let the parser release whatever it held back
+        send_response("", true);
         // Only promote to a tool-call finish reason on an otherwise clean stop;
         // length/cancel/error must win, so a truncated or aborted generation is
         // never reported to the client as a complete tool call.
