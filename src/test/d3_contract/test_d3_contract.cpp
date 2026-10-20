@@ -1,6 +1,6 @@
 /// \file test_d3_contract.cpp
-/// \brief L0 contract test for the d3 decision model (no NPU): replays the fixtures written by the
-///        upstream Python package (d3rig/contract_fixture.py) through src/common/decision and requires
+/// \brief Contract test for the d3 decision model (no NPU): replays the fixtures that gen_fixtures.py
+///        writes with the upstream Python package through src/common/decision and requires
 ///        byte-identical prompts, identical request/question errors and identical answer objects.
 ///
 ///   test_d3_contract <fixtures dir> [<D3-Lite-NPU2 package dir>]
