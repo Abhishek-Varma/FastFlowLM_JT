@@ -11,7 +11,8 @@ sections:
       FastFlowLM curates the most requested families and publishes tuned manifests under `flm pull <model>`.
       We validate every build on Ryzen™ AI laptops and provide matching cards—see them [here](/docs/models/).
       The catalog already covers models spanning Qwen3.8 (27B, MTP speculative decoding), Qwen3.6 (MoE), Qwen3.5 (Vision), Gemma4 (omni), Qwen3, GPT-OSS-20B (MoE), DeepSeek-R1, Whisper
-      (Audio), Hy-MT2 (Translation), MiniCPM-V 4.7 (Vision), MedGemma (Medical), and other leading open families.
+      (Audio), Hy-MT2 (Translation), MiniCPM-V 4.7 (Vision), MedGemma (Medical), Decision 3.0 (d3-lite, the System One
+      decision model of vLLM Semantic Router), and other leading open families.
     ctas:
       - label: "View model docs"
         href: "/docs/models/"
@@ -34,6 +35,7 @@ sections:
         - "Whisper (Audio)"
         - "Hy-MT2 (Translation)"
         - "SmolVLA (Robotics)"
+        - "Decision 3.0 (System One)"
         - "MedGemma (Medical)"
         - "DeepSeek R-1"
         - "LLaMA 3.x"

@@ -27,6 +27,7 @@ FLM can keep one NPU model loaded per type at a time:
 - `asr`
 - `llm`
 - `embedding`
+- `decision` (`--decision d3:lite`, the System One API; see [Decision model](#decision-model-system-one) below)
 
 Different model types can run together (for example, one LLM and one embedding model).
 
@@ -46,6 +47,21 @@ flm serve lfm2:1.2b --port 52628
 
 
 
+
+## Decision Model (System One)
+
+A decision model answers typed questions about a state (choices, yes / no, scores) with a probability for every
+option, over `POST /v1/systemone`. It is served next to a chat model or on its own:
+
+```shell
+flm serve --decision d3:lite                 # decision model only
+flm serve qwen3.5:4b --decision d3:lite      # next to a chat model
+```
+
+`GET /v1/systemone/models` lists the loaded decision model. Requests share the NPU with the chat model and run one
+at a time, so a decision waits for a chat completion that is already running; a second `flm serve` for the decision
+model does not avoid this (the two processes contend for the NPU). Request format, a smoke test and latency:
+[Decision 3.0 (d3)](https://fastflowlm.com/docs/models/d3/).
 
 ## Set Context Length at Launch
 

@@ -368,6 +368,20 @@ See the ASR guide [here](https://fastflowlm.com/docs/models/whisper/)
 
 ---
 
+### 🧭 Decision Model (System One)
+
+`--decision <tag>` loads a decision model (`d3:lite`) next to the chat model, or alone, and serves `POST /v1/systemone`.
+Decision models run in **Server Mode only** (`flm run d3:lite` prints how to serve it).
+
+```shell
+flm serve --decision d3:lite                 # decision model only
+flm serve qwen3.5:4b --decision d3:lite      # next to a chat model
+```
+
+See the d3 guide [here](https://fastflowlm.com/docs/models/d3/)
+
+---
+
 ## 💻 Commands Inside CLI Mode
 
 Once inside the CLI, use the following commands. System commands always start with `/` (e.g., `/help`).
