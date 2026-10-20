@@ -1174,7 +1174,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                                                std::shared_ptr<CancellationToken> cancellation_token) {
     try {
         // Extract OpenAI-style parameters
-        json current_messages = request["messages"];
+        if (!has_value(request, "messages") || !request.at("messages").is_array()) {
+            send_response({{"error", {{"message", "'messages' is required and must be an array"}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
+        json current_messages = request.at("messages");
         std::string model = value_or(request, "model", current_model_tag);
         const std::string request_backend = value_or(request, "backend", std::string());
         bool stream = value_or(request, "stream", false);
@@ -1586,19 +1590,22 @@ void RestHandler::handle_openai_completion(const json& request,
     std::shared_ptr<CancellationToken> cancellation_token) {
     try {
         // Extract OpenAI-style parameters
-        std::string prompt = request["prompt"];
-        std::string model = request.value("model", current_model_tag);
-        const std::string request_backend = request.value("backend", std::string());
-        std::string reasoning_effort = request.value("reasoning_effort", "medium");
-        bool stream = request.value("stream", false);
-        json options = request.value("options", json::object());
+        if (!has_value(request, "prompt") || !request.at("prompt").is_string()) {
+            send_response({{"error", {{"message", "'prompt' is required and must be a string"}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
+        std::string prompt = request.at("prompt");
+        std::string model = value_or(request, "model", current_model_tag);
+        const std::string request_backend = value_or(request, "backend", std::string());
+        bool stream = value_or(request, "stream", false);
+        json options = value_or(request, "options", json::object());
 
         // direct return if model not supported
         if (!supported_models.is_model_supported(model)) {
             throw std::runtime_error("Model " + model + " is not supported.");
         }
-       
-        int length_limit = request.value("max_tokens", 4096);
+
+        int length_limit = value_or(request, "max_tokens", 4096);
 
         if (!ensure_model_loaded(model, request_backend)) {
             json error_response = {{"error", "Failed to load " + model + " model!"}};
@@ -1616,7 +1623,7 @@ void RestHandler::handle_openai_completion(const json& request,
         lm_uniform_input_t uniformed_input;
         uniformed_input.requested_max_new_tokens =
             normalize_requested_max_new_tokens(
-                request.contains("max_tokens")
+                has_value(request, "max_tokens")
                     ? std::optional<int>(request.at("max_tokens").get<int>())
                     : std::nullopt);
         header_print("FLM", "Start generating...");
