@@ -17,22 +17,22 @@ Accuracy and latency of `d3:lite` (vllm-sr/d3-lite v3.1.3, package D3-Lite-NPU2)
 
 | Set | Questions | Upstream BF16 | NPU (FLM) |
 |---|---:|---:|---:|
-| Decision Index public suite, stratified subset (gold accuracy) | 6,824 | 61.2% | 60.6% |
+| Decision Index public suite, stratified subset (gold accuracy) | 6,824 | 61.2% | 60.5% |
 | Same questions, top-1 agreement with BF16 | 7,226 | -- | 90.5% |
-| Hand-built contract set, top-1 agreement with BF16 | 311 | -- | 93.9% |
+| Hand-built contract set, top-1 agreement with BF16 | 311 | -- | 93.2% |
 
-Paired gold accuracy, upstream BF16 minus NPU: +0.59 pt (95% CI [-0.00, +1.18] pt).
+Paired gold accuracy, upstream BF16 minus NPU: +0.69 pt (95% CI [+0.10, +1.28] pt).
 Prompts, token ids and answer objects are byte-identical to the upstream runtime.
 
 ### Latency
 
 | Request | Median (ms) |
 |---|---:|
-| 1 question, 128 tokens | 112 |
-| 1 question, 330 tokens | 159 |
-| 1 question, 1,024 tokens | 518 |
-| 1 question, 4,096 tokens | 3652 |
-| 4 questions, 330 tokens each | 574 |
-| 16 questions, 330 tokens each | 2198 |
+| 1 question, 128 tokens | 109 |
+| 1 question, 330 tokens | 151 |
+| 1 question, 1,024 tokens | 430 |
+| 1 question, 4,096 tokens | 2135 |
+| 4 questions, 330 tokens each | 536 |
+| 16 questions, 330 tokens each | 2067 |
 
-First request after `flm serve` is ready: 166 ms (steady state 164 ms over HTTP).
+First request after `flm serve` is ready: 191 ms (steady state 168 ms over HTTP).
