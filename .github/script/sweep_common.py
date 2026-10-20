@@ -54,6 +54,17 @@ DEFAULT_PORT = 52625
 
 IS_WINDOWS = os.name == "nt"
 
+# Per-request timeouts, in seconds, for models too slow for --request-timeout.
+# A model listed here gets whichever of the two is longer, so raising
+# --request-timeout still raises it for these models too.
+#
+# qwen3.8-mtp:27b decodes at ~1.7 tok/s on the NPU, so a reply that uses the
+# whole default 1024-token budget takes ~600 s, plus ~50 s to load the model
+# on the first round.
+REQUEST_TIMEOUT_OVERRIDES = {
+    "qwen3.8-mtp:27b": 1200.0,
+}
+
 
 def usage_to_dict(usage) -> dict:
     """Flattens an SDK usage object into a plain dict.
@@ -154,7 +165,7 @@ def build_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--gen-lim",
         type=int,
-        default=512,
+        default=1024,
         help="max_completion_tokens per request. 0 or less leaves it unset.",
     )
     parser.add_argument(
@@ -163,7 +174,8 @@ def build_parser(description: str) -> argparse.ArgumentParser:
         default=600.0,
         help=(
             "Per-request timeout in seconds (default: 600). Applied both as the "
-            "HTTP timeout and as a wall-clock deadline on streamed responses."
+            "HTTP timeout and as a wall-clock deadline on streamed responses. "
+            "Models in REQUEST_TIMEOUT_OVERRIDES get a longer one."
         ),
     )
     parser.add_argument(
@@ -689,16 +701,20 @@ class SweepTask:
             return {"max_completion_tokens": self.args.gen_lim}
         return {}
 
-    def collect_stream(self, response) -> tuple[str, str]:
+    def request_timeout(self, model: str) -> float:
+        """Per-request timeout for one model, see REQUEST_TIMEOUT_OVERRIDES."""
+        return max(self.args.request_timeout, REQUEST_TIMEOUT_OVERRIDES.get(model, 0.0))
+
+    def collect_stream(self, response, timeout: float) -> tuple[str, str]:
         """Accumulates streamed chunks into (reasoning_content, output_content).
 
         The HTTP timeout only bounds the wait for the next chunk, so a model
-        that keeps emitting tokens can stream well past it. This enforces
-        --request-timeout as a deadline on the whole response.
+        that keeps emitting tokens can stream well past it. This enforces the
+        request timeout as a deadline on the whole response.
         """
         reasoning_content, output_content = "", ""
         usage = None
-        deadline = time.monotonic() + self.args.request_timeout
+        deadline = time.monotonic() + timeout
         for chunk in response:
             if time.monotonic() > deadline:
                 try:
@@ -706,7 +722,7 @@ class SweepTask:
                 except Exception:
                     pass
                 raise TimeoutError(
-                    f"stream exceeded the {self.args.request_timeout:.0f}s "
+                    f"stream exceeded the {timeout:.0f}s "
                     f"request timeout after {len(output_content)} characters"
                 )
             # With include_usage the usage arrives on its own terminal chunk
@@ -730,6 +746,7 @@ class SweepTask:
         only the reporting cares about.
         """
         self.last_usage = {}
+        timeout = self.request_timeout(model)
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -737,9 +754,10 @@ class SweepTask:
             # a stream reports usage only when asked, as OpenAI's does
             **({"stream_options": {"include_usage": True}} if stream else {}),
             **self.completion_kwargs(),
+            timeout=timeout,
         )
         if stream:
-            reasoning, output, usage = self.collect_stream(response)
+            reasoning, output, usage = self.collect_stream(response, timeout)
         else:
             message = response.choices[0].message
             reasoning = getattr(message, "reasoning_content", None) or ""

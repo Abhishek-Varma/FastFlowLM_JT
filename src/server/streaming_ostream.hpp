@@ -56,27 +56,26 @@ protected:
 public:
     ///@brief Call this when generation is complete
     void finalize_chat(chat_meta_info_t& meta_info) {
-        // Send all remaining content, including incomplete sequences
-        if (!buffer.empty()) {
-            send_response(buffer, true);
-            buffer.clear();
-        } else {
-            send_chat_final_response(meta_info);
-        }
+        drop_incomplete_utf8_tail();
+        send_chat_final_response(meta_info);
     }
     ///@brief Call this when generation is complete
     ///@param context the context
     void finalize_generate(chat_meta_info_t& meta_info, std::vector<int>& context) {
-        // Send all remaining content, including incomplete sequences
-        if (!buffer.empty()) {
-            send_response(buffer, true);
-            buffer.clear();
-        } else {
-            send_generate_final_response(meta_info, context);
-        }
+        drop_incomplete_utf8_tail();
+        send_generate_final_response(meta_info, context);
     }
 
 private:
+    ///@brief Send the remaining content but not an incomplete UTF-8 sequence at its end
+    ///@note A generation cut off by the length limit or a cancel can stop partway
+    ///      through a multi-byte character, the missing bytes will never come, and
+    ///      invalid UTF-8 makes json::dump() throw
+    void drop_incomplete_utf8_tail() {
+        flush_complete_utf8_sequences(false);
+        buffer.clear();
+    }
+
     ///@brief Get UTF-8 sequence length from first byte
     ///@param first_byte the first byte
     ///@return sequence length, or 0 if invalid

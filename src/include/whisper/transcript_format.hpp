@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "wstream_buf.hpp"
 
 namespace transcript {
 
@@ -34,19 +35,6 @@ inline size_t find_time_stamp(const std::string& output, size_t pos, size_t& len
         }
     }
     return std::string::npos;
-}
-
-/// The number of bytes at the end of text that begin a UTF-8 character it does not finish.
-inline size_t incomplete_utf8_tail(const std::string& text) {
-    for (size_t back = 1; back <= 4 && back <= text.size(); back++) {
-        unsigned char c = text[text.size() - back];
-        if ((c & 0xC0) == 0x80) {
-            continue;  // a continuation byte
-        }
-        size_t width = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
-        return width > back ? back : 0;
-    }
-    return 0;
 }
 
 /// Splits Whisper::generate's output with return_time_stamp, as in
