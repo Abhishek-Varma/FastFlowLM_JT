@@ -59,7 +59,44 @@
 #include "aiebu/aiebu.h"
 
 #include "npu_instr_utils.hpp"
+#include "runtime_wait.hpp"
 
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_NEW) ==
+    flm::npu::ErtCmdState::New);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_QUEUED) ==
+    flm::npu::ErtCmdState::Queued);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_RUNNING) ==
+    flm::npu::ErtCmdState::Running);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_COMPLETED) ==
+    flm::npu::ErtCmdState::Completed);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_ERROR) ==
+    flm::npu::ErtCmdState::Error);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_ABORT) ==
+    flm::npu::ErtCmdState::Abort);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_SUBMITTED) ==
+    flm::npu::ErtCmdState::Submitted);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_TIMEOUT) ==
+    flm::npu::ErtCmdState::Timeout);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_NORESPONSE) ==
+    flm::npu::ErtCmdState::NoResponse);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_SKERROR) ==
+    flm::npu::ErtCmdState::SkError);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_SKCRASHED) ==
+    flm::npu::ErtCmdState::SkCrashed);
+static_assert(
+    flm::npu::to_ert_cmd_state(ERT_CMD_STATE_MAX) ==
+    flm::npu::ErtCmdState::Max);
 
 class npu_app_manager;
 class npu_xclbin_manager;
@@ -227,7 +264,8 @@ public:
             this->_setup_kernel();
         }
         auto run = this->kernel->operator()(3, 0, 0, args.bo()...);
-        ert_cmd_state state = run.wait();
+        ert_cmd_state state =
+            flm::npu::wait_for_completion(run, "npu_app::operator()");
         LOG_VERBOSE(2, "ending state: " << this->cmd_state_map[state]);
         return state;
     }
@@ -246,7 +284,8 @@ public:
             bo_args[i]->sync_to_device();
         }
         auto run = this->kernel->operator()(3, 0, 0, args.bo()...);
-        ert_cmd_state state = run.wait();
+        ert_cmd_state state =
+            flm::npu::wait_for_completion(run, "npu_app::safe_run");
         for (size_t i = 0; i < sizeof...(args); i++){
             bo_args[i]->sync_from_device();
         }
