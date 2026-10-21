@@ -665,9 +665,11 @@ int main(int argc, char* argv[]) {
         return sanity_check_npu_stack(false, parsed_args.json_output) ? 0 : 1;
     }
 
+    // Non-RAI builds open the device lazily (in the Runner constructor),
+    // letting constructor errors propagate to main()'s try-catch.
     std::string npu_open_error;
     std::string corelib_note;
-    flm_rt::device* npu_device = open_npu_device(&npu_open_error);
+    flm_rt::device* npu_device = nullptr;
 #endif
 
     // Two things decide what this binary can run, and they are independent.
@@ -694,12 +696,14 @@ int main(int argc, char* argv[]) {
                                 << corelib_note
                                 << "); opened the NPU directly");
     }
-    if (needs_npu && npu_device == nullptr) {
+    // Only print early error for RAI builds where the device is opened eagerly.
+#ifdef FLM_ENABLE_RAI
+    if (needs_npu && npu_device == nullptr
+            && !npu_open_error.empty()) {
         header_print("ERROR", "No NPU device available"
-                                  << (npu_open_error.empty()
-                                          ? std::string()
-                                          : ": " + npu_open_error));
+                                  << ": " + npu_open_error);
     }
+#endif
 
     // Extract parsed values
     bool got_power_mode = (parsed_args.power_mode != "performance"); // Check if user explicitly set power mode

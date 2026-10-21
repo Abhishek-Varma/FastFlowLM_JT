@@ -40,7 +40,15 @@ std::map<std::string, runner_cmd_t> cmd_map = {
 /// \param tag - the tag of the model to load
 Runner::Runner(model_list& supported_models, ModelDownloader& downloader, program_args_t& args,
                flm_rt::device* npu_device)
-    : supported_models(supported_models), downloader(downloader), tag(args.model_tag), modelscope(args.modelscope), asr(args.asr), embed(args.embed), img_pre_resize(args.img_pre_resize), preemption(args.preemption), backend(args.backend), npu_device_inst(npu_device) {
+    : supported_models(supported_models), downloader(downloader), tag(args.model_tag), modelscope(args.modelscope), asr(args.asr), embed(args.embed), img_pre_resize(args.img_pre_resize), preemption(args.preemption), backend(args.backend) {
+
+    // RAI receives the device from corelib; non-RAI creates its own here.
+    if (npu_device != nullptr) {
+        npu_device_inst = npu_device;
+    } else {
+        owned_device = flm_rt::device(0);
+        npu_device_inst = &(*owned_device);
+    }
 
     if (args.ctx_length != -1) {
         this->ctx_length = args.ctx_length >= 512 ? args.ctx_length : 512;

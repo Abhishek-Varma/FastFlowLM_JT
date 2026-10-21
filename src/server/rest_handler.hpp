@@ -7,6 +7,7 @@
  *  \version 0.9.24
  */
 #pragma once
+#include <optional>
 
 #include "AutoModel/all_models.hpp"
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
@@ -125,9 +126,10 @@ private:
     std::unique_ptr<Whisper> whisper_engine;
     std::unique_ptr<AutoEmbeddingModel> auto_embedding_engine;
 #endif
-    // Owned by main(); on a core build this is corelib's device, which must
-    // not be duplicated.
+    // Non-RAI: RestHandler owns the device. RAI: main passes corelib's device.
     flm_rt::device* npu_device_inst;
+    // Non-RAI path: owned device so constructor errors propagate.
+    std::optional<flm_rt::device> owned_device;
     model_list& supported_models;
     ModelDownloader& downloader;
     std::string current_model_tag;
