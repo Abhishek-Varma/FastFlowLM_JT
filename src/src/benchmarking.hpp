@@ -10,6 +10,7 @@
 #include <cctype>
 #include <ctime>
 #include <cstring>
+#include <optional>
 #ifdef _WIN32
 #include <intrin.h>
 #endif
@@ -247,6 +248,14 @@ void print_result(const BenchmarkResults_t& results) {
 }
 
 BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_config_file, model_list& availble_models, int iterations, flm_rt::device* npu_device, const std::string& backend = ""){
+    // RAI receives the device from corelib; non-RAI creates its own here.
+    // Declared first so it outlives the model engine below.
+    std::optional<flm_rt::device> owned_device;
+    if (npu_device == nullptr) {
+        owned_device = flm_rt::device(0);
+        npu_device = &(*owned_device);
+    }
+
     BenchmarkResults_t results;
     json bench_config;
     // this is used for our benchmarking, not for public use.
