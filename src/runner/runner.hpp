@@ -7,6 +7,7 @@
  *  \version 0.9.24
  */
 #pragma once
+#include <optional>
 #include "utils/utils.hpp"
 #include "nlohmann/json.hpp"
 #include "model_list.hpp"
@@ -70,10 +71,11 @@ class Runner {
         int img_pre_resize;
         // CLI instance for interactive input
         CLIWide cli;
-        // Owned by main(); on a core build it comes from corelib, on an flm
-        // build main opens it directly. Either way there is one per process and
-        // it must not be duplicated.
+        // Non-RAI: Runner owns the device. RAI: main passes corelib's device.
         flm_rt::device* npu_device_inst;
+        // Non-RAI path: Runner owns the device so constructor errors propagate
+        // to main()'s try-catch.
+        std::optional<flm_rt::device> owned_device;
 
         /// \brief Command functions
         void cmd_set(std::vector<std::string>& input_list);
