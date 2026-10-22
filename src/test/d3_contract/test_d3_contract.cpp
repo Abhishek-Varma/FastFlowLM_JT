@@ -216,21 +216,39 @@ int main(int argc, char** argv) {
             const PyValue body = flm::d3::parse_json(rec["body"].get<std::string>());
             const bool refused = rec.contains("detail") && rec["detail"].is_string();
             const bool decode_stage = rec.value("stage", std::string()) == "decode";
+            if (decode_stage) {
+                // the server's decoder refuses image i: stand in for it, and the refusal must name image i
+                // (images after it are not looked at, as upstream loads them in order)
+                const std::string want = rec["detail"].get<std::string>();
+                const size_t bad = std::stoul(want.substr(want.find('[') + 1));
+                std::string got;
+                try {
+                    flm::d3::prepare(body, codes, [bad](size_t i, const flm::d3::ImageFile&) {
+                        if (i == bad) throw flm::d3::ContractError("the image could not be decoded (test)");
+                    });
+                } catch (const flm::d3::RequestError& e) {
+                    got = e.detail.get<std::string>();
+                }
+                checks++;
+                request_errors++;
+                if (got != "images[" + std::to_string(bad) + "]: the image could not be decoded (test)")
+                    fail(id, "decode refusal '" + got + "' vs upstream '" + want + "'");
+                continue;
+            }
             flm::d3::Prepared p;
             try {
                 p = flm::d3::prepare(body, codes);
             } catch (const flm::d3::RequestError& e) {
                 checks++;
                 request_errors++;
-                if (!refused || decode_stage) fail(id, std::string("unexpected request error: ") + e.what());
+                if (!refused) fail(id, std::string("unexpected request error: ") + e.what());
                 else if (e.detail.get<std::string>() != unaddressed(rec["detail"].get<std::string>()))
                     fail(id, "request error '" + e.detail.get<std::string>() + "' vs '" + rec["detail"].get<std::string>() + "'");
                 continue;
             }
             if (refused) {
                 checks++;
-                // integrity and decoding are the server's (prepare's decode callback), not the header check
-                if (!decode_stage) fail(id, "upstream refused the request: " + rec["detail"].dump());
+                fail(id, "upstream refused the request: " + rec["detail"].dump());
                 continue;
             }
             {
