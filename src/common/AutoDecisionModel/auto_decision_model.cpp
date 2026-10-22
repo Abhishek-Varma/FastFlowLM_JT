@@ -9,7 +9,6 @@
 #include <sstream>
 
 #include "image_process_utils/imageproc.hpp"
-#include "image_process_utils/imageprocAVX512.hpp"
 #include "minja/chat-template.hpp"
 #include "models/d3/flm/aie2p/d3_npu.hpp"   // d3_image_payload (the d3_npu class only with FLM_HAS_D3_NPU)
 #include "utils/utils.hpp"
@@ -60,18 +59,113 @@ constexpr float RESCALE = 1.0f / 255.0f;
 constexpr float IMAGE_MEAN = 0.5f;
 constexpr float IMAGE_STD = 0.5f;
 
+/// Pillow's resample coefficients for one axis (Resample.c precompute_coeffs, bicubic a = -0.5,
+/// antialiased: the kernel widens by the downscale factor), as 22-bit fixed point
+/// (normalize_coeffs_8bpc). bounds: per output pixel, first input index and tap count.
+void resample_coeffs(int in_size, int out_size, std::vector<int>& bounds, std::vector<int32_t>& coeffs, int& ksize) {
+    constexpr int PRECISION_BITS = 32 - 8 - 2;
+    const auto bicubic = [](double x) {
+        const double a = -0.5;
+        x = std::fabs(x);
+        if (x < 1.0) return ((a + 2.0) * x - (a + 3.0)) * x * x + 1;
+        if (x < 2.0) return (((x - 5) * x + 8) * x - 4) * a;
+        return 0.0;
+    };
+    const double scale = static_cast<double>(in_size) / out_size;
+    const double filterscale = std::max(scale, 1.0);
+    const double support = 2.0 * filterscale;
+    ksize = static_cast<int>(std::ceil(support)) * 2 + 1;
+    bounds.assign(static_cast<size_t>(out_size) * 2, 0);
+    coeffs.assign(static_cast<size_t>(out_size) * ksize, 0);
+    std::vector<double> k(ksize);
+    for (int xx = 0; xx < out_size; xx++) {
+        const double center = (xx + 0.5) * scale;
+        const double ss = 1.0 / filterscale;
+        int xmin = static_cast<int>(center - support + 0.5);
+        if (xmin < 0) xmin = 0;
+        int xmax = static_cast<int>(center + support + 0.5);
+        if (xmax > in_size) xmax = in_size;
+        xmax -= xmin;
+        double ww = 0.0;
+        for (int x = 0; x < xmax; x++) {
+            const double w = bicubic((x + xmin - center + 0.5) * ss);
+            k[x] = w;
+            ww += w;
+        }
+        for (int x = 0; x < xmax; x++) {
+            const double w = ww != 0.0 ? k[x] / ww : k[x];
+            coeffs[static_cast<size_t>(xx) * ksize + x] =
+                static_cast<int32_t>(w < 0 ? w * (1 << PRECISION_BITS) - 0.5 : w * (1 << PRECISION_BITS) + 0.5);
+        }
+        bounds[xx * 2] = xmin;
+        bounds[xx * 2 + 1] = xmax;
+    }
+}
+
+/// Pillow's Image.resize((w, h), BICUBIC) of 8-bit RGB, which the processor's resize (torchvision,
+/// uint8, bicubic, antialias) reproduces exactly: horizontal pass, then vertical, each rounded and
+/// clipped to 8 bits. In and out are RGB, interleaved.
+std::vector<uint8_t> pil_resize_bicubic(const uint8_t* src, int in_w, int in_h, int out_w, int out_h) {
+    constexpr int PRECISION_BITS = 32 - 8 - 2;
+    const auto clip8 = [](int64_t v) -> uint8_t {
+        v >>= PRECISION_BITS;
+        return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
+    };
+    // horizontal (skipped when the width stays: Pillow resamples only the axes that change)
+    std::vector<uint8_t> mid;
+    const uint8_t* rows = src;
+    if (out_w != in_w) {
+        std::vector<int> b;
+        std::vector<int32_t> k;
+        int ks = 0;
+        resample_coeffs(in_w, out_w, b, k, ks);
+        mid.resize(static_cast<size_t>(out_w) * in_h * 3);
+        #pragma omp parallel for schedule(static)
+        for (int y = 0; y < in_h; y++) {
+            const uint8_t* line = src + static_cast<size_t>(y) * in_w * 3;
+            for (int xx = 0; xx < out_w; xx++) {
+                const int xmin = b[xx * 2], n = b[xx * 2 + 1];
+                const int32_t* kk = k.data() + static_cast<size_t>(xx) * ks;
+                for (int c = 0; c < 3; c++) {
+                    int64_t ss = int64_t(1) << (PRECISION_BITS - 1);
+                    for (int x = 0; x < n; x++) ss += int64_t(line[(xmin + x) * 3 + c]) * kk[x];
+                    mid[(static_cast<size_t>(y) * out_w + xx) * 3 + c] = clip8(ss);
+                }
+            }
+        }
+        rows = mid.data();
+    }
+    if (out_h == in_h) return std::vector<uint8_t>(rows, rows + static_cast<size_t>(out_w) * in_h * 3);
+    std::vector<int> b;
+    std::vector<int32_t> k;
+    int ks = 0;
+    resample_coeffs(in_h, out_h, b, k, ks);
+    std::vector<uint8_t> out(static_cast<size_t>(out_w) * out_h * 3);
+    #pragma omp parallel for schedule(static)
+    for (int yy = 0; yy < out_h; yy++) {
+        const int ymin = b[yy * 2], n = b[yy * 2 + 1];
+        const int32_t* kk = k.data() + static_cast<size_t>(yy) * ks;
+        for (int x = 0; x < out_w * 3; x++) {
+            int64_t ss = int64_t(1) << (PRECISION_BITS - 1);
+            for (int y = 0; y < n; y++) ss += int64_t(rows[static_cast<size_t>(ymin + y) * out_w * 3 + x]) * kk[y];
+            out[static_cast<size_t>(yy) * out_w * 3 + x] = clip8(ss);
+        }
+    }
+    return out;
+}
+
 /// Append one decoded image's patches (RGB HWC, already decoded) to `out`, resized to grid_h x grid_w patches.
-bool preprocess_image(ImageReader& reader, image_data_t& rgb, int grid_h, int grid_w, std::vector<bf16>& out) {
-    image_data_t chw;
-    if (!reader.reorder_hwc_to_chw(rgb, chw)) return false;
+bool preprocess_image(const image_data_t& rgb, int grid_h, int grid_w, std::vector<bf16>& out) {
     const int w = grid_w * flm::d3::IMAGE_PATCH_SIZE, h = grid_h * flm::d3::IMAGE_PATCH_SIZE;
-    std::vector<uint8_t> resized = imgproc::avx512::resize_bicubic_antialias_rgb_planar_avx512(
-        chw.pixels.data(), chw.width, chw.height, w, h, true);
-    reader.recycle(chw);
-    const size_t frame = static_cast<size_t>(w) * h * 3;
+    const std::vector<uint8_t> resized = pil_resize_bicubic(rgb.pixels.data(), rgb.width, rgb.height, w, h);
+    const size_t plane = static_cast<size_t>(w) * h, frame = plane * 3;
     std::vector<float> scratch(frame * TEMPORAL_PATCH);
-    imgproc::avx512::rescale_and_normalize_avx512(resized.data(), scratch.data(), w, h, 3, true, RESCALE,
-                                                 true, IMAGE_MEAN, IMAGE_STD);
+    // rescale and normalize, planar (CHW): (x / 255 - mean) / std
+    for (size_t i = 0; i < plane; i++) {
+        for (int c = 0; c < 3; c++) {
+            scratch[c * plane + i] = (static_cast<float>(resized[i * 3 + c]) * RESCALE - IMAGE_MEAN) / IMAGE_STD;
+        }
+    }
     for (int t = 1; t < TEMPORAL_PATCH; t++) std::memcpy(scratch.data() + t * frame, scratch.data(), frame * sizeof(float));
     const size_t at = out.size();
     out.resize(at + frame * TEMPORAL_PATCH);
@@ -249,7 +343,7 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
     d3_image_payload payload;
     for (size_t i = 0; i < decoded.size(); i++) {
         const auto [gh, gw] = prepared.image_grids[i];
-        if (!preprocess_image(image_reader_, decoded[i], gh, gw, payload.pixels)) {
+        if (!preprocess_image(decoded[i], gh, gw, payload.pixels)) {
             release();
             throw std::runtime_error("could not prepare image " + std::to_string(i));
         }
