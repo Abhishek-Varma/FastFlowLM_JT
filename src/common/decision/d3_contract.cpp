@@ -4,7 +4,9 @@
 #include "decision/d3_contract.hpp"
 
 #include <algorithm>
+#include <cfenv>
 #include <cmath>
+#include <cstdint>
 #include <set>
 
 namespace flm::d3 {
@@ -153,6 +155,235 @@ std::string chat_text(const std::string& system, const std::string& user) {
 
 std::string render(const PyValue& state, const Question& q, const std::vector<std::string>& codes) {
     return chat_text(SYSTEM_PROMPT, user_prompt(state, q, codes));
+}
+
+std::string render_image(const PyValue& state, const Question& q, const std::vector<std::string>& codes,
+                         int n_images) {
+    // image_messages: user content = one {"type": "image"} per image, then the text; the template
+    // renders each image as <|vision_start|><|image_pad|><|vision_end|> and joins the items
+    std::string user;
+    for (int i = 0; i < n_images; i++) user += std::string("<|vision_start|>") + IMAGE_TOKEN + "<|vision_end|>";
+    user += user_prompt(state, q, codes);
+    return chat_text(SYSTEM_PROMPT, user);
+}
+
+namespace {
+
+/// Python's `f"{n:,}"`
+std::string thousands(long long n) {
+    std::string digits = std::to_string(n < 0 ? -n : n);
+    std::string out;
+    for (size_t i = 0; i < digits.size(); i++) {
+        if (i && (digits.size() - i) % 3 == 0) out += ',';
+        out += digits[i];
+    }
+    return n < 0 ? "-" + out : out;
+}
+
+/// Code points of a UTF-8 string (Python's len() of the decoded str)
+size_t code_points(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) n += (c & 0xC0) != 0x80;
+    return n;
+}
+
+/// `base64.b64decode(text, validate=True)`: the alphabet and up to two '=' at the end only; data
+/// characters that leave one over a multiple of 4, or too little padding, are errors.
+bool b64decode_strict(const std::string& text, std::string& out) {
+    static const auto value = [](unsigned char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    size_t n = text.size();
+    size_t pads = 0;
+    while (pads < 2 && n > 0 && text[n - 1] == '=') { n--; pads++; }
+    for (size_t i = 0; i < n; i++) {
+        if (value(static_cast<unsigned char>(text[i])) < 0) return false;   // includes a third '='
+    }
+    const size_t rem = n % 4;
+    if (rem == 1) return false;
+    if (rem == 2 && pads < 2) return false;
+    if (rem == 3 && pads < 1) return false;
+    out.clear();
+    out.reserve(n / 4 * 3 + 2);
+    uint32_t acc = 0;
+    int bits = 0;
+    for (size_t i = 0; i < n; i++) {
+        acc = (acc << 6) | static_cast<uint32_t>(value(static_cast<unsigned char>(text[i])));
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out += static_cast<char>((acc >> bits) & 0xFF);
+        }
+    }
+    return true;
+}
+
+uint32_t be32(const std::string& d, size_t i) {
+    return (uint32_t(uint8_t(d[i])) << 24) | (uint32_t(uint8_t(d[i + 1])) << 16) |
+           (uint32_t(uint8_t(d[i + 2])) << 8) | uint32_t(uint8_t(d[i + 3]));
+}
+uint32_t be16(const std::string& d, size_t i) { return (uint32_t(uint8_t(d[i])) << 8) | uint8_t(d[i + 1]); }
+uint32_t le16(const std::string& d, size_t i) { return uint32_t(uint8_t(d[i])) | (uint32_t(uint8_t(d[i + 1])) << 8); }
+uint32_t le24(const std::string& d, size_t i) { return le16(d, i) | (uint32_t(uint8_t(d[i + 2])) << 16); }
+bool starts(const std::string& d, const char* p, size_t n, size_t at = 0) {
+    return d.size() >= at + n && d.compare(at, n, p, n) == 0;
+}
+
+/// A JPEG's MPF (APP2 "MPF\0") image count, as Pillow reads it to open the file as MPO; 0 if none.
+int mpf_images(const std::string& d, size_t seg, size_t len) {
+    const size_t t = seg + 4;                         // TIFF header after "MPF\0"
+    if (len < 8 + 4 || t + 8 > d.size()) return 0;
+    const bool le = starts(d, "II", 2, t);
+    auto u16 = [&](size_t i) { return le ? le16(d, i) : be16(d, i); };
+    auto u32 = [&](size_t i) { return le ? (le16(d, i) | (le16(d, i + 2) << 16)) : be32(d, i); };
+    const size_t ifd = t + u32(t + 4);
+    if (ifd + 2 > d.size()) return 0;
+    const uint32_t entries = u16(ifd);
+    for (uint32_t e = 0; e < entries; e++) {
+        const size_t at = ifd + 2 + e * 12;
+        if (at + 12 > d.size()) return 0;
+        if (u16(at) == 0xB001) return static_cast<int>(u32(at + 8));
+    }
+    return 0;
+}
+
+/// The format Pillow would identify and the size in the header; format "" when it identifies none.
+void identify(const std::string& d, std::string& format, int& width, int& height) {
+    format.clear();
+    width = height = 0;
+    if (starts(d, "\x89PNG\r\n\x1a\n", 8)) {
+        if (d.size() >= 24 && starts(d, "IHDR", 4, 12)) {
+            format = "PNG";
+            width = static_cast<int>(be32(d, 16));
+            height = static_cast<int>(be32(d, 20));
+        }
+        return;
+    }
+    if (starts(d, "\xFF\xD8\xFF", 3)) {
+        int mpo = 0;
+        for (size_t i = 2; i + 4 <= d.size();) {
+            if (uint8_t(d[i]) != 0xFF) { i++; continue; }
+            const uint8_t m = uint8_t(d[i + 1]);
+            if (m == 0xFF) { i++; continue; }
+            if (m == 0xD8 || (m >= 0xD0 && m <= 0xD7) || m == 0x01) { i += 2; continue; }
+            const size_t len = be16(d, i + 2);
+            if (m == 0xE2 && starts(d, "MPF\0", 4, i + 4)) mpo = mpf_images(d, i + 4, len);
+            const bool sof = (m >= 0xC0 && m <= 0xCF) && m != 0xC4 && m != 0xC8 && m != 0xCC;
+            if (sof && i + 9 <= d.size()) {
+                height = static_cast<int>(be16(d, i + 5));
+                width = static_cast<int>(be16(d, i + 7));
+                format = mpo > 1 ? "MPO" : "JPEG";
+                return;
+            }
+            if (m == 0xDA) break;
+            i += 2 + len;
+        }
+        return;   // no frame header before the scan: Pillow does not open it
+    }
+    if (starts(d, "RIFF", 4) && starts(d, "WEBP", 4, 8) && d.size() >= 30) {
+        if (starts(d, "VP8 ", 4, 12)) {
+            format = "WEBP";
+            width = static_cast<int>(le16(d, 26) & 0x3FFF);
+            height = static_cast<int>(le16(d, 28) & 0x3FFF);
+        } else if (starts(d, "VP8L", 4, 12) && uint8_t(d[20]) == 0x2F) {
+            const uint32_t b = uint32_t(uint8_t(d[21])) | (uint32_t(uint8_t(d[22])) << 8) |
+                               (uint32_t(uint8_t(d[23])) << 16) | (uint32_t(uint8_t(d[24])) << 24);
+            format = "WEBP";
+            width = static_cast<int>((b & 0x3FFF) + 1);
+            height = static_cast<int>(((b >> 14) & 0x3FFF) + 1);
+        } else if (starts(d, "VP8X", 4, 12)) {
+            format = "WEBP";
+            width = static_cast<int>(le24(d, 24) + 1);
+            height = static_cast<int>(le24(d, 27) + 1);
+        }
+        return;
+    }
+    // formats Pillow opens but the server refuses, for its "the image is <format>" message
+    static const struct { const char* magic; size_t n; const char* name; } others[] = {
+        {"GIF87a", 6, "GIF"}, {"GIF89a", 6, "GIF"}, {"BM", 2, "BMP"}, {"II*\0", 4, "TIFF"}, {"MM\0*", 4, "TIFF"},
+        {"\0\0\1\0", 4, "ICO"}, {"8BPS", 4, "PSD"}, {"qoif", 4, "QOI"}, {"DDS ", 4, "DDS"},
+        {"\0\0\0\x0cjP  \r\n\x87\n", 12, "JPEG2000"}, {"\xFF\x4F\xFF\x51", 4, "JPEG2000"},
+    };
+    for (const auto& o : others) {
+        if (starts(d, o.magic, o.n)) { format = o.name; return; }
+    }
+    if (d.size() >= 2 && d[0] == 'P' && d[1] >= '1' && d[1] <= '7') format = "PPM";
+}
+
+}  // namespace
+
+ImageFile inspect_image(const PyValue& value) {
+    if (!value.is_string() || value.text.compare(0, 5, "data:") != 0) {
+        throw ContractError("strict mode: images must be given as a data: URL string, not a file path, web "
+                            "address or PIL image");
+    }
+    // _split_data_url
+    const std::string& url = value.text;
+    const size_t comma = url.find(',');
+    std::string head = url.substr(0, comma == std::string::npos ? url.size() : comma);
+    const auto ws = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'; };
+    while (!head.empty() && ws(head.back())) head.pop_back();
+    size_t lead = 0;
+    while (lead < head.size() && ws(head[lead])) lead++;
+    head = head.substr(lead);
+    for (char& c : head) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string opening = "data:image/", closing = ";base64";
+    if (comma == std::string::npos || head.compare(0, opening.size(), opening) != 0 || head.size() < opening.size() + closing.size() ||
+        head.compare(head.size() - closing.size(), closing.size(), closing) != 0) {
+        throw ContractError("expected a base64 data URL: data:image/<type>;base64,<data>");
+    }
+    const std::string subtype = head.substr(opening.size(), head.size() - opening.size() - closing.size());
+    if (subtype != "png" && subtype != "jpeg" && subtype != "jpg" && subtype != "webp") {
+        throw ContractError("image data URLs take the types png, jpeg, jpg, webp, got " + repr(PyValue::string(subtype)));
+    }
+    // _decode_base64(text, MAX_IMAGE_BYTES)
+    const std::string text = url.substr(comma + 1);
+    if (code_points(text) > static_cast<size_t>(4 * ((MAX_IMAGE_BYTES + 2) / 3))) {
+        throw ContractError("the encoded data exceeds the " + thousands(MAX_IMAGE_BYTES) + " byte limit");
+    }
+    ImageFile f;
+    if (!b64decode_strict(text, f.data)) throw ContractError("the data URL does not hold valid base64");
+    if (static_cast<long long>(f.data.size()) > MAX_IMAGE_BYTES) {
+        throw ContractError("the decoded data has " + thousands(static_cast<long long>(f.data.size())) +
+                            " bytes, over the " + thousands(MAX_IMAGE_BYTES) + " byte limit");
+    }
+    // _checked_image up to decoding
+    identify(f.data, f.format, f.width, f.height);
+    if (f.format.empty()) {
+        throw ContractError("the image could not be identified (UnidentifiedImageError: cannot identify image file)");
+    }
+    if (f.format != "PNG" && f.format != "JPEG" && f.format != "WEBP") {
+        throw ContractError("the image is " + f.format + "; send PNG, JPEG or WebP");
+    }
+    const long long pixels = static_cast<long long>(f.width) * f.height;
+    if (pixels > MAX_IMAGE_SOURCE_PIXELS) {
+        throw ContractError("the image has " + thousands(pixels) + " pixels; at most " +
+                            thousands(MAX_IMAGE_SOURCE_PIXELS) + " are accepted");
+    }
+    return f;
+}
+
+std::pair<int, int> smart_resize(int height, int width, int factor, int min_pixels, int max_pixels) {
+    const double ratio = static_cast<double>(std::max(height, width)) / std::min(height, width);
+    if (ratio > 200) throw ContractError("absolute aspect ratio must be smaller than 200, got " + float_repr(ratio));
+    // Python's round() is round-half-to-even, as nearbyint is in the default rounding mode
+    long long h_bar = static_cast<long long>(std::nearbyint(static_cast<double>(height) / factor)) * factor;
+    long long w_bar = static_cast<long long>(std::nearbyint(static_cast<double>(width) / factor)) * factor;
+    if (h_bar * w_bar > max_pixels) {
+        const double beta = std::sqrt(static_cast<double>(static_cast<long long>(height) * width) / max_pixels);
+        h_bar = std::max<long long>(factor, static_cast<long long>(std::floor(height / beta / factor)) * factor);
+        w_bar = std::max<long long>(factor, static_cast<long long>(std::floor(width / beta / factor)) * factor);
+    } else if (h_bar * w_bar < min_pixels) {
+        const double beta = std::sqrt(static_cast<double>(min_pixels) / (static_cast<double>(height) * width));
+        h_bar = static_cast<long long>(std::ceil(height * beta / factor)) * factor;
+        w_bar = static_cast<long long>(std::ceil(width * beta / factor)) * factor;
+    }
+    return {static_cast<int>(h_bar), static_cast<int>(w_bar)};
 }
 
 void answer_codes(const std::function<std::vector<int>(const std::string&)>& encode,
@@ -329,7 +560,8 @@ std::vector<std::string> Prepared::runnable() const {
     return out;
 }
 
-Prepared prepare(const PyValue& body, const std::vector<std::string>& codes) {
+Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
+                 const std::function<void(size_t, const ImageFile&)>& decode) {
     // d3_server.Decider.arguments
     if (!body.is_object()) {
         throw RequestError("expected a JSON object such as {\"questions\": {...}, \"state\": ...}");
@@ -354,15 +586,26 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes) {
         throw RequestError("questions is required: an object of one or more question IDs, each to a question");
     }
     Prepared p;
+    // MEDIA_FIELDS in order: every image is loaded (strict) before videos are looked at
     for (const char* name : {"images", "videos"}) {
         const PyValue* items = body.get(name);
         if (!items || items->is_null()) continue;
         if (!items->is_array()) throw RequestError(std::string(name) + " takes a list of base64 data URLs");
-        if (!items->items.empty()) {
-            // text-only v1: upstream answers the same way for a checkpoint without the media path
-            throw RequestError(std::string(name == std::string("images") ? "image" : "video") +
-                               " inputs are not available: this FastFlowLM build runs d3 on text only");
+        if (items->items.empty()) continue;   // `loader(items) or None`: an empty list is the text path
+        if (std::string(name) == "videos") {
+            // upstream answers the same way for a checkpoint without the video path
+            throw RequestError("video inputs are not available: this FastFlowLM build runs d3 on text and images");
         }
+        for (size_t i = 0; i < items->items.size(); i++) {
+            try {
+                ImageFile f = inspect_image(items->items[i]);
+                if (decode) decode(i, f);
+                p.images.push_back(std::move(f));
+            } catch (const ContractError& e) {
+                throw RequestError("images[" + std::to_string(i) + "]: " + e.what());
+            }
+        }
+        p.has_images = true;
     }
     // D3.prepare
     for (const auto& m : questions->members) {
@@ -375,12 +618,37 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes) {
     } catch (const ContractError& e) {
         throw RequestError(e.what());
     }
+    // _prepare_images: every image's input tokens first (the processor's resize)
+    for (const auto& f : p.images) {
+        std::pair<int, int> hw;
+        try {
+            hw = smart_resize(f.height, f.width);
+        } catch (const ContractError& e) {
+            throw RequestError(std::string("image rejected by the processor: ") + e.what());
+        }
+        const int gh = hw.first / IMAGE_PATCH_SIZE, gw = hw.second / IMAGE_PATCH_SIZE;
+        p.image_grids.emplace_back(gh, gw);
+        p.image_tokens.push_back(gh * gw / (IMAGE_MERGE_SIZE * IMAGE_MERGE_SIZE));
+    }
+    const int n_images = static_cast<int>(p.images.size());
     for (const auto& m : questions->members) {
         const std::string& key = m.first;
         p.keys.push_back(key);
         try {
             Question q = normalize_question(m.second);
-            p.texts[key] = render(state, q, codes);
+            if (n_images == 0) {
+                p.texts[key] = render(state, q, codes);
+            } else {
+                std::string text = render_image(state, q, codes, n_images);
+                int pads = 0;
+                for (size_t at = text.find(IMAGE_TOKEN); at != std::string::npos; at = text.find(IMAGE_TOKEN, at + 1)) pads++;
+                if (pads != n_images || text.find(VIDEO_TOKEN) != std::string::npos) {
+                    p.errors[key] = error_answer(q.kind, "invalid_question",
+                                                 "the state or question contains a literal image or video placeholder token");
+                    continue;
+                }
+                p.texts[key] = std::move(text);
+            }
             p.questions.emplace(key, std::move(q));
         } catch (const ContractError& e) {
             const PyValue* kind = m.second.is_object() ? m.second.get("type") : nullptr;
@@ -391,14 +659,38 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes) {
 }
 
 void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length) {
+    int pad = -1, visual = 0;
+    if (!p.images.empty()) {
+        const std::vector<int> one = encode(IMAGE_TOKEN);
+        if (one.size() != 1) throw std::runtime_error("the tokenizer does not keep <|image_pad|> as one token");
+        pad = one[0];
+        for (int n : p.image_tokens) visual += n;
+    }
     for (const auto& key : p.keys) {
         auto t = p.texts.find(key);
         if (t == p.texts.end()) continue;
         std::vector<int> ids = encode(t->second);
+        if (pad >= 0) {
+            // each placeholder becomes its image's run of input tokens, in image order
+            std::vector<int> expanded;
+            expanded.reserve(ids.size() + visual);
+            size_t image = 0;
+            for (int id : ids) {
+                if (id == pad && image < p.image_tokens.size()) {
+                    expanded.insert(expanded.end(), p.image_tokens[image++], pad);
+                } else {
+                    expanded.push_back(id);
+                }
+            }
+            ids = std::move(expanded);
+        }
         if (max_length > 0 && static_cast<int>(ids.size()) > max_length) {
+            const std::string images = pad >= 0 ? " (" + std::to_string(visual) + " for " +
+                                                      std::to_string(p.images.size()) + " image(s))"
+                                                : std::string();
             p.errors[key] = error_answer(p.questions.at(key).kind, "max_length_exceeded",
-                                         "the question prompt has " + std::to_string(ids.size()) +
-                                             " tokens, over the maximum context length of " +
+                                         "the question prompt has " + std::to_string(ids.size()) + " tokens" + images +
+                                             ", over the maximum context length of " +
                                              std::to_string(max_length) + " tokens; nothing was truncated");
             continue;
         }

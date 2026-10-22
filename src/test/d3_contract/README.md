@@ -29,6 +29,12 @@ ctest --test-dir build-d3-contract --output-on-failure
 - `fuzz.jsonl`: 1,000 fixed-seed random request *bodies* (raw JSON text, so number spellings and duplicate keys
   reach the parser): every JSON value type, floats around Python's repr switch points, integers beyond 64 bits,
   falsy values, invalid shapes, unknown fields, malformed JSON -- with what upstream answers for each;
+- `images.jsonl`: 57 image requests as the server reads them (base64 data URLs of small synthetic PNG/JPEG/WebP
+  files at every resize regime -- upscaled, exact 1.6 MP, shrunk, portrait, aspect 200, half-even rounding -- plus
+  malformed inputs): upstream's 422 texts, prompts, image grids, input token ids with each `<|image_pad|>` expanded,
+  and the `max_length_exceeded` texts at a 2,000-token limit. Refusals that come from decoding pixels (integrity)
+  are marked `stage: "decode"`: the contract library reads headers only, the server decodes. PIL's
+  "cannot identify image file" text carries an object address, which the test drops;
 - `decision_config.json`: the package's answer codes.
 
 Regenerating them is a reviewed change: the fixtures are the definition of "identical to upstream".

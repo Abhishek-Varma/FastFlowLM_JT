@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <map>
+#include <utility>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -66,6 +67,41 @@ std::string chat_text(const std::string& system, const std::string& user);
 /// The whole prompt of one question (`d3_format.render`).
 std::string render(const PyValue& state, const Question& q, const std::vector<std::string>& codes);
 
+// ---- images (d3_runtime: load_image strict, visual_tokens, image_messages) ----------------------
+constexpr const char* IMAGE_TOKEN = "<|image_pad|>";
+constexpr const char* VIDEO_TOKEN = "<|video_pad|>";
+constexpr long long MAX_IMAGE_BYTES = 8000000;           //!< decoded bytes of one image
+constexpr long long MAX_IMAGE_SOURCE_PIXELS = 16000000;  //!< width x height before the resize
+constexpr int IMAGE_MIN_PIXELS = 65536;                  //!< resize bounds (the processor's size)
+constexpr int IMAGE_MAX_PIXELS = 1638400;
+constexpr int IMAGE_PATCH_SIZE = 16;
+constexpr int IMAGE_MERGE_SIZE = 2;
+
+/// One request image as the server reads it before decoding pixels: the file bytes, the format Pillow
+/// would identify ("PNG", "JPEG", "WEBP") and the size in its header.
+struct ImageFile {
+    std::string data;
+    std::string format;
+    int width = 0;
+    int height = 0;
+};
+
+/// `load_image(value, strict=True)` up to decoding: a data URL string of type png/jpeg/jpg/webp, valid
+/// base64 within MAX_IMAGE_BYTES, a PNG/JPEG/WebP file of at most MAX_IMAGE_SOURCE_PIXELS. Throws
+/// ContractError with upstream's message (the caller adds "images[i]: "). Decoding and the integrity
+/// check are the application's.
+ImageFile inspect_image(const PyValue& value);
+
+/// The processor's `smart_resize` (factor = patch x merge): (height, width) of the resized image.
+/// Throws ContractError("absolute aspect ratio must be smaller than 200, got <ratio>").
+std::pair<int, int> smart_resize(int height, int width, int factor = IMAGE_PATCH_SIZE * IMAGE_MERGE_SIZE,
+                                 int min_pixels = IMAGE_MIN_PIXELS, int max_pixels = IMAGE_MAX_PIXELS);
+
+/// The prompt of one question with `n_images` image placeholders in front of the user text
+/// (`image_messages` rendered by the chat template).
+std::string render_image(const PyValue& state, const Question& q, const std::vector<std::string>& codes,
+                         int n_images);
+
 /// `d3_format.answer_codes`: the codes and token ids this tokenizer gives; throws ContractError if
 /// fewer than 255 qualify.
 void answer_codes(const std::function<std::vector<int>(const std::string&)>& encode,
@@ -86,7 +122,7 @@ ojson error_answer(const ojson& type, const std::string& error, const std::strin
 /// A PyValue as nlohmann JSON (for echoing request values in replies).
 ojson to_ojson(const PyValue& v);
 
-/// A System One request after validation and rendering (d3_runtime.Prepared, text path).
+/// A System One request after validation and rendering (d3_runtime.Prepared, text and image paths).
 struct Prepared {
     std::vector<std::string> keys;              //!< every question ID, request order
     std::map<std::string, Question> questions;  //!< valid questions
@@ -95,16 +131,23 @@ struct Prepared {
     std::map<std::string, ojson> errors;        //!< per-question error objects
     bool has_images = false;
     bool has_videos = false;
+    std::vector<ImageFile> images;              //!< the request's images, in order (shared by every question)
+    std::vector<std::pair<int, int>> image_grids; //!< per image: (grid_h, grid_w) in 16-pixel patches
+    std::vector<int> image_tokens;              //!< per image: input tokens, grid_h * grid_w / 4
 
     std::vector<std::string> runnable() const;
 };
 
 /// Server-level checks of a decoded body (d3_server.Decider.arguments + D3.prepare's request
 /// checks) and per-question validation/rendering. Throws RequestError for what upstream answers 422.
-/// Tokenization and the length limit are applied by `tokenize()`.
-Prepared prepare(const PyValue& body, const std::vector<std::string>& codes);
+/// Tokenization and the length limit are applied by `tokenize()`. Images are inspected in order, and
+/// `decode` (when given) decodes each one right after its inspection, as upstream loads them one by
+/// one: it throws ContractError with the message for "images[i]: ..." (integrity, decoding).
+Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
+                 const std::function<void(size_t, const ImageFile&)>& decode = nullptr);
 
-/// Tokenize every rendered prompt; prompts over `max_length` (> 0) become max_length_exceeded.
+/// Tokenize every rendered prompt; prompts over `max_length` (> 0) become max_length_exceeded. With
+/// images, each `<|image_pad|>` becomes that image's run of input tokens (counted in the length).
 void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length);
 
 /// `invalid_questions` of a prepared request, or an empty object.
