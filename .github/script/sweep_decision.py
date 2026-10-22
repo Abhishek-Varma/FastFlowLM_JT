@@ -156,7 +156,7 @@ class DecisionSweep(SweepTask):
         self.case(writer, model, "not-json", ok, f"status {status}", t, json.dumps(body)[:200])
 
     def _too_long(self, writer, model: str) -> None:
-        status, body, t = self.post({"state": "word " * 5000, "questions": {"q": {"type": "noul"}}})
+        status, body, t = self.post({"state": "word " * 33000, "questions": {"q": {"type": "noul"}}})
         a = body.get("answers", {}).get("q", {})
         ok = status == 200 and a.get("error") == "max_length_exceeded" and body["usage"]["input_tokens"] == 0
         self.case(writer, model, "too-long", ok, f"status {status}, {a.get('error')}", t, json.dumps(body)[:200])
