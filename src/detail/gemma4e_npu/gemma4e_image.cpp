@@ -1057,7 +1057,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
             memset(k_projection_input.data() + seq_len * Padded_GEMMA4E_VISION_HIDDEN_SIZE, 0, (seq_len_padded - seq_len)* Padded_GEMMA4E_VISION_HIDDEN_SIZE * sizeof(bf16));
             k_projection_input.sync_to_device();
 
-        q_proj_run.wait();
+        flm::npu::wait_for_completion(
+            q_proj_run, "Gemma4 vision Q projection");
         q_projection_output.sync_from_device();
 
         k_projection_input.sync_to_device();
@@ -1089,7 +1090,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
             memset(v_projection_input.data() + seq_len * Padded_GEMMA4E_VISION_HIDDEN_SIZE, 0, (seq_len_padded - seq_len)* Padded_GEMMA4E_VISION_HIDDEN_SIZE * sizeof(bf16));
             v_projection_input.sync_to_device();
 
-        k_proj_run.wait();
+        flm::npu::wait_for_completion(
+            k_proj_run, "Gemma4 vision K projection");
         k_projection_output.sync_from_device();
 
         v_projection_input.sync_to_device();
@@ -1123,7 +1125,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
                 seq_len, this->parent_npu_ptr->GEMMA4E_VISION_NUM_ATTENTION_HEADS, this->parent_npu_ptr->GEMMA4E_VISION_HEAD_DIM);
             k_projection_output.sync_to_device();
 
-        v_proj_run.wait();
+        flm::npu::wait_for_completion(
+            v_proj_run, "Gemma4 vision V projection");
         v_projection_output.sync_from_device();
 
         // apply norm for v
@@ -1215,7 +1218,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
                 ENABLE_QKV_REORDER, this->parent_npu_ptr->GEMMA4E_VISION_HEAD_DIM
             );
 
-        attention_run.wait();
+        flm::npu::wait_for_completion(
+            attention_run, "Gemma4 vision attention");
         attention_output.sync_from_device();
 
         #if DEBUG_PRINT_ENCODE_ERROR_METRICS
@@ -1427,7 +1431,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
                 ENABLE_QKV_REORDER, this->parent_npu_ptr->GEMMA4E_VISION_HEAD_DIM
             );
 
-        gate_proj_run.wait();
+        flm::npu::wait_for_completion(
+            gate_proj_run, "Gemma4 vision gate projection");
         gate_output.sync_from_device();
 
         #if DEBUG_PRINT_ENCODE_ERROR_METRICS
@@ -1473,7 +1478,8 @@ std::vector<bf16> Gemma4e_ImageEncoder::encode( void* image_payload_ptr)
                 ENABLE_QKV_REORDER, this->parent_npu_ptr->GEMMA4E_VISION_HEAD_DIM
             );
 
-        up_proj_run.wait();
+        flm::npu::wait_for_completion(
+            up_proj_run, "Gemma4 vision up projection");
         up_output.sync_from_device();
 
         #if DEBUG_PRINT_ENCODE_ERROR_METRICS

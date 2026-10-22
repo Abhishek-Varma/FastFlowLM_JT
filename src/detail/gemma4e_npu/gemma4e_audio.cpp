@@ -494,7 +494,8 @@ void Gemma4e_AudioEncoder::ffn_layer(
 
         );
 
-    ffn_up_proj_run.wait();
+    flm::npu::wait_for_completion(
+        ffn_up_proj_run, "Gemma4 audio FFN up projection");
     ffn_up_proj_output_down_input.sync_from_device();
 
     simd_clamp(
@@ -1871,7 +1872,8 @@ std::vector<bf16> Gemma4e_AudioEncoder::encode(void* audio_payload_ptr){
                 k_proj_input, this->audio_attn_k_weight[layer_id], k_proj_output
             ), layer_id);
 
-        q_proj_run.wait();
+        flm::npu::wait_for_completion(
+            q_proj_run, "Gemma4 audio Q projection");
         q_proj_output.sync_from_device();
 
         k_proj_input.sync_to_device();
@@ -1903,7 +1905,8 @@ std::vector<bf16> Gemma4e_AudioEncoder::encode(void* audio_payload_ptr){
             auto v_proj_run = FLM_OVERRIDE(audio_v_proj, v_proj_app.create_run(
                 v_proj_input, this->audio_attn_v_weight[layer_id], v_proj_output
             ), layer_id);
-        k_proj_run.wait();
+        flm::npu::wait_for_completion(
+            k_proj_run, "Gemma4 audio K projection");
         k_proj_output.sync_from_device();
 
         v_proj_input.sync_to_device();
@@ -1952,7 +1955,8 @@ std::vector<bf16> Gemma4e_AudioEncoder::encode(void* audio_payload_ptr){
                 ENABLE_QKV_REORDER, 0// since we don't need it anymore
 
             );
-        v_proj_run.wait();
+        flm::npu::wait_for_completion(
+            v_proj_run, "Gemma4 audio V projection");
         v_proj_output.sync_from_device();
 
         // now, compare q, k, v with
