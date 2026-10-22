@@ -588,6 +588,14 @@ Change the iteration times by `bench-iterations`:
 flm bench llama3.2:1b --bench-iterations 4
 ```
 
+Cap the longest context tested with `-c` / `--ctx-len`:
+
+```shell
+flm bench llama3.2:1b --ctx-len 8192
+```
+
+The value is rounded down to a power-of-two number of `k` (e.g. `-c 5000` tests `1k`, `2k` and `4k`), and model-specific limits still apply. Without it, the benchmark runs up to `32k`.
+
 FLM prints the results in your terminal and also saves them as a CSV file in the current folder for later reference.
 
 ```text
