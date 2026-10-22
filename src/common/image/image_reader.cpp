@@ -22,9 +22,10 @@
 #include <cstdio>
 #include <jpeglib.h>
 #include "lodepng/lodepng.h"
+#include <webp/decode.h>
 
 namespace {
-enum class ImageCodec { None, Jpeg, Png };
+enum class ImageCodec { None, Jpeg, Png, Webp };
 
 static uint32_t read_be32(const uint8_t* ptr) {
     return (static_cast<uint32_t>(ptr[0]) << 24) |
@@ -157,6 +158,9 @@ static bool has_basic_image_integrity(const uint8_t* data, size_t size, ImageCod
     if (codec == ImageCodec::Jpeg) {
         return has_valid_jpeg_structure(data, size);
     }
+    if (codec == ImageCodec::Webp) {
+        return WebPGetInfo(data, size, nullptr, nullptr) != 0;   // libwebp validates the RIFF container
+    }
     return false;
 }
 
@@ -169,6 +173,9 @@ static ImageCodec detect_codec(const uint8_t* data, size_t size) {
     }
     if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) {
         return ImageCodec::Png;
+    }
+    if (size >= 12 && std::memcmp(data, "RIFF", 4) == 0 && std::memcmp(data + 8, "WEBP", 4) == 0) {
+        return ImageCodec::Webp;
     }
     return ImageCodec::None;
 }
@@ -587,10 +594,41 @@ bool ImageReader::decode_png(const uint8_t* data, size_t size, image_data_t& out
     return true;
 }
 
+bool ImageReader::decode_webp(const uint8_t* data, size_t size, image_data_t& out_image) {
+    // libwebp, the library Pillow decodes with; RGB output drops alpha (not composited), as PIL's
+    // convert("RGB") does. Animated files decode their first frame only through Pillow, and not here.
+    int width = 0;
+    int height = 0;
+    if (!WebPGetInfo(data, size, &width, &height) || width <= 0 || height <= 0) {
+        std::cerr << "Error: Could not read WebP header" << std::endl;
+        return false;
+    }
+    const size_t pixel_count = static_cast<size_t>(width) * height;
+    if (pixel_count > kMaxImagePixels) {
+        std::cerr << "Error: Unsupported WebP dimensions " << width << "x" << height << std::endl;
+        return false;
+    }
+    bytes buffer = memory_pool_.acquire(pixel_count * 3);
+    if (buffer.size() == 0) {
+        std::cerr << "Error: Could not allocate output image buffer" << std::endl;
+        return false;
+    }
+    if (!WebPDecodeRGBInto(data, size, reinterpret_cast<uint8_t*>(buffer.data()), pixel_count * 3, width * 3)) {
+        std::cerr << "Error: Could not decode WebP image" << std::endl;
+        memory_pool_.recycle(std::move(buffer));
+        return false;
+    }
+    recycle(out_image);
+    out_image.width = width;
+    out_image.height = height;
+    out_image.pixels = std::move(buffer);
+    return true;
+}
+
 bool ImageReader::decode_bytes(const uint8_t* data, size_t size, image_data_t& out_image) {
     const ImageCodec codec = detect_codec(data, size);
     if (codec == ImageCodec::None) {
-        std::cerr << "Error: Unsupported image format (only JPEG/JPG and PNG supported)" << std::endl;
+        std::cerr << "Error: Unsupported image format (only JPEG/JPG, PNG and WebP supported)" << std::endl;
         return false;
     }
 
@@ -599,6 +637,7 @@ bool ImageReader::decode_bytes(const uint8_t* data, size_t size, image_data_t& o
         return false;
     }
 
+    if (codec == ImageCodec::Webp) return decode_webp(data, size, out_image);
     return codec == ImageCodec::Jpeg ? decode_jpeg(data, size, out_image)
                                      : decode_png(data, size, out_image);
 }

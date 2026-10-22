@@ -39,6 +39,10 @@ public:
 
 	bool load_image(const std::string& filename, image_data_t& out_image);
 	bool load_image_base64(const std::string& base64_string, image_data_t& out_image);
+	/// decode an encoded PNG, JPEG or WebP file held in memory to 8-bit RGB
+	bool load_image_bytes(const std::string& data, image_data_t& out_image) {
+		return decode_bytes(reinterpret_cast<const uint8_t*>(data.data()), data.size(), out_image);
+	}
 	bool resize_image(const image_data_t& input, int target_width, int target_height, image_data_t& output);
 	bool reorder_hwc_to_chw(const image_data_t& input, image_data_t& output);
 	bool save_png(const std::string& filename, const image_data_t& image);
@@ -49,6 +53,7 @@ private:
 	bool decode_bytes(const uint8_t* data, size_t size, image_data_t& out_image);
 	bool decode_jpeg(const uint8_t* data, size_t size, image_data_t& out_image);
 	bool decode_png(const uint8_t* data, size_t size, image_data_t& out_image);
+	bool decode_webp(const uint8_t* data, size_t size, image_data_t& out_image);
 
 	ImageMemoryPool memory_pool_;
 };

@@ -8,6 +8,7 @@ Per model (served with `--decision <tag>`):
   two-letter  a 27-option choice (the 27th option's code is "AA")
   invalid     a malformed question -> 422 {"detail": {"invalid_questions": ...}}, nothing run
   too-long    a prompt over the input limit -> max_length_exceeded inside a 200 reply
+  image       a request with a PNG image (yellow box on blue) answered, and a broken image -> 422 "images[0]: ..."
   docs        the example request of docs/docs/models/d3.md: the server's reply must decide what the documented
               reply decides (choice, noul side, most likely score), so the docs cannot drift from the server
 
@@ -161,6 +162,22 @@ class DecisionSweep(SweepTask):
         ok = status == 200 and a.get("error") == "max_length_exceeded" and body["usage"]["input_tokens"] == 0
         self.case(writer, model, "too-long", ok, f"status {status}, {a.get('error')}", t, json.dumps(body)[:200])
 
+    # 96 x 64 PNG: a yellow box on a blue background
+    IMAGE = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAiElEQVR42u3bMRXAIAxAQcKrjk5V1QkZlYAM"
+             "5FQEYmoApi4Z7u8ZuJeMxHm/RfsqAkCAAAECBAgQIK06/gzPp+V81dWHDXJigAABAiRAgAABAgQIECBAAgQIECBAgAABEiBAgAABAgQIkAAB"
+             "AgQIECBAgABpXfiSaYMAAQIECBAgQAIECBCgbH3ZCwYBFiTfPwAAAABJRU5ErkJggg==")
+
+    def _image(self, writer, model: str) -> None:
+        q = {"type": "choice", "instructions": "What is the main colour of the background?",
+             "criteria": {"blue": "Blue", "red": "Red", "green": "Green"}}
+        status, body, t = self.post({"questions": {"bg": q}, "images": [self.IMAGE]})
+        a = body.get("answers", {}).get("bg", {})
+        ok = status == 200 and answer_shape_ok(a) and "error" not in a and body["usage"]["input_tokens"] > 100
+        self.case(writer, model, "image", ok, f"status {status}, choice {a.get('choice')}", t, json.dumps(body)[:200])
+        status, body, t = self.post({"questions": {"bg": q}, "images": [self.IMAGE[:120]]})
+        ok = status == 422 and str(body.get("detail", "")).startswith("images[0]: ")
+        self.case(writer, model, "image-broken", ok, f"status {status}", t, json.dumps(body)[:200])
+
     @staticmethod
     def _decision(answer: dict):
         """What an answer decides: the choice, the side of a noul, the most likely score level."""
@@ -205,6 +222,7 @@ class DecisionSweep(SweepTask):
                 self._two_letter(writer, model)
                 self._invalid(writer, model)
                 self._too_long(writer, model)
+                self._image(writer, model)
                 self._docs(writer, model)
         finally:
             handle.close()

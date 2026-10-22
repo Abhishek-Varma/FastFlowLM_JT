@@ -841,7 +841,8 @@
                     "decision_config.json",
                     "readout.safetensors",
                     "LICENSE",
-                    "NOTICE"
+                    "NOTICE",
+                    "vision_weight.q4nx"
                 ],
                 "default_context_length": 32768,
                 "max_prefill_len": 32768,

@@ -16,6 +16,7 @@
 
 #include "decision/d3_contract.hpp"
 #include "decision_model.hpp"
+#include "image/image_reader.hpp"
 #include "lm_config.hpp"
 #include "npu_utils/npu_utils.hpp"
 #include "tensor_utils/q4_npu_eXpress.hpp"
@@ -48,7 +49,8 @@ public:
     DecisionReply system_one(const std::string& raw_body);
 
     /// The in-process path without HTTP checks of media: probabilities per runnable question.
-    std::map<std::string, std::vector<double>> run(const flm::d3::Prepared& prepared);
+    /// `payload` is the engine's image payload (d3_image_payload*) or nullptr for text.
+    std::map<std::string, std::vector<double>> run(const flm::d3::Prepared& prepared, void* payload = nullptr);
 
     /// Encode a few prompts so the first request in each common row bucket runs at steady-state speed.
     void warmup();
@@ -70,6 +72,8 @@ private:
     int hidden_ = 0;
     float temperature_ = 1.0f;
     std::mutex turn_;              //!< one request on the device at a time (d3_server.Decider)
+    ImageReader image_reader_;     //!< decodes request images (PNG, JPEG, WebP)
+    int dump_count_ = 0;           //!< D3_DUMP_PIXELS: requests dumped so far
 
     std::vector<int> encode(const std::string& text);
 };

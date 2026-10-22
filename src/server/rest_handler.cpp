@@ -580,7 +580,11 @@ void RestHandler::ensure_decision_model_loaded(const std::string& model_tag) {
 void RestHandler::handle_systemone_models(std::function<void(const json&)> send_response) {
     json data = json::array();
     if (this->decision_engine) {
-        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"}});
+        // what upstream d3_server's /v1/models states: the input limit, the modalities and the image budget
+        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
+                        {"max_input_tokens", this->decision_engine->max_input_tokens()},
+                        {"modalities", json::array({"text", "image"})},
+                        {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}});
     }
     send_response({{"object", "list"}, {"data", data}});
 }
