@@ -247,7 +247,7 @@ void print_result(const BenchmarkResults_t& results) {
     std::cout << "\n";
 }
 
-BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_config_file, model_list& availble_models, int iterations, flm_rt::device* npu_device, const std::string& backend = ""){
+BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_config_file, model_list& availble_models, int iterations, flm_rt::device* npu_device, const std::string& backend = "", int ctx_length = -1){
     // RAI receives the device from corelib; non-RAI creates its own here.
     // Declared first so it outlives the model engine below.
     std::optional<flm_rt::device> owned_device;
@@ -287,6 +287,14 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
 
     bool single_turn = model_info.contains("label") &&
         std::find(model_info["label"].begin(), model_info["label"].end(), "single-turn") != model_info["label"].end();
+    // -c/--ctx-len: cap the bench at the requested context (floored to a power of two, min 1k,
+    // so no stage exceeds it). Model-specific caps below still apply.
+    if (ctx_length > 0) {
+        int ctx_k = std::max(1, ctx_length / 1024);
+        int pow2_k = 1;
+        while ((pow2_k << 1) <= ctx_k) pow2_k <<= 1;
+        bench_config["max_length"] = pow2_k * 1024;
+    }
     if (single_turn)
         bench_config["max_length"] = 1024;
     // Some models cannot be benchmarked all the way out to the default 32k --
