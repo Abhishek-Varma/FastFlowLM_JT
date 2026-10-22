@@ -32,7 +32,9 @@ struct DecisionReply {
 class AutoDecisionModel {
 public:
     /// Prompts longer than this get `max_length_exceeded`, as upstream does; nothing is truncated.
-    static constexpr int MAX_INPUT_TOKENS = 4096;
+    /// Upstream d3-lite sets no limit of its own (max_length null); time per question grows with
+    /// the square of the length, so FLM stops at 32,768 tokens.
+    static constexpr int MAX_INPUT_TOKENS = 32768;
 
     AutoDecisionModel(flm_rt::device* npu_device_inst, std::string model_tag);
     ~AutoDecisionModel();

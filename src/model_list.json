@@ -843,8 +843,8 @@
                     "LICENSE",
                     "NOTICE"
                 ],
-                "default_context_length": 4096,
-                "max_prefill_len": 4096,
+                "default_context_length": 32768,
+                "max_prefill_len": 32768,
                 "details": {
                     "format": "NPU2",
                     "family": "d3",

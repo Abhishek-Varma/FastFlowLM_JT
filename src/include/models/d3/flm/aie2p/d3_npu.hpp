@@ -13,8 +13,8 @@ class d3_npu : public decision_model{
 public:
     /// \param config the package's config.json
     /// \param npu_instance the xclbin manager (mm.xclbin is registered from it)
-    /// \param max_length longest prompt accepted, in tokens
-    d3_npu(LM_Config config, npu_xclbin_manager* npu_instance, int max_length = 4096);
+    /// \param max_length longest prompt accepted, in tokens (default: 32,768, FastFlowLM's limit)
+    d3_npu(LM_Config config, npu_xclbin_manager* npu_instance, int max_length = 32768);
     ~d3_npu();
     d3_npu(const d3_npu&) = delete;
     d3_npu& operator=(const d3_npu&) = delete;

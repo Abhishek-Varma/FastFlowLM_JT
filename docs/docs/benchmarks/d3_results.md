@@ -31,8 +31,16 @@ Prompts, token ids and answer objects are byte-identical to the upstream runtime
 | 1 question, 128 tokens | 109 |
 | 1 question, 330 tokens | 151 |
 | 1 question, 1,024 tokens | 430 |
-| 1 question, 4,096 tokens | 2135 |
+| 1 question, 2,048 tokens | 765 |
+| 1 question, 4,096 tokens | 1587 |
+| 1 question, 8,192 tokens | 3690 |
+| 1 question, 16,384 tokens | 8425 |
+| 1 question, 32,768 tokens | 22696 |
 | 4 questions, 330 tokens each | 536 |
 | 16 questions, 330 tokens each | 2067 |
 
 First request after `flm serve` is ready: 191 ms (steady state 168 ms over HTTP).
+
+Rows of 2,048 tokens and more: median of 15 runs (32,768: 3). From 1,536 tokens attention runs on the NPU (below
+that the CPU is faster); the first such request also loads the attention kernel (about 0.1 s) and from then on the
+decision model holds two NPU hardware contexts instead of one.
