@@ -839,9 +839,6 @@
                     "tokenizer_config.json",
                     "chat_template.jinja",
                     "decision_config.json",
-                    "readout.safetensors",
-                    "LICENSE",
-                    "NOTICE",
                     "vision_weight.q4nx"
                 ],
                 "default_context_length": 32768,
@@ -856,7 +853,7 @@
                 "label":[
                     "decision"
                 ],
-                "footprint": 1.0
+                "footprint": 0.8
             }
         },
         "whisper-v3": {
