@@ -56,8 +56,9 @@ namespace {
 constexpr int kImageSoftTokenId = 248056;
 /// a boundary closer to the start than this is not worth a slot: re-prefilling it is cheap
 constexpr size_t kMinBoundaryTokens = 512;
-/// K/V rows the slots may hold in total (each row costs a few KB per model, so this bounds the memory)
-constexpr size_t kMaxSavedRows = 65536;
+/// defaults of --prefix-cache-mb and --prefix-slots
+constexpr size_t kDefaultPrefixCacheMiB = 1024;
+constexpr size_t kDefaultPrefixSlots = 8;
 
 size_t lcp_len(const std::vector<int>& a, const std::vector<int>& b) {
     const size_t n = std::min(a.size(), b.size());
@@ -95,7 +96,7 @@ uint64_t hash_bytes(const void* data, size_t bytes, uint64_t h) {
 qwen3_5vl_npu* Qwen3_5VL::slot_engine() const {
     // FLM_DISABLE_PREFIX_SLOTS=1 turns the slots off (single-checkpoint path), to get a reference to compare against
     static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
-    if (disabled) {
+    if (disabled || this->prefix_slots_arg_ == 0) {
         return nullptr;
     }
     return dynamic_cast<qwen3_5vl_npu*>(this->lm_engine);
@@ -121,6 +122,16 @@ void Qwen3_5VL::clear_context() {
     this->AutoModel::clear_context();
 }
 
+size_t Qwen3_5VL::prefix_budget_bytes() const {
+    const size_t mib = this->prefix_cache_mb_arg_ > 0 ? static_cast<size_t>(this->prefix_cache_mb_arg_) : kDefaultPrefixCacheMiB;
+    return mib << 20;
+}
+
+size_t Qwen3_5VL::prefix_slot_limit() const {
+    const size_t requested = this->prefix_slots_arg_ > 0 ? static_cast<size_t>(this->prefix_slots_arg_) : kDefaultPrefixSlots;
+    return std::min<size_t>(requested, qwen3_5vl_npu::NUM_CHECKPOINT_SLOTS);
+}
+
 void Qwen3_5VL::_prefix_slot_save(const std::vector<int>& tokens, const std::vector<uint64_t>& image_hashes, bool boundary, int kv_from) {
     qwen3_5vl_npu* eng = this->slot_engine();
     if (eng == nullptr || tokens.empty()) {
@@ -133,30 +144,104 @@ void Qwen3_5VL::_prefix_slot_save(const std::vector<int>& tokens, const std::vec
             return;
         }
     }
-    const size_t rows = tokens.size() - static_cast<size_t>(kv_from);
-    if (rows > kMaxSavedRows) {
+    if (this->slot_row_bytes_ == 0) {
+        this->slot_row_bytes_ = eng->checkpoint_row_bytes();
+        this->slot_state_bytes_ = eng->checkpoint_state_bytes();
+        header_print("FLM", "Prefix cache: up to " << this->prefix_slot_limit() << " snapshots in " << (this->prefix_budget_bytes() >> 20)
+                     << " MiB (a saved row costs " << this->slot_row_bytes_ / 1024 << " KiB, a snapshot's state " << (this->slot_state_bytes_ >> 20) << " MiB)");
+    }
+    const size_t budget = this->prefix_budget_bytes();
+    const size_t limit = this->prefix_slot_limit();
+    auto cost = [&](size_t length, int from) { return this->slot_state_bytes_ + (length - static_cast<size_t>(from)) * this->slot_row_bytes_; };
+    const size_t new_cost = cost(tokens.size(), kv_from);
+    if (new_cost > budget) {
+        // this prompt alone does not fit; say so once, since nothing would ever be reused
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            header_print("WARNING", "Prefix cache: a " << tokens.size() << "-token prompt needs " << (new_cost >> 20) << " MiB, more than --prefix-cache-mb ("
+                         << (budget >> 20) << " MiB); it is not saved. Raise --prefix-cache-mb to reuse prompts this long.");
+        }
         return;
     }
-    // least recently used first, boundary slots last
-    auto evict_one = [&]() {
-        size_t victim = 0;
-        for (size_t i = 1; i < this->prefix_slots_.size(); i++) {
-            const auto& a = this->prefix_slots_[i];
-            const auto& b = this->prefix_slots_[victim];
-            if (a.boundary != b.boundary ? !a.boundary : a.last_used < b.last_used) {
-                victim = i;
+
+    auto has_prefix = [](const std::vector<int>& longer, const std::vector<int>& shorter) {
+        return shorter.size() <= longer.size() && std::equal(shorter.begin(), shorter.end(), longer.begin());
+    };
+    // `e` keeps only the rows after kv_from; `b` is the self-contained slot that holds the ones before
+    auto is_parent = [&](const prefix_slot_t& b, const prefix_slot_t& e) {
+        return e.kv_from > 0 && b.kv_from == 0 && b.tokens.size() == static_cast<size_t>(e.kv_from) && has_prefix(e.tokens, b.tokens);
+    };
+    // the slot that supplies the head rows of the slot being saved must survive the eviction below
+    int protected_id = -1;
+    if (kv_from > 0) {
+        for (const auto& slot : this->prefix_slots_) {
+            if (slot.kv_from == 0 && slot.tokens.size() == static_cast<size_t>(kv_from) && has_prefix(tokens, slot.tokens)) {
+                protected_id = slot.id;
             }
         }
-        eng->drop_checkpoint_slot(this->prefix_slots_[victim].id);
-        this->prefix_slots_.erase(this->prefix_slots_.begin() + victim);
+    }
+    // `a` is superseded when a longer prompt of the same conversation was saved after it: that one can serve
+    // every request `a` could except replaying `a`'s own prompt, so `a` is the cheapest thing to lose
+    auto superseded_by = [&](const prefix_slot_t& a, const std::vector<int>& longer, int longer_kv_from, const std::vector<uint64_t>& longer_images) {
+        return !a.boundary && longer.size() > a.tokens.size() && longer_kv_from <= a.kv_from && has_prefix(longer, a.tokens) &&
+               a.image_hashes.size() <= longer_images.size() && std::equal(a.image_hashes.begin(), a.image_hashes.end(), longer_images.begin());
     };
-    auto saved_rows = [&]() {
-        size_t total = rows;
-        for (const auto& slot : this->prefix_slots_) total += slot.tokens.size() - static_cast<size_t>(slot.kv_from);
+
+    // Make room, cheapest loss first:
+    //   1. superseded snapshots (an older end snapshot whose newer, longer one exists), least recently used first;
+    //   2. other end snapshots, least recently used first: they only hold the rows after their boundary snapshot,
+    //      so losing one costs a conversation its latest history, not its whole system prompt;
+    //   3. boundary snapshots, least recently used first. One is only reached once no end snapshot depends on it,
+    //      so an end snapshot is never left without the boundary snapshot that holds its head rows.
+    // The slot that supplies the head of the snapshot being saved is never chosen.
+    auto evict_one = [&]() -> bool {
+        auto drop_at = [&](size_t i, const char* why) {
+            header_print("FLM", "Prefix cache: dropping " << why << " (" << this->prefix_slots_[i].tokens.size() << " tokens)");
+            eng->drop_checkpoint_slot(this->prefix_slots_[i].id);
+            this->prefix_slots_.erase(this->prefix_slots_.begin() + i);
+        };
+        const size_t n = this->prefix_slots_.size();
+        std::vector<bool> has_dependents(n, false);
+        for (size_t i = 0; i < n; i++) {
+            for (size_t j = 0; j < n; j++) {
+                if (i != j && is_parent(this->prefix_slots_[i], this->prefix_slots_[j])) has_dependents[i] = true;
+            }
+        }
+        int stale = -1, end_leaf = -1, boundary_leaf = -1;
+        auto older = [&](int candidate, int current) { return current < 0 || this->prefix_slots_[candidate].last_used < this->prefix_slots_[current].last_used; };
+        for (size_t i = 0; i < n; i++) {
+            const auto& a = this->prefix_slots_[i];
+            if (a.id == protected_id || has_dependents[i]) continue;
+            bool old = superseded_by(a, tokens, kv_from, image_hashes);
+            for (size_t j = 0; j < n && !old; j++) {
+                const auto& b = this->prefix_slots_[j];
+                old = j != i && superseded_by(a, b.tokens, b.kv_from, b.image_hashes);
+            }
+            if (old && older(static_cast<int>(i), stale)) stale = static_cast<int>(i);
+            if (!a.boundary && older(static_cast<int>(i), end_leaf)) end_leaf = static_cast<int>(i);
+            if (a.boundary && older(static_cast<int>(i), boundary_leaf)) boundary_leaf = static_cast<int>(i);
+        }
+        if (stale >= 0) {
+            drop_at(static_cast<size_t>(stale), "a superseded snapshot");
+        } else if (end_leaf >= 0) {
+            drop_at(static_cast<size_t>(end_leaf), "the least recently used end snapshot");
+        } else if (boundary_leaf >= 0) {
+            drop_at(static_cast<size_t>(boundary_leaf), "the least recently used boundary snapshot");
+        } else {
+            return false;
+        }
+        return true;
+    };
+    auto total_cost = [&]() {
+        size_t total = new_cost;
+        for (const auto& slot : this->prefix_slots_) total += cost(slot.tokens.size(), slot.kv_from);
         return total;
     };
-    while (!this->prefix_slots_.empty() && saved_rows() > kMaxSavedRows) {
-        evict_one();
+    while (!this->prefix_slots_.empty() && (total_cost() > budget || this->prefix_slots_.size() >= limit)) {
+        if (!evict_one()) {
+            return; // everything left is needed by this slot: do not save it
+        }
     }
     int id = -1;
     for (int candidate = 0; candidate < qwen3_5vl_npu::NUM_CHECKPOINT_SLOTS && id < 0; candidate++) {
@@ -166,15 +251,8 @@ void Qwen3_5VL::_prefix_slot_save(const std::vector<int>& tokens, const std::vec
         }
         if (!used) id = candidate;
     }
-    while (id < 0) { // all slots in use
-        evict_one();
-        for (int candidate = 0; candidate < qwen3_5vl_npu::NUM_CHECKPOINT_SLOTS && id < 0; candidate++) {
-            bool used = false;
-            for (const auto& slot : this->prefix_slots_) {
-                used = used || slot.id == candidate;
-            }
-            if (!used) id = candidate;
-        }
+    if (id < 0 || this->prefix_slots_.size() >= limit) {
+        return;
     }
     if (eng->checkpoint_slot(id, kv_from) != static_cast<int>(tokens.size())) {
         header_print("WARNING", "Prefix slot " << id << " saved at an unexpected length, dropping it");

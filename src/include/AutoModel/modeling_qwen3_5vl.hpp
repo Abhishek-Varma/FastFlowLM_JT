@@ -70,6 +70,13 @@ private:
     std::vector<prefix_slot_t> prefix_slots_;
     std::vector<int> live_tokens_;           // tokens whose K/V rows the engine holds now
     uint64_t prefix_clock_ = 0;
+    // limits: --prefix-cache-mb / --prefix-slots (-1 = default; 0 slots = off)
+    int prefix_cache_mb_arg_ = -1;
+    int prefix_slots_arg_ = -1;
+    size_t slot_row_bytes_ = 0;    // host bytes of one saved K/V row, asked of the engine once
+    size_t slot_state_bytes_ = 0;  // host bytes of one slot's recurrent state
+    size_t prefix_budget_bytes() const;
+    size_t prefix_slot_limit() const;
 
     /// \brief the engine, when it is the XRT qwen3_5vl one that has slots
     qwen3_5vl_npu* slot_engine() const;
@@ -138,6 +145,14 @@ public:
             try {
                 this->user_system_prompt = std::any_cast<std::string>(value);
                 this->extra_context["user_system_prompt"] = this->user_system_prompt;
+                return true;
+            } catch (const std::bad_any_cast&) {
+                return false;
+            }
+        }
+        else if (parameter_name == "prefix_cache_mb" || parameter_name == "prefix_slots") {
+            try {
+                (parameter_name == "prefix_cache_mb" ? this->prefix_cache_mb_arg_ : this->prefix_slots_arg_) = std::any_cast<int>(value);
                 return true;
             } catch (const std::bad_any_cast&) {
                 return false;

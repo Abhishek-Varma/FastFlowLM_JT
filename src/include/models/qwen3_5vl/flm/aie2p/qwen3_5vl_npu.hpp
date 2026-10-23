@@ -117,7 +117,7 @@ public:
     // concrete class, the way it already reaches the vision parameters.
 
     /// \brief how many checkpoint slots the engine keeps; slot 0 is checkpoint()/restore()
-    static constexpr int NUM_CHECKPOINT_SLOTS = 8;
+    static constexpr int NUM_CHECKPOINT_SLOTS = 32;
 
     /// \brief save the recurrent state, the context length and attention K/V rows into `slot`
     /// \param kv_from first position whose K/V rows are saved with the slot (clamped to the
@@ -138,6 +138,13 @@ public:
 
     /// \brief forget a slot
     void drop_checkpoint_slot(int slot);
+
+    /// \brief host bytes one saved K/V row costs, summed over the attention layers (K and V, bf16)
+    size_t checkpoint_row_bytes();
+
+    /// \brief host bytes the recurrent state of one slot costs, summed over the linear layers
+    /// \note Paid once per used slot, on top of its rows; slots are allocated on first use.
+    size_t checkpoint_state_bytes();
 
     // parameters for vision process in qwen3.5 vl
 
