@@ -195,6 +195,155 @@ int main(int argc, char** argv) {
         }
     }
 
+    // images.jsonl: image requests (strict data URLs) -> 422 texts, prompts, grids, expanded token ids
+    int image_records = 0;
+    {
+        // PIL's unidentified-image text carries an object address ("<_io.BytesIO object at 0x...>")
+        const auto unaddressed = [](std::string s) {
+            const size_t at = s.find(" <_io.BytesIO object at 0x");
+            if (at != std::string::npos) s.erase(at, s.find('>', at) + 1 - at);
+            return s;
+        };
+        std::ifstream f(dir + "/images.jsonl");
+        if (!f) fail("images.jsonl", "missing");
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line.empty()) continue;
+            const ojson rec = ojson::parse(line);
+            const std::string id = rec["id"];
+            records++;
+            image_records++;
+            const PyValue body = flm::d3::parse_json(rec["body"].get<std::string>());
+            const bool refused = rec.contains("detail") && rec["detail"].is_string();
+            const bool decode_stage = rec.value("stage", std::string()) == "decode";
+            if (decode_stage) {
+                // the server's decoder refuses image i: stand in for it, and the refusal must name image i
+                // (images after it are not looked at, as upstream loads them in order)
+                const std::string want = rec["detail"].get<std::string>();
+                const size_t bad = std::stoul(want.substr(want.find('[') + 1));
+                std::string got;
+                try {
+                    flm::d3::prepare(body, codes, [bad](size_t i, const flm::d3::ImageFile&) {
+                        if (i == bad) throw flm::d3::ContractError("the image could not be decoded (test)");
+                    });
+                } catch (const flm::d3::RequestError& e) {
+                    got = e.detail.get<std::string>();
+                }
+                checks++;
+                request_errors++;
+                if (got != "images[" + std::to_string(bad) + "]: the image could not be decoded (test)")
+                    fail(id, "decode refusal '" + got + "' vs upstream '" + want + "'");
+                continue;
+            }
+            flm::d3::Prepared p;
+            try {
+                p = flm::d3::prepare(body, codes);
+            } catch (const flm::d3::RequestError& e) {
+                checks++;
+                request_errors++;
+                if (!refused) fail(id, std::string("unexpected request error: ") + e.what());
+                else if (e.detail.get<std::string>() != unaddressed(rec["detail"].get<std::string>()))
+                    fail(id, "request error '" + e.detail.get<std::string>() + "' vs '" + rec["detail"].get<std::string>() + "'");
+                continue;
+            }
+            if (refused) {
+                checks++;
+                fail(id, "upstream refused the request: " + rec["detail"].dump());
+                continue;
+            }
+            {
+                checks++;
+                ojson inv = flm::d3::invalid_questions(p);
+                ojson want = rec.contains("detail") ? rec["detail"]["invalid_questions"] : ojson::object();
+                std::string where;
+                if (!same(inv, want, 0, where)) fail(id, "invalid_questions: " + where);
+            }
+            for (auto it = rec["texts"].begin(); it != rec["texts"].end(); ++it) {
+                checks++;
+                prompts++;
+                auto t = p.texts.find(it.key());
+                if (t == p.texts.end()) fail(id, "no prompt for " + it.key());
+                else if (t->second != it.value().get<std::string>()) fail(id, "prompt bytes differ for " + it.key());
+            }
+            if (rec.contains("grids")) {
+                checks++;
+                ojson grids = ojson::array();
+                for (const auto& g : p.image_grids) grids.push_back({1, g.first, g.second});
+                std::string where;
+                if (!same(grids, rec["grids"], 0, where)) fail(id, "grids " + grids.dump() + " vs " + rec["grids"].dump());
+            }
+            if (encode) {
+                flm::d3::tokenize(p, encode, 0);
+                for (auto it = rec["ids"].begin(); it != rec["ids"].end(); ++it) {
+                    checks++;
+                    token_checks++;
+                    if (p.sequences[it.key()] != it.value().get<std::vector<int>>()) fail(id, "token ids differ for " + it.key());
+                }
+                if (rec.contains("max_length_2000")) {
+                    flm::d3::Prepared q = flm::d3::prepare(body, codes);
+                    flm::d3::tokenize(q, encode, 2000);
+                    ojson got = ojson::object();
+                    for (const auto& k : q.keys) {
+                        auto e = q.errors.find(k);
+                        if (e != q.errors.end() && e->second["error"] == "max_length_exceeded") got[k] = e->second["message"];
+                    }
+                    checks++;
+                    std::string where;
+                    if (!same(got, rec["max_length_2000"], 0, where)) fail(id, "max_length_exceeded: " + where);
+                }
+            }
+        }
+    }
+
+    // image checks the fixtures cannot carry (sizes) or that are FastFlowLM's own
+    {
+        const auto detail = [&](const std::string& body_json) -> std::string {
+            try {
+                flm::d3::prepare(flm::d3::parse_json(body_json), codes);
+            } catch (const flm::d3::RequestError& e) {
+                return e.detail.get<std::string>();
+            }
+            return "";
+        };
+        const std::string q = "\"questions\": {\"n\": {\"type\": \"noul\"}}";
+        struct Case { std::string body; std::string want; };
+        const std::vector<Case> cases = {
+            // _decode_base64: the encoded text is refused unread past 4 * ceil(limit / 3) characters
+            {"{" + q + ", \"images\": [\"data:image/png;base64," + std::string(10666669, 'A') + "\"]}",
+             "images[0]: the encoded data exceeds the 8,000,000 byte limit"},
+            {"{" + q + ", \"images\": [\"data:image/png;base64," + std::string(10666668, 'A') + "\"]}",
+             "images[0]: the decoded data has 8,000,001 bytes, over the 8,000,000 byte limit"},
+            // videos stay unavailable (images first, as MEDIA_FIELDS orders them)
+            {"{" + q + ", \"videos\": [\"data:video/mp4;base64,AAAA\"]}",
+             "video inputs are not available: this FastFlowLM build runs d3 on text and images"},
+            {"{" + q + ", \"images\": [7], \"videos\": [\"x\"]}",
+             "images[0]: strict mode: images must be given as a data: URL string, not a file path, web address or PIL image"},
+        };
+        for (const auto& c : cases) {
+            checks++;
+            const std::string got = detail(c.body);
+            if (got != c.want) fail("image-limits", "'" + got.substr(0, 120) + "' vs '" + c.want + "'");
+        }
+        // smart_resize rounds half to even, as Python's round() (80 / 32 = 2.5 -> 2)
+        checks++;
+        if (flm::d3::smart_resize(80, 112, 32, 0, 1 << 30) != std::make_pair(64, 128)) fail("smart_resize", "half-even");
+        // prepare()'s decode callback runs per image right after its inspection (upstream's order)
+        {
+            const std::string png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC";
+            const std::string body = "{" + q + ", \"images\": [\"" + png + "\", \"data:image/gif;base64,AAAA\"]}";
+            std::string got;
+            try {
+                flm::d3::prepare(flm::d3::parse_json(body), codes, [](size_t i, const flm::d3::ImageFile&) {
+                    if (i == 0) throw flm::d3::ContractError("the image could not be decoded (test)");
+                });
+            } catch (const flm::d3::RequestError& e) {
+                got = e.detail.get<std::string>();
+            }
+            checks++;
+            if (got != "images[0]: the image could not be decoded (test)") fail("decode-order", got);
+        }
+    }
+
     // json.loads(bytes): encoding detection and UnicodeDecodeError texts (from CPython 3.12)
     {
         struct Case { std::string body; std::string want; };   // want: "" = parses
@@ -234,7 +383,7 @@ int main(int argc, char** argv) {
         if (pr.size() != 2 || std::fabs(pr[0] - e0 / (e0 + e1)) > 1e-6) fail("readout", "softmax");
     }
 
-    std::cout << "d3 contract: " << records << " requests, " << prompts << " prompts, " << token_checks
+    std::cout << "d3 contract: " << records << " requests (" << image_records << " with images), " << prompts << " prompts, " << token_checks
               << " token-id checks, " << answers << " answers, " << request_errors << " request errors, "
               << parse_errors << " parse errors (" << parse_message_diffs << " with a different message); "
               << checks << " checks, " << failures << " failures\n";
