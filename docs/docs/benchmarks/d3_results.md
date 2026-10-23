@@ -104,6 +104,14 @@ Accuracy and latency of `d3:nano` (vllm-sr/d3-nano v3.1.3, package D3-Nano-NPU2)
 Prompts, token ids and answer objects are byte-identical to the upstream runtime. Accuracy on the Decision Index
 public suite has not been measured yet.
 
+### Images (d3-nano)
+
+Image requests agree with the upstream BF16 model on 56 of 60 answers (93.3%; 31 hand-built requests with 64 × 64 to
+2000 × 1500 images, one to several images each; median probability difference 0.026). Latency over HTTP, one question,
+median of 3: 2.2 s with a 1,024 × 768 image (876 input tokens), 3.9 s with two images, 4.8 s with a 2000 × 1500 image
+(downscaled to the 1.6 MP budget). A request with 8 questions about one image takes 8.1 s. PNG, JPEG and WebP data URLs
+are accepted; web addresses, file paths, corrupt images and videos are refused with HTTP 422.
+
 ### Latency
 
 | Request | Median (ms) |
