@@ -51,16 +51,19 @@ flm serve lfm2:1.2b --port 52628
 ## Decision Model (System One)
 
 A decision model answers typed questions about a state (choices, yes / no, scores) with a probability for every
-option, over `POST /v1/systemone`. It is served next to a chat model or on its own:
+option, over `POST /v1/systemone`; requests may carry images (base64 data URLs). It is served next to a chat model or
+on its own:
 
 ```shell
 flm serve --decision d3:lite                 # decision model only
 flm serve qwen3.5:4b --decision d3:lite      # next to a chat model
 ```
 
-`GET /v1/systemone/models` lists the loaded decision model. Requests share the NPU with the chat model and run one
-at a time, so a decision waits for a chat completion that is already running; a second `flm serve` for the decision
-model does not avoid this (the two processes contend for the NPU). Request format, a smoke test and latency:
+`GET /v1/systemone/models` lists the loaded decision model with its input limit and modalities. Requests share the
+NPU with the chat model and run one at a time, so a decision waits for a chat completion that is already running; a
+second `flm serve` for the decision model does not avoid this (the two processes contend for the NPU). The decision
+model takes one NPU hardware context, two once a prompt of 1,536 tokens or more arrives, and two more on the first
+request with images; mind this when the chat model and others already use most of the device's 16. Request format, a smoke test and latency:
 [Decision 3.0 (d3)](https://fastflowlm.com/docs/models/d3/).
 
 ## Set Context Length at Launch

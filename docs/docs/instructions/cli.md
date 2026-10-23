@@ -370,7 +370,8 @@ See the ASR guide [here](https://fastflowlm.com/docs/models/whisper/)
 
 ### 🧭 Decision Model (System One)
 
-`--decision <tag>` loads a decision model (`d3:lite`) next to the chat model, or alone, and serves `POST /v1/systemone`.
+`--decision <tag>` loads a decision model (`d3:lite`) next to the chat model, or alone, and serves `POST /v1/systemone`
+(text and images, up to 32,768 input tokens per question; FastFlowLM 1.0.11 or later).
 Decision models run in **Server Mode only** (`flm run d3:lite` prints how to serve it).
 
 ```shell
