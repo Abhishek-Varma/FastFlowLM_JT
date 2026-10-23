@@ -862,7 +862,7 @@
                 "url": "https://huggingface.co/FastFlowLM/D3-Nano-NPU2",
                 "file_url": "https://huggingface.co/api/models/FastFlowLM/D3-Nano-NPU2/tree/main",
                 "ms_url": "https://modelscope.cn/models/amd/D3-Nano-NPU2",
-                "size": 2010000000,
+                "size": 2020000000,
                 "flm_min_version": "1.0.11",
                 "files": [
                     "config.json",
@@ -872,8 +872,6 @@
                     "chat_template.jinja",
                     "decision_config.json",
                     "readout.safetensors",
-                    "LICENSE",
-                    "NOTICE",
                     "vision_weight.q4nx"
                 ],
                 "default_context_length": 32768,
