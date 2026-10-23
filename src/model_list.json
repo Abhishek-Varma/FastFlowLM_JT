@@ -839,6 +839,7 @@
                     "tokenizer_config.json",
                     "chat_template.jinja",
                     "decision_config.json",
+                    "readout.safetensors",
                     "vision_weight.q4nx"
                 ],
                 "default_context_length": 32768,

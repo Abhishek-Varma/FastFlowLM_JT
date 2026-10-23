@@ -4382,6 +4382,18 @@
         },
         {
             "type": "file",
+            "oid": "b866120ad76928ec126c8847db6550e250f0a77b",
+            "size": 1044560,
+            "lfs": {
+                "oid": "fe11cfac5c79b6a83e35b707581b1260214279bb22b003c215c62719186ef629",
+                "size": 1044560,
+                "pointerSize": 132
+            },
+            "xetHash": "8eba4f23a1e2a5368fa926453481ca16fe709083fb4567884645c63a876c6825",
+            "path": "readout.safetensors"
+        },
+        {
+            "type": "file",
             "oid": "a73a846725794819aa6e1c9e97d8dc9671c2006d",
             "size": 12807982,
             "lfs": {
