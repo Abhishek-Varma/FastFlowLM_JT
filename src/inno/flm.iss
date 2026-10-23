@@ -54,6 +54,7 @@ Source: "llama_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "gemma_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "gemma_text_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "gemma_embedding.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "d3_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "gpt_oss_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "lfm2_npu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "phi4_npu.dll"; DestDir: "{app}"; Flags: ignoreversion

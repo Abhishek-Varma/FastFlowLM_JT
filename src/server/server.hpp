@@ -52,7 +52,14 @@ inline bool requires_npu_access(const std::string& method, const std::string& pa
     if (method != "POST") return false;
     return path == "/api/generate" || path == "/api/chat" ||
            path == "/v1/chat/completions" || path == "/v1/completions" ||
-           path == "/v1/audio/transcriptions" || path == "/v1/embeddings";
+           path == "/v1/audio/transcriptions" || path == "/v1/embeddings" ||
+           path == "/v1/systemone" || path == "/v1/decisions";
+}
+
+/// Routes whose handler reads the raw body itself (System One parses it with Python json
+/// semantics and answers 422, not 400, for a body that is not JSON).
+inline bool reads_raw_body(const std::string& method, const std::string& path) {
+    return method == "POST" && (path == "/v1/systemone" || path == "/v1/decisions");
 }
 
 class NPURequestCoordinator final {

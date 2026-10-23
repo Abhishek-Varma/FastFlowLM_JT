@@ -137,6 +137,9 @@
       <Component Id="Comp_gemma_embedding.dll" Guid="*">
         <File Id="File_gemma_embedding.dll" Source="$(SourceDir)\gemma_embedding.dll" KeyPath="yes" />
       </Component>
+      <Component Id="Comp_d3_npu.dll" Guid="*">
+        <File Id="File_d3_npu.dll" Source="$(SourceDir)\d3_npu.dll" KeyPath="yes" />
+      </Component>
       <Component Id="Comp_gpt_oss_npu.dll" Guid="*">
         <File Id="File_gpt_oss_npu.dll" Source="$(SourceDir)\gpt_oss_npu.dll" KeyPath="yes" />
       </Component>
