@@ -120,9 +120,14 @@ if (-not (Test-Path -LiteralPath $artifactRoot)) {
 # Locate the HRX CMake package config (hrx-config.cmake / hrxConfig.cmake). Its
 # containing dir is what find_package(hrx CONFIG) needs on CMAKE_PREFIX_PATH; we
 # report the package prefix (two levels up from lib/cmake/hrx when present).
-$configFile = Get-ChildItem -LiteralPath $artifactRoot -Recurse -File `
-    -Include 'hrx-config.cmake', 'hrxConfig.cmake' -ErrorAction SilentlyContinue |
+# -Include does not filter when the path is a literal directory, so a recursive
+# listing would otherwise return the first archive file (manifest.json here).
+$configFile = Get-ChildItem -LiteralPath $artifactRoot -Recurse -File -Filter 'hrx-config.cmake' |
     Select-Object -First 1
+if (-not $configFile) {
+    $configFile = Get-ChildItem -LiteralPath $artifactRoot -Recurse -File -Filter 'hrxConfig.cmake' |
+        Select-Object -First 1
+}
 if (-not $configFile) {
     throw "no HRX CMake package config (hrx-config.cmake/hrxConfig.cmake) found " +
           "under $artifactRoot -- is this a public HRX package built with the " +

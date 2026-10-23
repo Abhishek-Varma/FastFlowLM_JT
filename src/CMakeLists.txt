@@ -125,6 +125,22 @@ set(FLM_OVERRIDE_FLAGS "" CACHE STRING "Extra compile flags for the from-source 
 # ———————————————————————————————————————————————
 if(FLM_USE_HRX)
     find_package(hrx CONFIG REQUIRED)
+    # The published package exports RelWithDebInfo only. Map that onto the
+    # other Visual Studio configurations for this target alone so the vcpkg
+    # packages keep their own Release/Debug libraries.
+    set_target_properties(hrx::hrx PROPERTIES
+        MAP_IMPORTED_CONFIG_RELEASE RelWithDebInfo
+        MAP_IMPORTED_CONFIG_RELWITHDEBINFO RelWithDebInfo
+        MAP_IMPORTED_CONFIG_DEBUG RelWithDebInfo
+        MAP_IMPORTED_CONFIG_MINSIZEREL RelWithDebInfo)
+    # The runtime archive's bin/ also contains its own flm. Keep find_program
+    # from selecting that binary; hrx::hrx already has an absolute location.
+    get_target_property(_flm_hrx_loc hrx::hrx IMPORTED_LOCATION_RELWITHDEBINFO)
+    if(_flm_hrx_loc)
+        get_filename_component(_flm_hrx_dir "${_flm_hrx_loc}" DIRECTORY)
+        get_filename_component(_flm_hrx_root "${_flm_hrx_dir}" DIRECTORY)
+        list(APPEND CMAKE_IGNORE_PATH "${_flm_hrx_root}/bin")
+    endif()
 else()
     if(WIN32)
         set(XRT_INCLUDE_DIR C:/dev/XRT/src/runtime_src/core/include CACHE PATH "Where XRT headers live")
