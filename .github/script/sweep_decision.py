@@ -100,7 +100,10 @@ class DecisionSweep(SweepTask):
         dps: list[float] = []
         bad_shape: list[str] = []
         elapsed = 0.0
-        for line in open(self.asset("d3_goldens.jsonl"), encoding="utf-8"):
+        # every d3 size has its own BF16 answers: d3_goldens.jsonl is d3:lite's, d3_goldens_<size>.jsonl the others'
+        size = model.split(":", 1)[1]
+        goldens = "d3_goldens.jsonl" if size == "lite" else f"d3_goldens_{size}.jsonl"
+        for line in open(self.asset(goldens), encoding="utf-8"):
             rec = json.loads(line)
             status, body, t = self.post(rec["request"])
             elapsed += t
