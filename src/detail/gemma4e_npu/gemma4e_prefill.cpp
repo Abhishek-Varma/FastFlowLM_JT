@@ -46,14 +46,14 @@ void gemma4e_attn_block_prefill_context::_forward_swa(
         gemma4e_cpu_func::_rope_rms_batch(bufs->q_buffer.data(), SWA_DQ, s.L_offset, s.L_begin, s.L_effective, q_norm.data(), type, desc->get_DH(type));
         bufs->q_buffer.sync_to_device();
 
-        run_k.wait();
+        flm::npu::wait_for_completion(run_k, "SWA K projection");
         bufs->k_buffer.sync_from_device();
         auto run_v = FLM_OVERRIDE(v_swa_proj,
             v_swa_proj.create_run(bufs->v_buffer, bufs->hidden_state_buffer, qkv_weights), this->desc, type, s);
         run_v.start();
         gemma4e_cpu_func::_rope_rms_batch(bufs->k_buffer.data(), SWA_DK, s.L_offset, s.L_begin, s.L_effective, k_norm.data(), type, desc->get_DH(type));
         bufs->k_buffer.sync_to_device();
-        run_v.wait();
+        flm::npu::wait_for_completion(run_v, "SWA V projection");
 
         bufs->v_buffer.sync_from_device();
         gemma4e_cpu_func::_rms_norm_batch(bufs->v_buffer.data(), bufs->v_buffer.data(), nullptr, SWA_DV, SWA_DV, s.L_effective, s.L_offset, s.L_offset);
@@ -147,7 +147,7 @@ void gemma4e_attn_block_prefill_context::_forward_global(
         run_k.start();
         gemma4e_cpu_func::_rope_rms_batch(bufs->q_buffer.data(), DQ, s.L_offset, s.L_begin, s.L_effective, q_norm.data(), type, desc->get_DH(type));
         bufs->q_buffer.sync_to_device();
-        run_k.wait();
+        flm::npu::wait_for_completion(run_k, "global K projection");
         bufs->k_buffer.sync_from_device();
 
         auto run_v = FLM_OVERRIDE(v_global_proj,
@@ -155,7 +155,7 @@ void gemma4e_attn_block_prefill_context::_forward_global(
         run_v.start();
         gemma4e_cpu_func::_rope_rms_batch(bufs->k_buffer.data(), DK, s.L_offset, s.L_begin, s.L_effective, k_norm.data(), type, desc->get_DH(type));
         bufs->k_buffer.sync_to_device();
-        run_v.wait();
+        flm::npu::wait_for_completion(run_v, "global V projection");
 
         bufs->v_buffer.sync_from_device();
         gemma4e_cpu_func::_rms_norm_batch(bufs->v_buffer.data(), bufs->v_buffer.data(), nullptr, DV, DV, s.L_effective, s.L_offset, s.L_offset);

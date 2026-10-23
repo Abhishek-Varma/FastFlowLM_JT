@@ -153,10 +153,12 @@ void LMHead::Impl::execute(){
 
 buffer<bf16> LMHead::Impl::wait(){
     if (!this->npu->is_preemption_enabled()){
-        this->lm_head_run.wait();
+        flm::npu::wait_for_completion(
+            this->lm_head_run, "LMHead split runlist");
     }
     else{
-        this->final_run.wait();
+        flm::npu::wait_for_completion(
+            this->final_run, "LMHead final run");
     }
     this->lm_head_y.sync_from_device();
     return this->logits;

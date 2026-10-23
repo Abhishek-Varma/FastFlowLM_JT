@@ -308,14 +308,16 @@ void gemma4e_npu::Impl::set_context_length(int L){
 
 buffer<bf16> gemma4e_npu::Impl::forward(int ids){
     if (is_preload_launched){
-        this->pre_load_run.wait();
+        flm::npu::wait_for_completion(
+            this->pre_load_run, "Gemma4 pre-load");
         is_preload_launched = false;
     }
 
     _process_embedding(ids);
     if (!this->npu->is_preemption_enabled()){
         this->layers_run.execute();
-        this->layers_run.wait();
+        flm::npu::wait_for_completion(
+            this->layers_run, "Gemma4 layer runlist");
     }
     else{
         for (uint32_t i = 0; i < num_hidden_layers; i++){
@@ -355,7 +357,8 @@ buffer<bf16> gemma4e_npu::Impl::forward(int ids){
 
     this->lm_head_run.start();
     this->set_context_length(this->current_context_length + 1);
-    this->lm_head_run.wait();
+    flm::npu::wait_for_completion(
+        this->lm_head_run, "Gemma4 LM head");
     this->logits.sync_from_device();
     DEBUG_BLOCK(2,
     header_print("info", "Finished LM head run for the current token " + std::to_string(current_context_length));
@@ -370,7 +373,8 @@ buffer<bf16> gemma4e_npu::Impl::forward(int ids){
 
 buffer<bf16> gemma4e_npu::Impl::prefill(std::vector<int>& ids, void* payload){
     if (is_preload_launched){
-        this->pre_load_run.wait();
+        flm::npu::wait_for_completion(
+            this->pre_load_run, "Gemma4 prefill pre-load");
         is_preload_launched = false;
     }
     DEBUG_BLOCK(1,
@@ -432,7 +436,8 @@ buffer<bf16> gemma4e_npu::Impl::_prefill_with_mv(std::vector<int>& ids, void* pa
     )
     this->lm_head_weights.sync_to_device();
     this->lm_head_run.start();
-    this->lm_head_run.wait();
+    flm::npu::wait_for_completion(
+        this->lm_head_run, "Gemma4 prefill LM head");
     this->logits.sync_from_device();
 
     return logits_valid;
@@ -591,7 +596,8 @@ buffer<bf16> gemma4e_npu::Impl::get_logits(buffer<bf16>& predict){
     memcpy(this->x.data(), predict.data(), D * sizeof(bf16));
     this->x.sync_to_device();
     this->lm_head_run.start();
-    this->lm_head_run.wait();
+    flm::npu::wait_for_completion(
+        this->lm_head_run, "Gemma4 LM head");
     this->logits.sync_from_device();
     return this->logits_valid;
 }
@@ -769,7 +775,8 @@ gemma4e_npu::Impl::~Impl(){
     // xrt objects it references are torn down
     if (is_preload_launched){
         try{
-            this->pre_load_run.wait();
+            flm::npu::wait_for_completion(
+                this->pre_load_run, "Gemma4 destructor pre-load");
         }
         catch (const std::exception& e){
             header_print("FLM", std::string("Failed to wait for the pending preload run: ") + e.what());
