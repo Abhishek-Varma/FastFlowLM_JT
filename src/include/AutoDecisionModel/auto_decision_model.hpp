@@ -33,7 +33,7 @@ struct DecisionReply {
 class AutoDecisionModel {
 public:
     /// Prompts longer than this get `max_length_exceeded`, as upstream does; nothing is truncated.
-    /// Upstream d3-lite sets no limit of its own (max_length null); time per question grows with
+    /// The upstream d3 models set no limit of their own (max_length null); time per question grows with
     /// the square of the length, so FLM stops at 32,768 tokens.
     static constexpr int MAX_INPUT_TOKENS = 32768;
 
@@ -62,7 +62,7 @@ public:
 private:
     flm_rt::device* npu_device_inst_ = nullptr;
     std::string tag_;
-    std::string name_ = "d3-lite";
+    std::string name_;             //!< the upstream model name in replies ("d3-lite", "d3-nano"), set on load
     std::unique_ptr<npu_xclbin_manager> npu_;
     std::unique_ptr<LM_Config> config_;
     std::unique_ptr<Tokenizer> tokenizer_;

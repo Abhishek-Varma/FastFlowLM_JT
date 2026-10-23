@@ -84,3 +84,42 @@ An image costs a fixed amount on top of its tokens (decoding, resizing and the v
 640 × 480 and 0.8 s at 1.6 MP. All questions of a request share one image encoding: a 1.6 MP image with 8 questions
 takes 6.4 s, not 8 × 1.5 s. The first request with images loads the vision tower (about 40 ms) and two more NPU
 hardware contexts.
+## ⚡ d3-nano on the NPU
+
+Accuracy and latency of `d3:nano` (vllm-sr/d3-nano v3.1.3, package D3-Nano-NPU2), same machine and settings as above.
+
+> **Note:**
+> - Latency is per request at the engine (no HTTP), median of 3 runs in each of 2 processes; the NPU is bimodal per process (about ±15%).
+> - Prompts are token ids of the given length. Rows of 7,869 tokens and more are real documentation text, median of 3 requests (32,768: 1 request).
+
+### Accuracy against the upstream BF16 model
+
+| Set | Questions | NPU (FLM) |
+|---|---:|---:|
+| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 725 | 95.7% |
+| Same set, final hidden state cosine to BF16 (median) | 725 | 0.998 |
+| Long prompts, 845 to 31,491 tokens, top-1 agreement with BF16 | 30 | 90.0% |
+| Long prompts, final hidden state cosine to BF16 (min over lengths) | 30 | 0.992 |
+
+Prompts, token ids and answer objects are byte-identical to the upstream runtime. Accuracy on the Decision Index
+public suite has not been measured yet.
+
+### Latency
+
+| Request | Median (ms) |
+|---|---:|
+| 1 question, 128 tokens | 210 |
+| 1 question, 330 tokens | 252 |
+| 1 question, 1,024 tokens | 584 |
+| 1 question, 2,048 tokens | 1162 |
+| 1 question, 4,096 tokens | 2470 |
+| 1 question, 7,869 tokens | 5262 |
+| 1 question, 15,854 tokens | 11431 |
+| 1 question, 31,491 tokens | 27084 |
+| 1 question, 32,768 tokens | 28429 |
+| 4 questions, 330 tokens each | 796 |
+| 16 questions, 330 tokens each | 2889 |
+
+Attention runs on the NPU from 1,536 tokens, as for d3-lite (measured break-even for d3-nano: about 1,550 tokens).
+At 31,491 tokens that is 3.3× faster than attention on the CPU (27 s against 91 s) with no measurable change in
+accuracy. A prompt of 32,769 tokens is refused.
