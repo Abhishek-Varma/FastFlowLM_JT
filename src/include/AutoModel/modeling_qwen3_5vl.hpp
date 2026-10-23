@@ -48,6 +48,32 @@ private:
     
     void preprocess_image(qwen3_5vl_image_t& image,  std::vector<bf16> &pixel_values);
 
+    // ---- prefix slots ------------------------------------------------------
+    // The engine saves the recurrent state (linear-attention layers) in a few
+    // slots. Each slot here remembers the exact tokens it was saved at, so a
+    // new prompt resumes from the longest saved prefix instead of only from the
+    // end of the previous prompt, and re-prefills the rest.
+    //
+    // A slot stays valid while the full-attention K/V rows [0, len) it relies
+    // on are untouched. A request overwrites every row from where it resumes,
+    // and generation overwrites the rows after the prompt, so after a request
+    // exactly the slots whose tokens are a prefix of that prompt survive.
+    struct prefix_slot_t {
+        int id = 0;                          // engine slot
+        std::vector<int> tokens;             // what the slot was saved after
+        std::vector<uint64_t> image_hashes;  // content of the images inside `tokens`
+        uint64_t last_used = 0;
+        bool boundary = false;               // end of system + tools; evicted last
+    };
+    std::vector<prefix_slot_t> prefix_slots_;
+    uint64_t prefix_clock_ = 0;
+
+    /// \brief the engine, when it is the XRT qwen3_5vl one that has slots
+    qwen3_5vl_npu* slot_engine() const;
+    void _prefix_slots_forget_all();
+    /// \brief take a slot at the current engine position, tokens being what it holds
+    void _prefix_slot_save(const std::vector<int>& tokens, const std::vector<uint64_t>& image_hashes, bool boundary);
+
 public:
     Qwen3_5VL(flm_rt::device* npu_device_inst);
 
@@ -57,6 +83,8 @@ public:
     std::string generate(chat_meta_info_t& meta_info, int length_limit, std::ostream& os, std::function<bool()> is_cancelled = [] { return false; }) override;
     std::string generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os = std::cout) override;
     std::string apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools = nlohmann::ordered_json::object()) override;
+    void clear_context() override;
+    bool manages_prefix_cache() const override { return this->slot_engine() != nullptr; }
 
 private:
 
