@@ -74,6 +74,8 @@ private:
     /// \brief the engine, when it is the XRT qwen3_5vl one that has slots
     qwen3_5vl_npu* slot_engine() const;
     void _prefix_slots_forget_all();
+    /// \brief empty the engine but keep the slots (they carry their own state and rows)
+    void _prefix_cold_start();
     /// \brief take a slot at the current engine position, tokens being what it holds
     void _prefix_slot_save(const std::vector<int>& tokens, const std::vector<uint64_t>& image_hashes, bool boundary, int kv_from);
 

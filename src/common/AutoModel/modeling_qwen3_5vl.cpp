@@ -93,6 +93,11 @@ uint64_t hash_bytes(const void* data, size_t bytes, uint64_t h) {
 } // namespace
 
 qwen3_5vl_npu* Qwen3_5VL::slot_engine() const {
+    // FLM_DISABLE_PREFIX_SLOTS=1 turns the slots off (single-checkpoint path), to get a reference to compare against
+    static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
+    if (disabled) {
+        return nullptr;
+    }
     return dynamic_cast<qwen3_5vl_npu*>(this->lm_engine);
 }
 
@@ -104,6 +109,11 @@ void Qwen3_5VL::_prefix_slots_forget_all() {
     }
     this->prefix_slots_.clear();
     this->live_tokens_.clear();
+}
+
+void Qwen3_5VL::_prefix_cold_start() {
+    this->AutoModel::clear_context(); // zeroes the engine and the token history, not the slots
+    this->live_tokens_.clear();       // the engine's rows hold nothing now
 }
 
 void Qwen3_5VL::clear_context() {
@@ -412,7 +422,10 @@ bool Qwen3_5VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
                 header_print("FLM", "Prefix slot " << slot.id << ": resuming at " << match_len << " of " << full_tokens.size() << " tokens");
             }
         } else {
-            this->clear_context();
+            // Start from an empty engine but keep the slots: they hold their own copies, so a
+            // request that shares nothing (a side call with its own short system prompt) must
+            // not cost the main chat its snapshots.
+            this->_prefix_cold_start();
             header_print("FLM", "No saved prefix matches, prefilling " << full_tokens.size() << " tokens");
         }
     }
@@ -544,7 +557,7 @@ bool Qwen3_5VL::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
                 : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
         }
         if (!success) {
-            this->clear_context(); // cancelled or failed half way: the engine holds part of a prompt
+            this->_prefix_cold_start(); // cancelled or failed half way: the engine holds part of a prompt; the slots are intact
             return false;
         }
         // the second pass only saw the tokens after the boundary slot as new
