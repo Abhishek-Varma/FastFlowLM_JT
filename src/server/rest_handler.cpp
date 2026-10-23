@@ -245,6 +245,38 @@ static bool stream_include_usage(const json& request) {
     return include_usage != options->end() && include_usage->is_boolean() && include_usage->get<bool>();
 }
 
+///@brief Read an OpenAI chat request's logprobs and top_logprobs.
+///@param top_n set to the alternatives wanted per token, or -1 when logprobs is not asked for
+///@param error set to the message for the client when the request is malformed
+///@return false when the request is malformed
+static bool logprobs_request_from_openai(const json& request, int& top_n, std::string& error) {
+    top_n = -1;
+    bool enabled = false;
+    if (has_value(request, "logprobs")) {
+        if (!request.at("logprobs").is_boolean()) {
+            error = "logprobs must be a boolean";
+            return false;
+        }
+        enabled = request.at("logprobs").get<bool>();
+    }
+    if (has_value(request, "top_logprobs")) {
+        const json& n = request.at("top_logprobs");
+        if (!n.is_number_integer() || n.get<int64_t>() < 0 || n.get<int64_t>() > 20) {
+            error = "top_logprobs must be an integer between 0 and 20";
+            return false;
+        }
+        if (!enabled) {
+            error = "top_logprobs requires logprobs to be true";
+            return false;
+        }
+        top_n = static_cast<int>(n.get<int64_t>());
+    }
+    else if (enabled) {
+        top_n = 0;
+    }
+    return true;
+}
+
 ///@brief Convert OpenAI-style assistant tool_calls + following tool messages into the
 /// Gemma4 chat-template format, which expects a single assistant message containing
 /// both `tool_calls` and `tool_responses` (with `{name, response}` entries).
@@ -621,7 +653,8 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
 }
 
 json RestHandler::build_nstream_response(const std::string& response_text, chat_meta_info_t& meta_info,
-                                         const chat_parse_options& parse_options) {
+                                         const chat_parse_options& parse_options,
+                                         chat_logprobs_aligner* logprobs) {
     const chat_format_spec& spec = auto_chat_engine->get_chat_format();
     chat_msg parsed = chat_parse(spec, chat_format_prefill(spec, meta_info.prompt_tail) + response_text,
                                  false, parse_options);
@@ -662,12 +695,17 @@ json RestHandler::build_nstream_response(const std::string& response_text, chat_
     if (is_tool_call && meta_info.stop_reason == stop_reason_t::EOT_DETECTED) {
         meta_info.stop_reason = stop_reason_t::TOOL_DETECTED;
     }
+    // Only the content's tokens: reasoning and tool calls have no logprobs
+    json choice_logprobs = nullptr;
+    if (logprobs != nullptr) {
+        choice_logprobs = {{"content", logprobs->take_content(parsed.content)}, {"refusal", nullptr}};
+    }
     // Construct the final choice object
     return json::array({
         {
             {"index", 0},
             {"message", message},
-            {"logprobs", nullptr},
+            {"logprobs", choice_logprobs},
             {"finish_reason", stop_reason_to_string(meta_info.stop_reason)}
         }
     });
@@ -1206,6 +1244,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             // leaves it writing the call's JSON as plain text
             tools = json::array();
         }
+        int logprobs_top_n = -1;
+        if (!logprobs_request_from_openai(request, logprobs_top_n, request_error)) {
+            send_response({{"error", {{"message", request_error}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
 
         auto load_start_time = time_utils::now();
         if (!ensure_model_loaded(model, request_backend)) {
@@ -1214,6 +1257,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             return;
         }
         auto load_end_time = time_utils::now();
+        if (logprobs_top_n >= 0 && !auto_chat_engine->supports_logprobs()) {
+            send_response({{"error", {{"message", "logprobs is not supported by " + model},
+                                      {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
 
         configure_chat_engine_parameters(options, request);
 
@@ -1281,6 +1329,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             normalize_requested_max_new_tokens(openai_chat_budget);
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         meta_info.max_prefill_len = this->prefill_chunk_len;
+        meta_info.logprobs_top_n = logprobs_top_n;
         try {
             meta_info.constraint = auto_chat_engine->make_constraint(constraint_request);
         } catch (const std::invalid_argument& e) {
@@ -1375,6 +1424,12 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         }
         else {
             nullstream nstream;
+            // with logprobs the text is still dropped, but each token is placed as it is written
+            std::unique_ptr<chat_logprobs_ostream> lstream;
+            if (meta_info.logprobs_top_n >= 0) {
+                lstream = std::make_unique<chat_logprobs_ostream>(auto_chat_engine.get(), meta_info.logprobs);
+            }
+            std::ostream& out = lstream ? static_cast<std::ostream&>(*lstream) : nstream;
             json response;
             std::string response_text;
             header_print("FLM", "Start prefill...");
@@ -1410,7 +1465,8 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             }
             header_print("FLM", "Start generating...");
             try {
-                response_text = auto_chat_engine->generate(meta_info, length_limit, nstream, [&] { return cancellation_token->cancelled(); });
+                response_text = auto_chat_engine->generate(meta_info, length_limit, out, [&] { return cancellation_token->cancelled(); });
+                out.flush();
             } catch (const std::exception& e) {
                 json error_response = ExceptionResponse(e);
                 send_response(error_response);
@@ -1421,7 +1477,8 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             // A character the generation stopped partway through can never be finished
             response_text.resize(response_text.size() - incomplete_utf8_tail(response_text));
             // check response_text
-            json choices = build_nstream_response(response_text, meta_info, parse_options);
+            json choices = build_nstream_response(response_text, meta_info, parse_options,
+                                                  lstream ? &lstream->aligner() : nullptr);
             response = {
                 {"id", "fastflowlm-chat-completion"},
                 {"object", "chat.completion"},
