@@ -102,11 +102,13 @@ Accuracy and latency of `d3:nano` (vllm-sr/d3-nano v3.1.3, package D3-Nano-NPU2)
 | Long prompts, final hidden state cosine to BF16 (min over lengths) | 30 | 0.992 |
 | Decision Index public suite, seeded round-robin sample (3,240 requests, 42 benchmarks): mean benchmark score | 3,240 | 55.5% (BF16: 56.7%) |
 | Same requests, top-1 agreement with BF16 (choice answers) | 24,956 | 96.5% |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | 64.0% (BF16: 64.3%) |
+| Same image questions, top-1 agreement with BF16 | 600 | 84.3% |
 
 Prompts, token ids and answer objects follow the upstream runtime. On the Decision Index sample the mean benchmark
 score is 1.25 points below the upstream BF16 model (standard error 0.58; about 65 to 80 requests per benchmark, so a
 single benchmark is noisy). This is a sample, not the full suite, and a different one from the d3-lite subset; the
-Decision Index public vision suite has not been run for d3-nano. The GPTQ calibration prompts (300 synthetic questions)
+The vision subset leaves out Winoground (gated), as for d3-lite; paired accuracy, BF16 minus d3-nano, is +0.3 points (95% CI -2.3 to +2.8). The GPTQ calibration prompts (300 synthetic questions)
 contain no Decision Index data.
 
 ### Images (d3-nano)
