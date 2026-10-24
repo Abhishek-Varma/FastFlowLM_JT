@@ -175,3 +175,5 @@ docs_nav:
         url: "/docs/benchmarks/hy-mt2_results/"
       - label: MiniCPM-V 4.7
         url: "/docs/benchmarks/minicpm-v-4.7_results/"
+      - label: Nemotron Bolt
+        url: "/docs/benchmarks/nemotron-bolt_results/"
