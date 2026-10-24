@@ -772,9 +772,16 @@ int main(int argc, char* argv[]) {
             header_print_g("FLM", "Embedding mode enabled: reserving additional 300MB of memory");
         }
         if (!parsed_args.decision.empty()) {
-            // d3:lite: 0.56 GB of weights, scratch for a 4096-row pass, the fp32 readout
-            embedding_size += 1000000000;
-            header_print_g("FLM", "Decision model enabled: reserving additional 1GB of memory");
+            // the decision model's own weights (d3:lite 0.56 GB, d3:nano 1.34 GB in the catalog's size) plus
+            // 1 GB for scratch (a 4096-row pass; bigger prompts allocate per call) and the fp32 readout
+            uint64_t decision_size = 0;
+            auto [decision_tag, decision_info] = availble_models.get_model_info(parsed_args.decision);
+            if (decision_info.contains("size")) {
+                decision_size = decision_info["size"].get<uint64_t>();
+            }
+            embedding_size += decision_size + 1000000000;
+            header_print_g("FLM", "Decision model enabled: reserving additional "
+                                      << ((decision_size + 1000000000) / 1000000) << " MB of memory");
         }
 
         // Add 512MB overhead for working memory beyond the model itself

@@ -84,3 +84,57 @@ An image costs a fixed amount on top of its tokens (decoding, resizing and the v
 640 × 480 and 0.8 s at 1.6 MP. All questions of a request share one image encoding: a 1.6 MP image with 8 questions
 takes 6.4 s, not 8 × 1.5 s. The first request with images loads the vision tower (about 40 ms) and two more NPU
 hardware contexts.
+## ⚡ d3-nano on the NPU
+
+Accuracy and latency of `d3:nano` (vllm-sr/d3-nano v3.1.3, package D3-Nano-NPU2), same machine and settings as above.
+
+> **Note:**
+> - Latency is per request at the engine (no HTTP), median of 3 runs in each of 2 processes; the NPU is bimodal per process (about ±15%).
+> - Prompts are token ids of the given length. Rows of 7,869 tokens and more are real documentation text, median of 3 requests (32,768: 1 request).
+
+### Accuracy against the upstream BF16 model
+
+| Set | Questions | NPU (FLM) |
+|---|---:|---:|
+| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 725 | 95.7% |
+| Same set, final hidden state cosine to BF16 (median) | 725 | 0.998 |
+| Long prompts, 845 to 31,491 tokens, top-1 agreement with BF16 | 30 | 90.0% |
+| Long prompts, final hidden state cosine to BF16 (min over lengths) | 30 | 0.992 |
+| Decision Index public suite, seeded round-robin sample (3,240 requests, 42 benchmarks): mean benchmark score | 3,240 | 55.5% (BF16: 56.7%) |
+| Same requests, top-1 agreement with BF16 (choice answers) | 24,956 | 96.5% |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | 64.0% (BF16: 64.3%) |
+| Same image questions, top-1 agreement with BF16 | 600 | 84.3% |
+
+Prompts, token ids and answer objects follow the upstream runtime. On the Decision Index sample the mean benchmark
+score is 1.25 points below the upstream BF16 model (standard error 0.58; about 65 to 80 requests per benchmark, so a
+single benchmark is noisy). This is a sample, not the full suite, and a different one from the d3-lite subset.
+The vision subset leaves out Winoground (gated), as for d3-lite; paired accuracy, BF16 minus d3-nano, is +0.3 points (95% CI -2.3 to +2.8). The GPTQ calibration prompts (300 synthetic questions)
+contain no Decision Index data.
+
+### Images (d3-nano)
+
+Image requests agree with the upstream BF16 model on 56 of 60 answers (93.3%; 31 hand-built requests with 64 × 64 to
+2000 × 1500 images, one to several images each; median probability difference 0.026). Latency over HTTP, one question,
+median of 3: 1.3 s with a 1,024 × 768 image (876 input tokens), 2.4 s with two images, 3.0 s with a 2000 × 1500 image
+(downscaled to the 1.6 MP budget). A request with 8 questions about one image takes 5.0 s (one image encoding). PNG, JPEG and WebP data URLs
+are accepted; web addresses, file paths, corrupt images and videos are refused with HTTP 422.
+
+### Latency
+
+| Request | Median (ms) |
+|---|---:|
+| 1 question, 128 tokens | 210 |
+| 1 question, 330 tokens | 252 |
+| 1 question, 1,024 tokens | 584 |
+| 1 question, 2,048 tokens | 1162 |
+| 1 question, 4,096 tokens | 2470 |
+| 1 question, 7,869 tokens | 5262 |
+| 1 question, 15,854 tokens | 11431 |
+| 1 question, 31,491 tokens | 27084 |
+| 1 question, 32,768 tokens | 28429 |
+| 4 questions, 330 tokens each | 796 |
+| 16 questions, 330 tokens each | 2889 |
+
+Attention runs on the NPU from 1,536 tokens, as for d3-lite (measured break-even for d3-nano: about 1,550 tokens).
+At 31,491 tokens that is 3.3× faster than attention on the CPU (27 s against 91 s) with no measurable change in
+accuracy. A prompt of 32,769 tokens is refused.

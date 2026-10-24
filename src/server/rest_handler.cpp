@@ -548,7 +548,9 @@ void RestHandler::ensure_asr_model_loaded(const std::string& model_tag) {
 ///       like the other sidecars, so a server never runs without the model it was asked for
 void RestHandler::ensure_decision_model_loaded(const std::string& model_tag) {
     if (!decisionModelTags.count(model_tag)) {
-        header_print("ERROR", "Unknown decision model '" << model_tag << "' (supported: d3:lite)");
+        std::string supported;
+        for (const auto& tag : decisionModelTags) supported += (supported.empty() ? "" : ", ") + tag;
+        header_print("ERROR", "Unknown decision model '" << model_tag << "' (supported: " << supported << ")");
         exit(EXIT_FAILURE);
     }
     std::string ensure_tag = model_tag;
@@ -597,7 +599,7 @@ void RestHandler::handle_systemone(const std::string& raw_body,
     json reply;
     if (!this->decision_engine) {
         reply["__http_status"] = 404;
-        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite"}};
+        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite or --decision d3:nano"}};
         send_response(reply);
         return;
     }

@@ -3,6 +3,7 @@
 #include "AutoDecisionModel/auto_decision_model.hpp"
 
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -13,7 +14,7 @@
 #include "models/d3/flm/aie2p/d3_npu.hpp"   // d3_image_payload (the d3_npu class only with FLM_HAS_D3_NPU)
 #include "utils/utils.hpp"
 
-std::unordered_set<std::string> decisionModelTags = {"d3:lite"};
+std::unordered_set<std::string> decisionModelTags = {"d3:lite", "d3:nano"};
 
 namespace {
 
@@ -269,9 +270,12 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     throw std::runtime_error("this FastFlowLM build has no d3 engine (libd3_npu)");
 #endif
 
-    // replies name the upstream model, as d3_server does ("model": "d3-lite")
+    // replies name the upstream model, as d3_server does ("model": "d3-lite", "d3-nano", ...);
+    // without a marker in config.json the name is the tag with its colon turned into a dash
+    std::string tag_name = tag_;
+    std::replace(tag_name.begin(), tag_name.end(), ':', '-');
     const auto& marker = config_->sub("decision");
-    name_ = marker.is_object() ? marker.value("model_name", std::string("d3-lite")) : std::string("d3-lite");
+    name_ = marker.is_object() ? marker.value("model_name", tag_name) : tag_name;
     header_print("FLM", "Decision model ready: " << name_ << " (" << tag_ << "), max input " << MAX_INPUT_TOKENS << " tokens");
 }
 
