@@ -107,7 +107,7 @@ Accuracy and latency of `d3:nano` (vllm-sr/d3-nano v3.1.3, package D3-Nano-NPU2)
 
 Prompts, token ids and answer objects follow the upstream runtime. On the Decision Index sample the mean benchmark
 score is 1.25 points below the upstream BF16 model (standard error 0.58; about 65 to 80 requests per benchmark, so a
-single benchmark is noisy). This is a sample, not the full suite, and a different one from the d3-lite subset; the
+single benchmark is noisy). This is a sample, not the full suite, and a different one from the d3-lite subset.
 The vision subset leaves out Winoground (gated), as for d3-lite; paired accuracy, BF16 minus d3-nano, is +0.3 points (95% CI -2.3 to +2.8). The GPTQ calibration prompts (300 synthetic questions)
 contain no Decision Index data.
 
