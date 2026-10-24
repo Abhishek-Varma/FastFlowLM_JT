@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include "typedef.hpp"
 #include "causal_lm.hpp"
+#include "prefix_slot_cache.hpp"
 #include "lm_config.hpp"
 #include "AutoModel/model_backend.hpp"
 #include "models/llama/flm/aie2p/llama_npu.hpp"
@@ -269,6 +270,31 @@ protected:
 	/// \param payload the payload, it shall not be used as this function is only used for chunkwised insertion, no image allowed
 	/// \return true if the tokens were inserted successfully, false otherwise
 	bool _shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled = [] { return false; }, void* payload = nullptr, int first_len_run = 0, std::optional<int> requested_max_new_tokens = std::nullopt, bool sample_next = true);
+
+	// ---- prefix slot cache (see prefix_slot_cache.hpp) ---------------------------------------
+	// Steps every model family with engine snapshots shares; the model supplies the tokens, the image
+	// hashes and the cache that holds its slots.
+
+	/// \brief resume from the longest saved prefix of `full_tokens`, or start from an empty engine
+	/// \return the number of leading tokens the engine already holds (0 = nothing reused)
+	/// \note A start from an empty engine keeps the slots: they hold their own copies, so a request that shares
+	///       nothing (a side call with its own short system prompt) must not cost the others their snapshots.
+	size_t _prefix_resume(PrefixSlotCache& cache, const std::vector<int>& full_tokens, const std::vector<uint64_t>& image_hashes);
+
+	/// \brief empty the engine and the token history but keep the cache's slots
+	void _prefix_cold_start(PrefixSlotCache& cache);
+
+	/// \brief insert a prompt after _prefix_resume, saving snapshots on the way
+	/// \param tokens the prompt without its last generation-prompt tokens (what is prefilled)
+	/// \param full_tokens the same tokens, kept intact: _shared_insert erases the part the engine already holds from `tokens`
+	/// \param match_len what _prefix_resume returned
+	/// \param boundary_marker the text that opens the first user turn, e.g. "<|im_start|>user": everything before it is
+	///        the shared head (system + tools), saved as its own slot while prefilling when it is long enough
+	/// \param payload image payload or nullptr; a prompt with images is not split at the boundary
+	/// \param last_image_token_index as _shared_insert's first_len_run
+	bool _prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
+	                    const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
+	                    void* payload, int last_image_token_index, std::function<bool()> is_cancelled);
 
 	/// \brief Reject a request that cannot fit in the backend's decode limit
 	/// \param rendered_tokens the length of the rendered prompt

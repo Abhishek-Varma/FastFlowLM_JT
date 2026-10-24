@@ -48,43 +48,12 @@ private:
     
     void preprocess_image(qwen3_5vl_image_t& image,  std::vector<bf16> &pixel_values);
 
-    // ---- prefix slots ------------------------------------------------------
-    // The engine saves, per slot, the recurrent state of the linear-attention
-    // layers and the attention K/V rows from `kv_from` on. Each slot here
-    // remembers the exact tokens it was saved at, so a new prompt resumes from
-    // the longest saved prefix instead of only from the end of the previous
-    // prompt, and prefills the rest.
-    //
-    // The K/V rows before kv_from are not in the slot: they are the shared head
-    // of the prompt (system + tools). They must be in the engine when the slot is
-    // restored, which live_tokens_ (what the engine's rows hold) tells, or be put
-    // back from the slot that keeps that head (kv_from 0).
-    struct prefix_slot_t {
-        int id = 0;                          // engine slot
-        std::vector<int> tokens;             // what the slot was saved after
-        std::vector<uint64_t> image_hashes;  // content of the images inside `tokens`
-        int kv_from = 0;                     // first position whose K/V rows the slot holds
-        uint64_t last_used = 0;
-        bool boundary = false;               // end of system + tools; evicted last
-    };
-    std::vector<prefix_slot_t> prefix_slots_;
-    std::vector<int> live_tokens_;           // tokens whose K/V rows the engine holds now
-    uint64_t prefix_clock_ = 0;
-    // limits: --prefix-cache-mb / --prefix-slots (-1 = default; 0 slots = off)
-    int prefix_cache_mb_arg_ = -1;
-    int prefix_slots_arg_ = -1;
-    size_t slot_row_bytes_ = 0;    // host bytes of one saved K/V row, asked of the engine once
-    size_t slot_state_bytes_ = 0;  // host bytes of one slot's recurrent state
-    size_t prefix_budget_bytes() const;
-    size_t prefix_slot_limit() const;
-
-    /// \brief the engine, when it is the XRT qwen3_5vl one that has slots
-    qwen3_5vl_npu* slot_engine() const;
-    void _prefix_slots_forget_all();
-    /// \brief empty the engine but keep the slots (they carry their own state and rows)
-    void _prefix_cold_start();
-    /// \brief take a slot at the current engine position, tokens being what it holds
-    void _prefix_slot_save(const std::vector<int>& tokens, const std::vector<uint64_t>& image_hashes, bool boundary, int kv_from);
+    // ---- prefix slots (see prefix_slot_cache.hpp) ---------------------------------------------
+    PrefixSlotCache prefix_cache_;
+    int prefix_cache_mb_arg_ = -1;   // --prefix-cache-mb, -1 = default
+    int prefix_slots_arg_ = -1;      // --prefix-slots, -1 = default, 0 = off
+    /// \brief hand the loaded engine to the cache (when it is the XRT qwen3_5vl one that has slots)
+    void _attach_prefix_cache();
 
 public:
     Qwen3_5VL(flm_rt::device* npu_device_inst);
@@ -96,7 +65,7 @@ public:
     std::string generate_with_prompt(chat_meta_info_t& meta_info, lm_uniform_input_t& input, int length_limit, std::ostream& os = std::cout) override;
     std::string apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools = nlohmann::ordered_json::object()) override;
     void clear_context() override;
-    bool manages_prefix_cache() const override { return this->slot_engine() != nullptr; }
+    bool manages_prefix_cache() const override { return this->prefix_cache_.enabled(); }
 
 private:
 
@@ -153,6 +122,7 @@ public:
         else if (parameter_name == "prefix_cache_mb" || parameter_name == "prefix_slots") {
             try {
                 (parameter_name == "prefix_cache_mb" ? this->prefix_cache_mb_arg_ : this->prefix_slots_arg_) = std::any_cast<int>(value);
+                this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
                 return true;
             } catch (const std::bad_any_cast&) {
                 return false;
