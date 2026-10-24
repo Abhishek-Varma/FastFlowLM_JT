@@ -137,6 +137,8 @@ docs_nav:
         url: "/docs/models/hy-mt2/"
       - label: MiniCPM
         url: "/docs/models/minicpm/"
+      - label: Nemotron Bolt
+        url: "/docs/models/nemotron-bolt/"
   - label: Benchmarks
     children:
       - label: Overview
