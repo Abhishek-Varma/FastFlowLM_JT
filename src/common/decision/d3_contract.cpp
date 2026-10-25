@@ -597,6 +597,7 @@ const PyValue& check_request(const PyValue& body, const PrepareOptions& options)
         for (const auto& m : questions->members) {
             const PyValue* kind = m.second.is_object() ? m.second.get("type") : nullptr;
             if (!kind || !kind->is_string() || (kind->text != "box" && kind->text != "track")) continue;
+            if (composed && !options.refuse_video_questions) continue;   // answered per question (video_needed, or a refusal)
             if (composed && kind->text == "box") {
                 const PyValue* at = m.second.get("at");
                 if (!at || at->is_null()) continue;   // a box on the request's images: composed

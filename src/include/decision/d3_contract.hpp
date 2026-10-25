@@ -153,6 +153,9 @@ struct PrepareOptions {
     /// d3_composed.hpp), so `assets` and plain `box` questions are accepted here and only what still has no
     /// engine (`long_context`, `videos`, `track`, a box at a video moment) is refused.
     bool composed = false;
+    /// With `composed`: refuse `track` questions and a box at a video moment with a 422 (while no video reaches the
+    /// engine). Off: they are answered per question like upstream does (`video_needed` / `track_unsupported`).
+    bool refuse_video_questions = true;
     /// Error answers carry a `reason` (`question_malformed`, `question_tokens`, `model_output`; vllm-sr
     /// contract 3.1.0, which d3-turbo's runtime implements). Off for d3:lite / nano / mini: their upstream
     /// runtime does not add it, and their replies stay bit-identical.
