@@ -2,6 +2,7 @@
 /// \brief The d3 System One contract (see d3_contract.hpp). Upstream names are kept in comments so
 ///        each function can be read side by side with d3_format.py / d3_runtime.py / d3_server.py.
 #include "decision/d3_contract.hpp"
+#include "decision/py_math.hpp"
 
 #include <algorithm>
 #include <cfenv>
@@ -432,18 +433,6 @@ std::vector<float> readout_probabilities(const float* hidden, const float* reado
 }
 
 namespace {
-
-/// Python's built-in `sum()` over floats: since 3.12 it is Neumaier-compensated, so a plain loop
-/// differs from upstream in the last bits.
-struct PySum {
-    double s = 0.0, c = 0.0;
-    void add(double x) {
-        double t = s + x;
-        c += std::fabs(s) >= std::fabs(x) ? (s - t) + x : (x - t) + s;
-        s = t;
-    }
-    double value() const { return (c != 0.0 && std::isfinite(c)) ? s + c : s; }
-};
 
 /// `d3_format.normalized`
 std::vector<double> normalized(const std::vector<double>& probabilities, size_t expected) {
