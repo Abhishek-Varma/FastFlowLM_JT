@@ -583,10 +583,17 @@ void RestHandler::handle_systemone_models(std::function<void(const json&)> send_
     json data = json::array();
     if (this->decision_engine) {
         // what upstream d3_server's /v1/models states: the input limit, the modalities and the image budget
-        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
-                        {"max_input_tokens", this->decision_engine->max_input_tokens()},
-                        {"modalities", json::array({"text", "image"})},
-                        {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}});
+        json entry = {{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
+                      {"max_input_tokens", this->decision_engine->max_input_tokens()},
+                      {"modalities", this->decision_engine->modalities()},
+                      {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}};
+        if (this->decision_engine->composed_requests()) {
+            // d3:turbo: what its runtime declares (decision_config.json systemone) and this build answers
+            entry["question_types"] = this->decision_engine->question_types();
+            entry["assets"] = true;
+            entry["long_context"] = false;
+        }
+        data.push_back(std::move(entry));
     }
     send_response({{"object", "list"}, {"data", data}});
 }

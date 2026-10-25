@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "AutoDecisionModel/d3_engine_adapter.hpp"
 #include "image_process_utils/imageproc.hpp"
 #include "minja/chat-template.hpp"
 #include "models/d3/flm/aie2p/d3_npu.hpp"   // d3_image_payload (the d3_npu class only with FLM_HAS_D3_NPU)
@@ -265,6 +266,32 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
 
     readout_ = load_readout(root / "readout.safetensors", hidden_);
 
+    // composed requests (assets, box): a prefix_bidir checkpoint declares what it answers in `systemone`
+    if (prefix_bidir_) {
+        composed_ = true;
+        const auto so = dc.value("systemone", nlohmann::json::object());
+        composed_config_.tag = tag_;
+        composed_config_.max_length = MAX_INPUT_TOKENS;
+        composed_config_.temperature = temperature_;
+        composed_config_.question_types = {"choice", "noul", "score"};
+        for (const char* kind : {"box", "track"}) {
+            for (const auto& declared : so.value("question_types", nlohmann::json::array())) {
+                if (declared == kind) composed_config_.question_types.push_back(kind);
+            }
+        }
+        composed_config_.image_placements = {"state"};
+        for (const char* place : {"instructions", "criteria"}) {
+            for (const auto& declared : so.value("image_placements", nlohmann::json::array())) {
+                if (declared == place) composed_config_.image_placements.push_back(place);
+            }
+        }
+        if (so.contains("box_calibration") && so["box_calibration"].is_array()) {
+            for (const auto& knot : so["box_calibration"]) {
+                composed_config_.box_calibration.emplace_back(knot.at(0).get<double>(), knot.at(1).get<double>());
+            }
+        }
+    }
+
     // the engine
     config_ = std::make_unique<LM_Config>();
     config_->from_pretrained(model_path);
@@ -277,6 +304,7 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     }
     if (engine->hidden_size() != hidden_) throw std::runtime_error("readout width differs from the model's hidden size");
     engine_ = std::move(engine);
+    readout_engine_ = make_d3_engine_adapter(engine_.get(), encode(flm::d3::IMAGE_TOKEN).at(0));
 #else
     (void)enable_preemption;
     throw std::runtime_error("this FastFlowLM build has no d3 engine (libd3_npu)");
@@ -288,6 +316,7 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     std::replace(tag_name.begin(), tag_name.end(), ':', '-');
     const auto& marker = config_->sub("decision");
     name_ = marker.is_object() ? marker.value("model_name", tag_name) : tag_name;
+    composed_config_.model_name = name_;
     header_print("FLM", "Decision model ready: " << name_ << " (" << tag_ << "), max input " << MAX_INPUT_TOKENS << " tokens");
 }
 
@@ -336,6 +365,8 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
         reply.body = {{"detail", std::string("could not read the body as JSON (") + e.what() + ")"}};
         return reply;
     }
+    // assets and box / track questions: the composed path (upstream _system_one's dispatch)
+    if (composed_ && flm::d3::is_composed(body)) return system_one_composed(body);
     flm::d3::Prepared prepared;
     // each image is decoded right after its header passes (upstream loads them one by one)
     std::vector<image_data_t> decoded;
@@ -356,7 +387,11 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
     };
     try {
         flm::d3::PrepareOptions options;
-        if (prefix_bidir_) options.unsupported_for = tag_;   // box / track / assets / long_context / videos: not in this build
+        if (prefix_bidir_) {
+            options.unsupported_for = tag_;   // long_context / videos (and track): not in this build
+            options.composed = composed_;
+            options.reasons = true;           // d3-turbo's runtime adds `reason` to every error answer
+        }
         prepared = flm::d3::prepare(body, codes_, decode, options);
     } catch (const flm::d3::RequestError& e) {
         release();
@@ -404,6 +439,83 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
     // old engines read a non-null payload as "has images": text of lite / nano / mini passes nullptr
     const auto probabilities = run(prepared, (payload.images.empty() && !prefix_bidir_) ? nullptr : &payload);
     reply.body = flm::d3::respond(prepared, probabilities, name_, state_once_);
+    return reply;
+}
+
+nlohmann::json AutoDecisionModel::modalities() const {
+    // what this build reads: text and images (video arrives with the engine's video path)
+    return nlohmann::json::array({"text", "image"});
+}
+
+std::vector<std::string> AutoDecisionModel::question_types() const {
+    std::vector<std::string> out;
+    if (!composed_) return out;
+    for (const auto& t : composed_config_.question_types) {
+        if (t != "track") out.push_back(t);   // track needs video (not in this build)
+    }
+    return out;
+}
+
+DecisionReply AutoDecisionModel::system_one_composed(const flm::d3::PyValue& body) {
+    DecisionReply reply;
+    // images by table index: decoded when their header passes, preprocessed when an engine request needs them
+    std::vector<image_data_t> decoded;
+    const auto release = [&]() {
+        for (auto& d : decoded) image_reader_.recycle(d);
+        decoded.clear();
+    };
+    flm::d3::ComposedHooks hooks;
+    hooks.encode = [this](const std::string& s) { return encode(s); };
+    hooks.token_bytes = [this](int id) { return tokenizer_->token_byte_length(id); };
+    hooks.decode = [&](size_t, const flm::d3::ImageFile& f) {
+        image_data_t rgb;
+        if (!image_reader_.load_image_bytes(f.data, rgb)) {
+            throw flm::d3::ContractError("the image could not be decoded (the file is truncated or corrupt)");
+        }
+        if (rgb.width != f.width || rgb.height != f.height) {
+            image_reader_.recycle(rgb);
+            throw flm::d3::ContractError("the image could not be decoded (its pixels do not match its header)");
+        }
+        decoded.push_back(std::move(rgb));
+    };
+    flm::d3::ComposedRequest request;
+    try {
+        request = flm::d3::prepare_composed(body, codes_, composed_config_, hooks);
+    } catch (const flm::d3::RequestError& e) {
+        release();
+        reply.status = 422;
+        reply.body = {{"detail", e.detail}};
+        return reply;
+    } catch (...) {
+        release();
+        throw;
+    }
+    // the processor's pixels of one table entry, once per request (every use shares them)
+    std::map<size_t, flm::d3::EngineImage> prepared_images;
+    const auto image = [&](size_t index) -> flm::d3::EngineImage {
+        auto hit = prepared_images.find(index);
+        if (hit != prepared_images.end()) return hit->second;
+        const auto& im = request.images.at(index);
+        std::vector<bf16> pixels;
+        if (!preprocess_image(decoded.at(index), im.grid_h, im.grid_w, pixels)) {
+            throw std::runtime_error("could not prepare image " + im.source);
+        }
+        flm::d3::EngineImage out;
+        out.grid_h = im.grid_h;
+        out.grid_w = im.grid_w;
+        out.pixels.resize(pixels.size());
+        static_assert(sizeof(bf16) == sizeof(uint16_t), "bf16 is 16 bits");
+        std::memcpy(out.pixels.data(), pixels.data(), pixels.size() * sizeof(uint16_t));
+        return prepared_images.emplace(index, std::move(out)).first->second;
+    };
+    try {
+        std::lock_guard<std::mutex> lock(turn_);
+        reply.body = flm::d3::run_composed(request, *readout_engine_, readout_.data(), composed_config_, image);
+    } catch (...) {
+        release();
+        throw;
+    }
+    release();
     return reply;
 }
 

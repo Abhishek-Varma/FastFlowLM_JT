@@ -14,7 +14,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "decision/d3_composed.hpp"
 #include "decision/d3_contract.hpp"
+#include "decision/d3_engine.hpp"
 #include "decision_model.hpp"
 #include "image/image_reader.hpp"
 #include "lm_config.hpp"
@@ -59,6 +61,12 @@ public:
     const std::string& model_tag() const { return tag_; }
     int max_input_tokens() const { return MAX_INPUT_TOKENS; }
 
+    /// What `GET /v1/systemone/models` reports for this checkpoint (what this build runs, not a fixed list).
+    nlohmann::json modalities() const;
+    /// prefix_bidir checkpoints (d3:turbo): the question types this build answers, else empty.
+    std::vector<std::string> question_types() const;
+    bool composed_requests() const { return composed_; }
+
 private:
     flm_rt::device* npu_device_inst_ = nullptr;
     std::string tag_;
@@ -73,9 +81,13 @@ private:
     bool state_once_ = true;       //!< prefix_bidir usage counts the state block once (D3_STATE_ONCE=0: whole prompts)
     bool prefix_bidir_ = false;    //!< decision_config.json attention_mode: prefix_bidir (state block + question blocks)
     float temperature_ = 1.0f;
+    bool composed_ = false;        //!< prefix_bidir: assets and box questions (decision/d3_composed.hpp)
+    flm::d3::ComposedConfig composed_config_;   //!< decision_config.json `systemone`, the tag and the limits
+    std::unique_ptr<flm::d3::ReadoutEngine> readout_engine_;   //!< the contract's view of the engine (d3_engine_adapter)
     std::mutex turn_;              //!< one request on the device at a time (d3_server.Decider)
     ImageReader image_reader_;     //!< decodes request images (PNG, JPEG, WebP)
     int dump_count_ = 0;           //!< D3_DUMP_PIXELS: requests dumped so far
 
     std::vector<int> encode(const std::string& text);
+    DecisionReply system_one_composed(const flm::d3::PyValue& body);
 };
