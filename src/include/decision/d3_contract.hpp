@@ -138,6 +138,7 @@ struct Prepared {
     /// prefix_bidir (filled by `tokenize` when it is given token byte lengths): per runnable question, the
     /// number S of leading tokens of its (image-expanded) sequence that form the state block
     std::map<std::string, int> state_len;
+    bool reasons = false;   //!< `respond` adds the per-question error `reason` (PrepareOptions::reasons)
 
     std::vector<std::string> runnable() const;
 };
@@ -148,7 +149,22 @@ struct PrepareOptions {
     /// images only: box and track questions, `assets`, `long_context` and `videos` are refused with a 422
     /// that says so, naming this tag. Empty (d3:lite, d3:nano, d3:mini): upstream's messages, unchanged.
     std::string unsupported_for;
+    /// With `unsupported_for`: this build also runs composed requests (`assets`, `box` questions: decision/
+    /// d3_composed.hpp), so `assets` and plain `box` questions are accepted here and only what still has no
+    /// engine (`long_context`, `videos`, `track`, a box at a video moment) is refused.
+    bool composed = false;
+    /// Error answers carry a `reason` (`question_malformed`, `question_tokens`, `model_output`; vllm-sr
+    /// contract 3.1.0, which d3-turbo's runtime implements). Off for d3:lite / nano / mini: their upstream
+    /// runtime does not add it, and their replies stay bit-identical.
+    bool reasons = false;
 };
+
+/// `d3_runtime.with_reasons`: every error answer without a `reason` gets its error's default.
+void add_reasons(ojson& answers);
+
+/// The server-level checks of `prepare` on a decoded body (d3_server.Decider.arguments plus this build's
+/// refusals, see PrepareOptions): returns the body's `questions` object. Throws RequestError.
+const PyValue& check_request(const PyValue& body, const PrepareOptions& options);
 
 /// Server-level checks of a decoded body (d3_server.Decider.arguments + D3.prepare's request
 /// checks) and per-question validation/rendering. Throws RequestError for what upstream answers 422.

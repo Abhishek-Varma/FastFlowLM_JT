@@ -550,11 +550,14 @@ std::vector<std::string> Prepared::runnable() const {
     return out;
 }
 
-Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
-                 const std::function<void(size_t, const ImageFile&)>& decode, const PrepareOptions& options) {
+const PyValue& check_request(const PyValue& body, const PrepareOptions& options) {
     const bool limited = !options.unsupported_for.empty();
-    const std::string refusal_tail = " by this build of " + options.unsupported_for +
-                                     " (it answers choice, noul and score questions about text and images)";
+    const bool composed = limited && options.composed;
+    const std::string refusal_tail = composed
+        ? " by this build of " + options.unsupported_for +
+              " (it answers choice, noul, score and box questions about text and images)"
+        : " by this build of " + options.unsupported_for +
+              " (it answers choice, noul and score questions about text and images)";
     // d3_server.Decider.arguments
     if (!body.is_object()) {
         throw RequestError("expected a JSON object such as {\"questions\": {...}, \"state\": ...}");
@@ -563,7 +566,10 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
         // upstream's own server does not take these fields either; here the refusal says why
         for (const char* name : {"assets", "long_context"}) {
             const PyValue* v = body.get(name);
-            if (v && v->truthy()) throw RequestError(std::string(name) + " is not supported" + refusal_tail);
+            if (v && v->truthy()) {
+                if (composed && std::string(name) == "assets") continue;   // validated with the composed request
+                throw RequestError(std::string(name) + " is not supported" + refusal_tail);
+            }
         }
     }
     std::vector<std::string> unknown;
@@ -580,7 +586,8 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
             if (i) names += ", ";
             names += repr(PyValue::string(unknown[i]));
         }
-        throw RequestError(names + " not understood; a request may carry state, questions, images, videos, model");
+        throw RequestError(names + " not understood; a request may carry state, questions, images, videos, " +
+                           (limited ? "assets, long_context, " : "") + "model");
     }
     const PyValue* questions = body.get("questions");
     if (!questions || !questions->is_object() || questions->members.empty()) {
@@ -589,13 +596,39 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
     if (limited) {
         for (const auto& m : questions->members) {
             const PyValue* kind = m.second.is_object() ? m.second.get("type") : nullptr;
-            if (kind && kind->is_string() && (kind->text == "box" || kind->text == "track")) {
-                throw RequestError("question " + repr(PyValue::string(m.first)) + ": " + kind->text +
-                                   " questions are not supported" + refusal_tail);
+            if (!kind || !kind->is_string() || (kind->text != "box" && kind->text != "track")) continue;
+            if (composed && kind->text == "box") {
+                const PyValue* at = m.second.get("at");
+                if (!at || at->is_null()) continue;   // a box on the request's images: composed
+                throw RequestError("question " + repr(PyValue::string(m.first)) +
+                                   ": a box at a moment of a video is not supported" + refusal_tail);
             }
+            throw RequestError("question " + repr(PyValue::string(m.first)) + ": " + kind->text +
+                               " questions are not supported" + refusal_tail);
         }
     }
+    return *questions;
+}
+
+void add_reasons(ojson& answers) {
+    for (auto& a : answers) {
+        if (!a.is_object() || !a.contains("error") || a.contains("reason")) continue;
+        const std::string error = a["error"].is_string() ? a["error"].get<std::string>() : std::string();
+        a["reason"] = error == "max_length_exceeded" ? "question_tokens"
+                      : error == "invalid_model_output" ? "model_output" : "question_malformed";
+    }
+}
+
+Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
+                 const std::function<void(size_t, const ImageFile&)>& decode, const PrepareOptions& options) {
+    const bool limited = !options.unsupported_for.empty();
+    const std::string refusal_tail = " by this build of " + options.unsupported_for +
+                                     (options.composed
+                                          ? " (it answers choice, noul, score and box questions about text and images)"
+                                          : " (it answers choice, noul and score questions about text and images)");
+    const PyValue* questions = &check_request(body, options);
     Prepared p;
+    p.reasons = options.reasons;
     // MEDIA_FIELDS in order: every image is loaded (strict) before videos are looked at
     for (const char* name : {"images", "videos"}) {
         const PyValue* items = body.get(name);
@@ -802,6 +835,7 @@ ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>
             answers[key] = error_answer(q.kind, "invalid_model_output", ex.what());
         }
     }
+    if (p.reasons) add_reasons(answers);
     ojson out = ojson::object();
     out["model"] = model_name;
     out["answers"] = answers;
