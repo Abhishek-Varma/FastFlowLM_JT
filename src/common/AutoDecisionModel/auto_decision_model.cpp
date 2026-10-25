@@ -279,6 +279,10 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
                 if (declared == kind) composed_config_.question_types.push_back(kind);
             }
         }
+        {   // A2: upstream refuses `score` questions in any composed request; D3_COMPOSED_SCORE=1 answers them instead
+            const char* score = std::getenv("D3_COMPOSED_SCORE");
+            composed_config_.refuse_score = !(score && std::string(score) == "1");
+        }
         composed_config_.image_placements = {"state"};
         for (const char* place : {"instructions", "criteria"}) {
             for (const auto& declared : so.value("image_placements", nlohmann::json::array())) {

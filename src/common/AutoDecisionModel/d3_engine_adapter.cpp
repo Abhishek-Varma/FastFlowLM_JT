@@ -35,13 +35,15 @@ public:
 #if defined(FLM_HAS_D3_NPU) && D3_NPU_ABI_VERSION >= 2
         const bool once = npu_ && state_once_ && (caps_ & D3_CAP_STATE_ONCE);
         const bool question_images = (caps_ & D3_CAP_QUESTION_IMAGES) != 0;
+        const bool rows = (caps_ & D3_CAP_READOUT_ROWS) != 0;
 #else
-        const bool once = false, question_images = false;
+        const bool once = false, question_images = false, rows = false;
         (void)npu_; (void)caps_; (void)state_once_;
 #endif
         for (size_t b = 0; b < request.blocks.size(); b++) {
             const bool has_images = !request.blocks[b].image_ids.empty();
-            (once && (!has_images || question_images) ? fused : per_row).push_back(b);
+            const bool many_rows = request.blocks[b].readout_from_end != std::vector<int>{0};
+            (once && (!has_images || question_images) && (!many_rows || rows) ? fused : per_row).push_back(b);
         }
         if (!fused.empty()) run_fused(request, fused, out);
         if (!per_row.empty()) run_per_row(request, per_row, out);
