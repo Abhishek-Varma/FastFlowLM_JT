@@ -62,7 +62,7 @@ public:
 private:
     flm_rt::device* npu_device_inst_ = nullptr;
     std::string tag_;
-    std::string name_;             //!< the upstream model name in replies ("d3-lite", "d3-nano", "d3-mini"), set on load
+    std::string name_;             //!< the upstream model name in replies ("d3-lite", "d3-nano", "d3-mini", "d3-turbo"), set on load
     std::unique_ptr<npu_xclbin_manager> npu_;
     std::unique_ptr<LM_Config> config_;
     std::unique_ptr<Tokenizer> tokenizer_;
@@ -70,6 +70,7 @@ private:
     std::vector<std::string> codes_;
     std::vector<float> readout_;   //!< [255, hidden] fp32
     int hidden_ = 0;
+    bool prefix_bidir_ = false;    //!< decision_config.json attention_mode: prefix_bidir (state block + question blocks)
     float temperature_ = 1.0f;
     std::mutex turn_;              //!< one request on the device at a time (d3_server.Decider)
     ImageReader image_reader_;     //!< decodes request images (PNG, JPEG, WebP)

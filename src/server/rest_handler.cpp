@@ -599,7 +599,7 @@ void RestHandler::handle_systemone(const std::string& raw_body,
     json reply;
     if (!this->decision_engine) {
         reply["__http_status"] = 404;
-        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite, d3:nano or d3:mini"}};
+        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite, d3:nano, d3:mini or d3:turbo"}};
         send_response(reply);
         return;
     }

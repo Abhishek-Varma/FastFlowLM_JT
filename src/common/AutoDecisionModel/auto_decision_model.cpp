@@ -14,7 +14,7 @@
 #include "models/d3/flm/aie2p/d3_npu.hpp"   // d3_image_payload (the d3_npu class only with FLM_HAS_D3_NPU)
 #include "utils/utils.hpp"
 
-std::unordered_set<std::string> decisionModelTags = {"d3:lite", "d3:nano", "d3:mini"};
+std::unordered_set<std::string> decisionModelTags = {"d3:lite", "d3:nano", "d3:mini", "d3:turbo"};
 
 namespace {
 
@@ -198,9 +198,13 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     if (dc.value("format_version", 0) != 1) throw std::runtime_error("decision_config.json: format_version must be 1");
     if (dc.value("format_id", std::string()) != flm::d3::FORMAT_ID) throw std::runtime_error("decision_config.json: unsupported format_id");
     if (dc.value("prompt", std::string("d3")) != "d3") throw std::runtime_error("decision_config.json: prompt must be d3");
-    if (dc.value("attention_mode", std::string("causal")) != "noncausal_full_attention") {
-        throw std::runtime_error("decision_config.json: this engine runs noncausal_full_attention checkpoints only");
+    // noncausal_full_attention: every token sees every token (d3:lite, d3:nano, d3:mini);
+    // prefix_bidir: the state block sees only itself, each question block sees the state and itself (d3:turbo)
+    const std::string attention_mode = dc.value("attention_mode", std::string("causal"));
+    if (attention_mode != "noncausal_full_attention" && attention_mode != "prefix_bidir") {
+        throw std::runtime_error("decision_config.json: this engine runs noncausal_full_attention and prefix_bidir checkpoints only");
     }
+    prefix_bidir_ = attention_mode == "prefix_bidir";
     if (dc.value("pooling", std::string("last")) != "last") throw std::runtime_error("decision_config.json: pooling must be last");
     if (dc.value("readout_dtype", std::string("float32")) != "float32") throw std::runtime_error("decision_config.json: readout_dtype must be float32");
     temperature_ = dc.value("temperature", 1.0f);
