@@ -537,6 +537,15 @@ if(EXISTS "${_d3_npu_lib}")
     target_compile_definitions(flm PRIVATE FLM_HAS_D3_NPU=1)
 endif()
 
+# Video input for d3:turbo (src/common/video): FFmpeg's shared libraries are loaded at run time (no build-time
+# dependency); OFF leaves only the frame-list input and answers encoded videos with a clear 422.
+option(FLM_VIDEO_FFMPEG "Load FFmpeg (libavformat/libavcodec/libswscale) at run time to decode video inputs" ON)
+if(FLM_VIDEO_FFMPEG)
+    target_link_libraries(flm PRIVATE ${CMAKE_DL_LIBS})
+else()
+    target_compile_definitions(flm PRIVATE FLM_NO_FFMPEG_DL=1)
+endif()
+
 # Link your custom libraries (these may still be DLLs if no static versions available)
 target_link_libraries(flm PRIVATE flm_xgrammar)
 

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <map>
 #include <utility>
 #include <stdexcept>
@@ -17,6 +18,7 @@
 #include <nlohmann/json.hpp>
 
 #include "decision/py_json.hpp"
+#include "video/video_preprocess.hpp"
 
 namespace flm::d3 {
 
@@ -92,6 +94,14 @@ struct ImageFile {
 /// check are the application's.
 ImageFile inspect_image(const PyValue& value);
 
+/// `_split_data_url(url, media)`: `data:<media>/<rest>;base64,<text>` gives `<rest>` (subtype with any parameters,
+/// lower-cased) and `text` as given. Throws ContractError("expected a base64 data URL: data:<media>/<type>;base64,<data>").
+std::string split_data_url(const std::string& url, const std::string& media, std::string& text);
+
+/// `_decode_base64(text, limit)`: validated base64; with `limit` > 0 text longer than `limit` bytes can encode to and
+/// decoded data over `limit` bytes are refused (upstream's texts). Throws ContractError.
+std::string decode_base64(const std::string& text, long long limit);
+
 /// The processor's `smart_resize` (factor = patch x merge): (height, width) of the resized image.
 /// Throws ContractError("absolute aspect ratio must be smaller than 200, got <ratio>").
 std::pair<int, int> smart_resize(int height, int width, int factor = IMAGE_PATCH_SIZE * IMAGE_MERGE_SIZE,
@@ -101,6 +111,11 @@ std::pair<int, int> smart_resize(int height, int width, int factor = IMAGE_PATCH
 /// (`image_messages` rendered by the chat template).
 std::string render_image(const PyValue& state, const Question& q, const std::vector<std::string>& codes,
                          int n_images);
+
+/// The prompt of one question with the image placeholders, then `n_videos` video placeholders, in front of the user
+/// text (`video_messages` rendered by the chat template): `<|vision_start|><|video_pad|><|vision_end|>` each.
+std::string render_video(const PyValue& state, const Question& q, const std::vector<std::string>& codes,
+                         int n_images, int n_videos);
 
 /// `d3_format.answer_codes`: the codes and token ids this tokenizer gives; throws ContractError if
 /// fewer than 255 qualify.
@@ -122,7 +137,7 @@ ojson error_answer(const ojson& type, const std::string& error, const std::strin
 /// A PyValue as nlohmann JSON (for echoing request values in replies).
 ojson to_ojson(const PyValue& v);
 
-/// A System One request after validation and rendering (d3_runtime.Prepared, text and image paths).
+/// A System One request after validation and rendering (d3_runtime.Prepared, text, image and video paths).
 struct Prepared {
     std::vector<std::string> keys;              //!< every question ID, request order
     PyValue state;                              //!< the request's state as given (null when absent)
@@ -132,6 +147,14 @@ struct Prepared {
     std::map<std::string, ojson> errors;        //!< per-question error objects
     bool has_images = false;
     bool has_videos = false;
+    /// the request's videos as decoded and sampled (shared by every question), with what the processor makes of them
+    std::vector<std::shared_ptr<const video::VideoClip>> videos;
+    std::vector<video::VideoGrid> video_grids;
+    /// per video: its text with ONE `<|video_pad|>` per temporal group (`<t seconds><|vision_start|>..<|vision_end|>`
+    /// per group), and each group's run length in input tokens; `tokenize` expands the pads
+    std::vector<std::string> video_texts;
+    std::vector<std::vector<int>> video_runs;  //!< per video: tokens_per_group of each temporal group
+    std::vector<std::vector<int>> video_ids;   //!< per video, filled by `tokenize`: its expanded token ids
     std::vector<ImageFile> images;              //!< the request's images, in order (shared by every question)
     std::vector<std::pair<int, int>> image_grids; //!< per image: (grid_h, grid_w) in 16-pixel patches
     std::vector<int> image_tokens;              //!< per image: input tokens, grid_h * grid_w / 4
@@ -160,6 +183,12 @@ struct PrepareOptions {
     /// contract 3.1.0, which d3-turbo's runtime implements). Off for d3:lite / nano / mini: their upstream
     /// runtime does not add it, and their replies stay bit-identical.
     bool reasons = false;
+    /// Videos (d3:turbo with the video decoder on): loads `videos[i]` (see video/video_input.hpp: throws
+    /// video::VideoError, or video::VideoBackendUnavailable when no decoder is there). Null: `videos` stays
+    /// refused with the messages above, so nothing changes for builds without the decoder.
+    std::function<std::shared_ptr<const video::VideoClip>(size_t, const PyValue&)> load_video;
+    /// The video processor settings (the checkpoint's; defaults are d3-turbo's).
+    video::VideoProcessorConfig video_config;
 };
 
 /// `d3_runtime.with_reasons`: every error answer without a `reason` gets its error's default.
