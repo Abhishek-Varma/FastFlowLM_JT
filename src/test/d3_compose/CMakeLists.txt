@@ -17,7 +17,10 @@ set(D3_COMPOSE_SOURCES
     "${FLM_SOURCE_DIR}/common/decision/py_json.cpp"
     "${FLM_SOURCE_DIR}/common/decision/d3_contract.cpp"
     "${FLM_SOURCE_DIR}/common/decision/d3_compose.cpp"
-    "${FLM_SOURCE_DIR}/common/decision/d3_composed.cpp")
+    "${FLM_SOURCE_DIR}/common/decision/d3_composed.cpp"
+    # d3_contract.cpp reads the video plan (src/common/video); decoding itself is not used here
+    "${FLM_SOURCE_DIR}/common/video/video_sampling.cpp"
+    "${FLM_SOURCE_DIR}/common/video/video_preprocess.cpp")
 
 add_executable(test_d3_compose test_d3_compose.cpp ${D3_COMPOSE_SOURCES})
 target_include_directories(test_d3_compose PRIVATE "${FLM_SOURCE_DIR}/include")
