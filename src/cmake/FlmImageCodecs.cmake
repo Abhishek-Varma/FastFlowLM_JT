@@ -1,4 +1,4 @@
-# JPEG/PNG codecs for ImageReader (src/common/image/image_reader.cpp).
+# JPEG/PNG/WebP codecs for ImageReader (src/common/image/image_reader.cpp).
 #
 #   - libjpeg-turbo (IJG + BSD-3-Clause + zlib licenses), built as a static
 #     library. Upstream refuses add_subdirectory(), so it goes through
@@ -6,6 +6,9 @@
 #     the API Pillow decodes with, and it keeps out the libspng/zlib copy that the
 #     TurboJPEG API bundles. SIMD is used wherever NASM is on PATH.
 #   - lodepng (zlib license), vendored in include/lodepng.
+#   - libwebp (BSD-3-Clause), decoder only (libwebpdecoder), built as a static
+#     library through ExternalProject: the version Pillow 12 ships, so WebP
+#     pixels match the reference's.
 #
 # Defines the INTERFACE target flm_image_codecs. Link it from anything that
 # compiles image_reader.cpp.
@@ -63,6 +66,59 @@ set_target_properties(flm_libjpeg PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES ${_flm_ljt_prefix}/include)
 add_dependencies(flm_libjpeg flm_libjpeg_turbo)
 
+set(FLM_LIBWEBP_VERSION 1.6.0)
+set(_flm_webp_prefix ${CMAKE_BINARY_DIR}/libwebp)
+if(MSVC)
+    set(_flm_webp_lib ${_flm_webp_prefix}/lib/libwebpdecoder.lib)
+else()
+    set(_flm_webp_lib ${_flm_webp_prefix}/lib/libwebpdecoder.a)
+endif()
+set(_flm_webp_args
+    -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DBUILD_SHARED_LIBS=OFF
+    -DWEBP_USE_THREAD=OFF
+    -DWEBP_BUILD_ANIM_UTILS=OFF
+    -DWEBP_BUILD_CWEBP=OFF
+    -DWEBP_BUILD_DWEBP=OFF
+    -DWEBP_BUILD_GIF2WEBP=OFF
+    -DWEBP_BUILD_IMG2WEBP=OFF
+    -DWEBP_BUILD_VWEBP=OFF
+    -DWEBP_BUILD_WEBPINFO=OFF
+    -DWEBP_BUILD_LIBWEBPMUX=OFF
+    -DWEBP_BUILD_WEBPMUX=OFF
+    -DWEBP_BUILD_EXTRAS=OFF
+    # MSVC: the C runtime DLL, like flm (and libjpeg-turbo above)
+    -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
+    -DCMAKE_POLICY_DEFAULT_CMP0091=NEW)
+if(CMAKE_C_COMPILER)
+    list(APPEND _flm_webp_args -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER})
+endif()
+set(_flm_webp_work ${CMAKE_BINARY_DIR}/wbp)
+ExternalProject_Add(flm_libwebp
+    URL https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${FLM_LIBWEBP_VERSION}.tar.gz
+    URL_HASH SHA256=e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    EXCLUDE_FROM_ALL TRUE
+    PREFIX ${_flm_webp_work}
+    DOWNLOAD_DIR ${_flm_webp_work}/dl
+    SOURCE_DIR ${_flm_webp_work}/s
+    BINARY_DIR ${_flm_webp_work}/b
+    STAMP_DIR ${_flm_webp_work}/st
+    TMP_DIR ${_flm_webp_work}/t
+    INSTALL_DIR ${_flm_webp_prefix}
+    CMAKE_ARGS ${_flm_webp_args}
+    BUILD_BYPRODUCTS ${_flm_webp_lib})
+
+file(MAKE_DIRECTORY ${_flm_webp_prefix}/include)
+add_library(flm_libwebpdecoder STATIC IMPORTED GLOBAL)
+set_target_properties(flm_libwebpdecoder PROPERTIES
+    IMPORTED_LOCATION ${_flm_webp_lib}
+    INTERFACE_INCLUDE_DIRECTORIES ${_flm_webp_prefix}/include)
+add_dependencies(flm_libwebpdecoder flm_libwebp)
+
 add_library(flm_image_codecs INTERFACE)
 target_sources(flm_image_codecs INTERFACE ${CMAKE_CURRENT_LIST_DIR}/../include/lodepng/lodepng.cpp)
-target_link_libraries(flm_image_codecs INTERFACE flm_libjpeg)
+target_link_libraries(flm_image_codecs INTERFACE flm_libjpeg flm_libwebpdecoder)

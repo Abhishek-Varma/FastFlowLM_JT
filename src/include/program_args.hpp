@@ -17,6 +17,7 @@ struct program_args_t {
     bool preemption = false;
     bool asr = false;
     bool embed = false;
+    std::string decision = ""; // --decision <tag>: serve a decision model (POST /v1/systemone)
     bool json_output = false;
     int ctx_length = -1; // let model decide
     std::string backend = ""; // let the catalog decide; see AutoModel/model_backend.hpp

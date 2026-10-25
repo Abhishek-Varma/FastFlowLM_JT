@@ -221,6 +221,7 @@ class model_list {
             for (const auto& [model_type, model_subset] : this->config["models"].items()) {
                 if (model_type == "whisper-v3") continue;
                 else if (model_type == "embed-gemma") continue;
+                else if (model_type == "d3") continue;   // decision models answer /v1/systemone only
                 for (const auto& [size, model_info] : model_subset.items()) {
                     nlohmann::json model_entry = {
                         {"name", model_type + ":" + size},
@@ -251,6 +252,7 @@ class model_list {
             for (const auto& [model_type, model_subset] : this->config["models"].items()) {
                 if (model_type == "whisper-v3") continue;
                 else if (model_type == "embed-gemma") continue;
+                else if (model_type == "d3") continue;   // decision models answer /v1/systemone only
                 for (const auto& [size, model_info] : model_subset.items()) {
                     // id uses the same "type:size" convention; created uses current epoch seconds
                     nlohmann::json model_entry = {

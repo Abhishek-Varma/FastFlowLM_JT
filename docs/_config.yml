@@ -129,6 +129,8 @@ docs_nav:
         url: "/docs/models/whisper/"
       - label: EmbeddingGemma
         url: "/docs/models/embeddinggemma/"
+      - label: Decision 3.0 (d3)
+        url: "/docs/models/d3/"
       - label: SmolVLA
         url: "/docs/models/smolvla/"
       - label: Hy-MT2
@@ -157,6 +159,8 @@ docs_nav:
         url: "/docs/benchmarks/qwen3.8_results/"
       - label: gpt-oss
         url: "/docs/benchmarks/gpt-oss_results/"
+      - label: Decision 3.0 (d3)
+        url: "/docs/benchmarks/d3_results/"
       - label: LiquidAI/LFM2
         url: "/docs/benchmarks/lfm2_results/"
       - label: Microsoft/Phi4

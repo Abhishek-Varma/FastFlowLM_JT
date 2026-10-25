@@ -4348,5 +4348,227 @@
             "size": 18569,
             "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5"
         }
+    ],
+    "d3:lite": [
+        {
+            "type": "file",
+            "oid": "0ef09f214eaa6d9bca297988afc1454b5827b2c7",
+            "size": 7755,
+            "path": "chat_template.jinja"
+        },
+        {
+            "type": "file",
+            "oid": "ba675b2c380a644f2d42ecfc722f8ef9ef48b3b1",
+            "size": 3237,
+            "path": "config.json"
+        },
+        {
+            "type": "file",
+            "oid": "5bf6f72adb66002996fcf44a04947687eb2c2034",
+            "size": 5504,
+            "path": "decision_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "713b24af5adb911e168def574e4f15677949ad16",
+            "size": 560985936,
+            "lfs": {
+                "oid": "04a20706f44dcc8f142a1774034fc2a01110bef14031fc8ccf26295db00bef42",
+                "size": 560985936,
+                "pointerSize": 134
+            },
+            "xetHash": "e0960c4e49762b45202ca1bca36403a83ad7cad0ac3b201623801b15502e8f20",
+            "path": "model.q4nx"
+        },
+        {
+            "type": "file",
+            "oid": "b866120ad76928ec126c8847db6550e250f0a77b",
+            "size": 1044560,
+            "lfs": {
+                "oid": "fe11cfac5c79b6a83e35b707581b1260214279bb22b003c215c62719186ef629",
+                "size": 1044560,
+                "pointerSize": 132
+            },
+            "xetHash": "8eba4f23a1e2a5368fa926453481ca16fe709083fb4567884645c63a876c6825",
+            "path": "readout.safetensors"
+        },
+        {
+            "type": "file",
+            "oid": "a73a846725794819aa6e1c9e97d8dc9671c2006d",
+            "size": 12807982,
+            "lfs": {
+                "oid": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+                "size": 12807982,
+                "pointerSize": 133
+            },
+            "xetHash": "655d3f6803c619aa34c31a027ce74a315eaa200aad3fca5b968dcdf6485bfba2",
+            "path": "tokenizer.json"
+        },
+        {
+            "type": "file",
+            "oid": "fae3ce993e07c092ad024dde45e592379fde91bb",
+            "size": 16709,
+            "path": "tokenizer_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "1360dfac06acfeb19105859d89d1ce044cc7d400",
+            "size": 201202552,
+            "lfs": {
+                "oid": "8c960575c61dff809e900883af3c74b91df3871e418d6dae3ec04cce0ccc40b5",
+                "size": 201202552,
+                "pointerSize": 134
+            },
+            "xetHash": "b11f9b2950a2ad5a1184bc88c340322b7a5301b753ebcdbf9c7c5fa18b1c151b",
+            "path": "vision_weight.q4nx"
+        }
+    ],
+    "d3:nano": [
+        {
+            "type": "file",
+            "oid": "0ef09f214eaa6d9bca297988afc1454b5827b2c7",
+            "size": 7755,
+            "path": "chat_template.jinja"
+        },
+        {
+            "type": "file",
+            "oid": "07da743fa83a58ffce24e5f94e3c5d1617420fae",
+            "size": 2811,
+            "path": "config.json"
+        },
+        {
+            "type": "file",
+            "oid": "04e4ae4616aa6756851eb363bc5ddf05eef3a0ad",
+            "size": 5502,
+            "path": "decision_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "02fa67e8c49709e1104673f23eda6a6835faf4f8",
+            "size": 1339269144,
+            "lfs": {
+                "oid": "4527ccda731d2c1149d8529d46ed6ce4035f19041951ba87b579d9dfe867bb33",
+                "size": 1339269144,
+                "pointerSize": 135
+            },
+            "xetHash": "980f271968db852020df8cdc9ae14995bae9f8ae9f46bf2585e872d293a1d355",
+            "path": "model.q4nx"
+        },
+        {
+            "type": "file",
+            "oid": "6decd02216b93162c534efcea05035bb41b81de7",
+            "size": 2089040,
+            "lfs": {
+                "oid": "662e8a26d8016b2d479f1ca66bf64944603316c2b5e074ab7ac3304b8ae045e9",
+                "size": 2089040,
+                "pointerSize": 132
+            },
+            "xetHash": "e5a56d81f44e216d9cd29c69c7dc932a3cf25754636f704d854f8ccf92a9f2fc",
+            "path": "readout.safetensors"
+        },
+        {
+            "type": "file",
+            "oid": "a73a846725794819aa6e1c9e97d8dc9671c2006d",
+            "size": 12807982,
+            "lfs": {
+                "oid": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+                "size": 12807982,
+                "pointerSize": 133
+            },
+            "xetHash": "655d3f6803c619aa34c31a027ce74a315eaa200aad3fca5b968dcdf6485bfba2",
+            "path": "tokenizer.json"
+        },
+        {
+            "type": "file",
+            "oid": "fae3ce993e07c092ad024dde45e592379fde91bb",
+            "size": 16709,
+            "path": "tokenizer_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "5425f72bc3ac660701fdce7e65b68b97852f286f",
+            "size": 662866216,
+            "lfs": {
+                "oid": "03bf757d70874ec0e6951e904cdc3addcb49a45b13d46964f7184a5ea4bf6a25",
+                "size": 662866216,
+                "pointerSize": 134
+            },
+            "xetHash": "64d5394241b02c14096fcb191bdd02cbb9d4ec536d632b598fcb4af651798722",
+            "path": "vision_weight.q4nx"
+        }
+    ],
+    "d3:mini": [
+        {
+            "type": "file",
+            "oid": "a585dec894e63da457d9440ec6aa7caa16d20860",
+            "size": 7756,
+            "path": "chat_template.jinja"
+        },
+        {
+            "type": "file",
+            "oid": "b35442413dffd0e83a4400bd21cd4bf879dd12ed",
+            "size": 3000,
+            "path": "config.json"
+        },
+        {
+            "type": "file",
+            "oid": "c3d9b6b56a91ccf48bf3178b7479f0cf4accb5d2",
+            "size": 5502,
+            "path": "decision_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "2a8a4b481670f69ac14edadbe37ab2c6cff0d90e",
+            "size": 2750560152,
+            "lfs": {
+                "oid": "2b217d93ce444e22d4d6ce0460fa0f40524691b1738f962433068790dd3440a1",
+                "size": 2750560152,
+                "pointerSize": 135
+            },
+            "xetHash": "768f808decc36851f28ca07041c4a85e1653496f717b825627b596cec878bc9a",
+            "path": "model.q4nx"
+        },
+        {
+            "type": "file",
+            "oid": "69cc53b05d4a284edbd7ba1e111e38064aa9ddb5",
+            "size": 2611280,
+            "lfs": {
+                "oid": "d570665c1da72cb9fca7ad7b23a25720eb691362694dd69d4c80c17d7656ed55",
+                "size": 2611280,
+                "pointerSize": 132
+            },
+            "xetHash": "9e8ed22de1c4eb9b26a5a18091319483d5d5bc4fca4b040a01967b7c68ed6ddc",
+            "path": "readout.safetensors"
+        },
+        {
+            "type": "file",
+            "oid": "a73a846725794819aa6e1c9e97d8dc9671c2006d",
+            "size": 12807982,
+            "lfs": {
+                "oid": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+                "size": 12807982,
+                "pointerSize": 133
+            },
+            "xetHash": "655d3f6803c619aa34c31a027ce74a315eaa200aad3fca5b968dcdf6485bfba2",
+            "path": "tokenizer.json"
+        },
+        {
+            "type": "file",
+            "oid": "eda48d3e75a8e59a8479ee4ec8b37f76e711d9c1",
+            "size": 16710,
+            "path": "tokenizer_config.json"
+        },
+        {
+            "type": "file",
+            "oid": "10341f0feb329d844e38de3a826415f6a758c992",
+            "size": 667061544,
+            "lfs": {
+                "oid": "d98ef088a39a63553a06f34f3a557d98980f72892c84d2b77eff4667c4aa9ea4",
+                "size": 667061544,
+                "pointerSize": 134
+            },
+            "xetHash": "813e9596d99caac326757177a0c1a543377e8da91b44e8574701174a5750ab32",
+            "path": "vision_weight.q4nx"
+        }
     ]
 }

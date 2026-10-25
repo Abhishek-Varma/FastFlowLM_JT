@@ -125,6 +125,22 @@ set(FLM_OVERRIDE_FLAGS "" CACHE STRING "Extra compile flags for the from-source 
 # ———————————————————————————————————————————————
 if(FLM_USE_HRX)
     find_package(hrx CONFIG REQUIRED)
+    # The published package exports RelWithDebInfo only. Map that onto the
+    # other Visual Studio configurations for this target alone so the vcpkg
+    # packages keep their own Release/Debug libraries.
+    set_target_properties(hrx::hrx PROPERTIES
+        MAP_IMPORTED_CONFIG_RELEASE RelWithDebInfo
+        MAP_IMPORTED_CONFIG_RELWITHDEBINFO RelWithDebInfo
+        MAP_IMPORTED_CONFIG_DEBUG RelWithDebInfo
+        MAP_IMPORTED_CONFIG_MINSIZEREL RelWithDebInfo)
+    # The runtime archive's bin/ also contains its own flm. Keep find_program
+    # from selecting that binary; hrx::hrx already has an absolute location.
+    get_target_property(_flm_hrx_loc hrx::hrx IMPORTED_LOCATION_RELWITHDEBINFO)
+    if(_flm_hrx_loc)
+        get_filename_component(_flm_hrx_dir "${_flm_hrx_loc}" DIRECTORY)
+        get_filename_component(_flm_hrx_root "${_flm_hrx_dir}" DIRECTORY)
+        list(APPEND CMAKE_IGNORE_PATH "${_flm_hrx_root}/bin")
+    endif()
 else()
     if(WIN32)
         set(XRT_INCLUDE_DIR C:/dev/XRT/src/runtime_src/core/include CACHE PATH "Where XRT headers live")
@@ -507,6 +523,19 @@ list(APPEND FLM_ENGINE_LINK_LIBS
     nanbeige_npu
     hunyuan_npu
 )
+
+# The d3 decision engine (--decision d3:lite). Linked where its library is vendored; elsewhere
+# (a Windows build before d3_npu.dll ships) AutoDecisionModel compiles without the engine and
+# refuses to load.
+if(WIN32)
+    set(_d3_npu_lib "${FLM_ENGINE_LIB_DIR}/d3_npu.lib")
+else()
+    set(_d3_npu_lib "${FLM_ENGINE_LIB_DIR}/libd3_npu.so")
+endif()
+if(EXISTS "${_d3_npu_lib}")
+    list(APPEND FLM_ENGINE_LINK_LIBS d3_npu)
+    target_compile_definitions(flm PRIVATE FLM_HAS_D3_NPU=1)
+endif()
 
 # Link your custom libraries (these may still be DLLs if no static versions available)
 target_link_libraries(flm PRIVATE flm_xgrammar)

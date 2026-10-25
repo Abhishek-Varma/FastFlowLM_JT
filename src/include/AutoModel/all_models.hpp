@@ -91,7 +91,8 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"nanbeige", SupportedModelFamily::nanbeige},
         {"hunyuan", SupportedModelFamily::hunyuan},
         {"whisper-v3", SupportedModelFamily::error_whiper},
-        {"embed-gemma", SupportedModelFamily::error_embedding}
+        {"embed-gemma", SupportedModelFamily::error_embedding},
+        {"d3", SupportedModelFamily::error_embedding}   // decision model: not a chat engine
     };
 
     
