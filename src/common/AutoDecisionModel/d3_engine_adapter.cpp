@@ -32,7 +32,7 @@ public:
     std::vector<std::vector<float>> encode_state_once(const EngineStateRequest& request) override {
         std::vector<std::vector<float>> out(request.blocks.size());
         std::vector<size_t> fused, per_row;
-#if defined(FLM_HAS_D3_NPU) && D3_NPU_ABI_VERSION >= 2
+#if defined(FLM_HAS_D3_NPU) && defined(FLM_D3_NPU_REV2)
         const bool once = npu_ && state_once_ && (caps_ & D3_CAP_STATE_ONCE);
         const bool question_images = (caps_ & D3_CAP_QUESTION_IMAGES) != 0;
         const bool rows = (caps_ & D3_CAP_READOUT_ROWS) != 0;
@@ -53,7 +53,7 @@ public:
 private:
     /// d3_npu::encode_state_once: the state once, the blocks as its questions.
     void run_fused(const EngineStateRequest& request, const std::vector<size_t>& blocks, std::vector<std::vector<float>>& out) {
-#if defined(FLM_HAS_D3_NPU) && D3_NPU_ABI_VERSION >= 2
+#if defined(FLM_HAS_D3_NPU) && defined(FLM_D3_NPU_REV2)
         d3_image_payload media;
         media.image_token_id = request.image_token_id >= 0 ? request.image_token_id : image_token_id_;
         for (int idx : request.state_image_ids) append_image(media, request.images.at(idx));

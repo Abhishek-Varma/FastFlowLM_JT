@@ -300,6 +300,20 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     config_ = std::make_unique<LM_Config>();
     config_->from_pretrained(model_path);
 #ifdef FLM_HAS_D3_NPU
+    // the header this build mirrors and the library it loaded must be the same revision (d3_npu.hpp); a build
+    // against a revision 1 library (FLM_D3_NPU_REV2 undefined, see CMakeLists.txt) runs the per-row path only
+    unsigned engine_caps = 0;
+    std::string engine_rev = "revision 1";
+#ifdef FLM_D3_NPU_REV2
+    if (d3_npu_abi_version() != D3_NPU_ABI_VERSION) {
+        throw std::runtime_error("libd3_npu is revision " + std::to_string(d3_npu_abi_version()) +
+                                 " but this FastFlowLM was built for revision " + std::to_string(D3_NPU_ABI_VERSION));
+    }
+    engine_caps = d3_npu_capabilities();
+    engine_rev = "revision " + std::to_string(d3_npu_abi_version()) + ", capabilities " + std::to_string(engine_caps);
+#endif
+    header_print("FLM", "d3 engine: " << engine_rev
+                 << ((engine_caps & 1u) && state_once_ ? " (state once per request)" : " (per-row prefix_bidir)"));
     npu_ = std::make_unique<npu_xclbin_manager>(npu_device::device_npu2, npu_device_inst_, enable_preemption);
     auto engine = std::make_unique<d3_npu>(*config_, npu_.get(), MAX_INPUT_TOKENS);
     {
@@ -307,12 +321,6 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
         engine->load_weights(q4nx);
     }
     if (engine->hidden_size() != hidden_) throw std::runtime_error("readout width differs from the model's hidden size");
-    // the header this build mirrors and the library it loaded must be the same revision (d3_npu.hpp)
-    if (d3_npu_abi_version() != D3_NPU_ABI_VERSION) {
-        throw std::runtime_error("libd3_npu is revision " + std::to_string(d3_npu_abi_version()) +
-                                 " but this FastFlowLM was built for revision " + std::to_string(D3_NPU_ABI_VERSION));
-    }
-    const unsigned engine_caps = d3_npu_capabilities();
     d3_npu* engine_raw = engine.get();
     engine_ = std::move(engine);
     readout_engine_ = make_d3_engine_adapter(engine_.get(), engine_raw, engine_caps, state_once_, encode(flm::d3::IMAGE_TOKEN).at(0));
@@ -335,24 +343,10 @@ std::map<std::string, std::vector<double>> AutoDecisionModel::run(const flm::d3:
     const auto keys = prepared.runnable();
     std::map<std::string, std::vector<double>> out;
     if (keys.empty()) return out;
+    if (prefix_bidir_) return run_state_once(prepared, static_cast<const d3_image_payload*>(payload));
     std::vector<std::vector<int>> ids;
     ids.reserve(keys.size());
     for (const auto& k : keys) ids.push_back(prepared.sequences.at(k));
-    d3_image_payload text_payload;   // prefix_bidir text: a payload with no images carries the state lengths
-    if (prefix_bidir_) {
-        auto* pl = payload ? static_cast<d3_image_payload*>(payload) : &text_payload;
-        pl->state_len.clear();
-        for (const auto& k : keys) {
-            const int s = prepared.state_len.at(k);
-            // upstream (_run_state_once) refuses requests whose questions do not share one state block
-            if (!pl->state_len.empty() && (s != pl->state_len.front() ||
-                !std::equal(ids.front().begin(), ids.front().begin() + s, prepared.sequences.at(k).begin()))) {
-                throw std::runtime_error("the questions of a request do not share the state block's tokens");
-            }
-            pl->state_len.push_back(s);
-        }
-        payload = pl;
-    }
     // moved, never copied: XRT buffer copies do not own their memory
     std::vector<buffer<bf16>> hidden = engine_->encode_batch(ids, payload);
     std::vector<float> h(hidden_);
@@ -361,6 +355,60 @@ std::map<std::string, std::vector<double>> AutoDecisionModel::run(const flm::d3:
         for (int d = 0; d < hidden_; d++) h[d] = static_cast<float>(row[d]);
         const int count = static_cast<int>(prepared.questions.at(keys[i]).keys.size());
         auto p = flm::d3::readout_probabilities(h.data(), readout_.data(), hidden_, count, temperature_);
+        out[keys[i]] = std::vector<double>(p.begin(), p.end());
+    }
+    return out;
+}
+
+/// prefix_bidir (d3:turbo) plain request: every runnable question is `[state | block]` with the same state block
+/// (upstream's _run_state_once refuses anything else), so the request is ONE state and the questions are its blocks.
+/// The adapter runs it as d3_npu::encode_state_once when the library reports the capability (D3_CAP_STATE_ONCE; the
+/// state's attention K/V and GDN state are computed once), else as the M1 per-row batch (every row [state | block]
+/// with payload.state_len; D3_STATE_ONCE=0 forces that). Both give the same hidden rows.
+std::map<std::string, std::vector<double>> AutoDecisionModel::run_state_once(const flm::d3::Prepared& prepared,
+                                                                            const d3_image_payload* payload) {
+    const auto keys = prepared.runnable();
+    std::map<std::string, std::vector<double>> out;
+    if (keys.empty()) return out;
+    const std::vector<int>& first = prepared.sequences.at(keys.front());
+    const int s = prepared.state_len.at(keys.front());
+    flm::d3::EngineStateRequest request;
+    request.state_ids.assign(first.begin(), first.begin() + s);
+    for (const auto& k : keys) {
+        const auto& seq = prepared.sequences.at(k);
+        if (prepared.state_len.at(k) != s || !std::equal(request.state_ids.begin(), request.state_ids.end(), seq.begin())) {
+            throw std::runtime_error("the questions of a request do not share the state block's tokens");
+        }
+        flm::d3::EngineBlock block;
+        block.tag = k;
+        block.ids.assign(seq.begin() + s, seq.end());
+        block.readout_from_end = {0};
+        request.blocks.push_back(std::move(block));
+    }
+    // the request's images all lie inside the state block (plain questions carry none of their own); the payload
+    // holds their patches back to back, 3 x 2 x 16 x 16 values per patch
+    if (payload && !payload->images.empty()) {
+        request.image_token_id = payload->image_token_id;
+        constexpr size_t PER_PATCH = 3 * TEMPORAL_PATCH * flm::d3::IMAGE_PATCH_SIZE * flm::d3::IMAGE_PATCH_SIZE;
+        size_t at = 0;
+        for (size_t i = 0; i < payload->images.size(); i++) {
+            flm::d3::EngineImage im;
+            im.grid_h = payload->images[i].grid_h;
+            im.grid_w = payload->images[i].grid_w;
+            const size_t n = static_cast<size_t>(im.grid_h) * im.grid_w * PER_PATCH;
+            if (at + n > payload->pixels.size()) throw std::runtime_error("image payload is shorter than its grids");
+            im.pixels.resize(n);
+            static_assert(sizeof(bf16) == sizeof(uint16_t), "bf16 is 16 bits");
+            std::memcpy(im.pixels.data(), payload->pixels.data() + at, n * sizeof(uint16_t));
+            at += n;
+            request.images.push_back(std::move(im));
+            request.state_image_ids.push_back(static_cast<int>(i));
+        }
+    }
+    const std::vector<std::vector<float>> hidden = readout_engine_->encode_state_once(request);
+    for (size_t i = 0; i < keys.size(); i++) {
+        const int count = static_cast<int>(prepared.questions.at(keys[i]).keys.size());
+        const auto p = flm::d3::readout_probabilities(hidden.at(i).data(), readout_.data(), hidden_, count, temperature_);
         out[keys[i]] = std::vector<double>(p.begin(), p.end());
     }
     return out;

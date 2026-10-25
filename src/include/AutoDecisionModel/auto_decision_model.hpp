@@ -24,6 +24,8 @@
 #include "tensor_utils/q4_npu_eXpress.hpp"
 #include "tokenizer/tokenizer.hpp"
 
+struct d3_image_payload;   // models/d3/flm/aie2p/d3_npu.hpp
+
 extern std::unordered_set<std::string> decisionModelTags;
 
 /// The reply to one HTTP request: status and JSON body.
@@ -90,4 +92,5 @@ private:
 
     std::vector<int> encode(const std::string& text);
     DecisionReply system_one_composed(const flm::d3::PyValue& body);
+    std::map<std::string, std::vector<double>> run_state_once(const flm::d3::Prepared& prepared, const d3_image_payload* payload);
 };
