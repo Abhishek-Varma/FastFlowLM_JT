@@ -950,6 +950,7 @@
                 "label":[
                     "decision"
                 ],
+                "scratch": 8600000000,
                 "footprint": 26.0
             }
         },
