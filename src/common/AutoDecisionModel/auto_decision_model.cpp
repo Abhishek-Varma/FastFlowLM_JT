@@ -324,6 +324,16 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     d3_npu* engine_raw = engine.get();
     engine_ = std::move(engine);
     readout_engine_ = make_d3_engine_adapter(engine_.get(), engine_raw, engine_caps, state_once_, encode(flm::d3::IMAGE_TOKEN).at(0));
+    if (composed_) {
+        // a box reads four hidden rows of one block (readout_from_end): only the state-once engine returns them
+        // (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS); without it box / track are answered per question as unsupported
+        const bool rows = state_once_ && (engine_caps & 3u) == 3u;
+        auto& types = composed_config_.question_types;
+        if (!rows) {
+            types.erase(std::remove_if(types.begin(), types.end(), [](const std::string& t) { return t == "box" || t == "track"; }), types.end());
+            header_print("FLM", "d3 engine without state-once readout rows: box questions are not answered");
+        }
+    }
 #else
     (void)enable_preemption;
     throw std::runtime_error("this FastFlowLM build has no d3 engine (libd3_npu)");

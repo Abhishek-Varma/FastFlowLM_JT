@@ -170,12 +170,24 @@ class DecisionSweep(SweepTask):
         self.case(writer, model, "too-long", ok, f"status {status}, {a.get('error')}", t, json.dumps(body)[:200])
 
     def _prefix_bidir(self, writer, model: str) -> None:
-        """d3:turbo only: question types this build does not run are refused with a 422 naming the model, and
-        input_tokens counts the state block once (4 questions cost far less than 4 single-question requests)."""
-        status, body, t = self.post({"state": STATE, "questions": {"b": {"type": "box"}}})
-        detail = body.get("detail", "")
-        ok = status == 422 and isinstance(detail, str) and "not supported by this build of " + model in detail
-        self.case(writer, model, "unsupported-box", ok, f"status {status}", t, json.dumps(body)[:200])
+        """d3:turbo only: a box question is answered when /v1/systemone/models lists `box` (the engine returns the
+        four hidden rows a box reads) and refused inline (`box_unsupported`) when it does not; input_tokens counts
+        the state block once (4 questions cost far less than 4 single-question requests)."""
+        try:
+            with urllib.request.urlopen(f"{self.base_url}/systemone/models", timeout=30) as resp:
+                listed = (json.loads(resp.read())["data"][0].get("question_types") or [])
+        except (urllib.error.URLError, ValueError, KeyError, IndexError) as err:
+            self.case(writer, model, "models", False, "GET /v1/systemone/models failed", 0.0, str(err))
+            return
+        status, body, t = self.post({"state": STATE, "questions": {"b": {"type": "box", "instructions": "The customer's name"}}})
+        a = body.get("answers", {}).get("b", {})
+        if "box" in listed:
+            box = a.get("box", {})
+            ok = (status == 200 and list(a) == ["type", "box", "confidence"] and sorted(box) == ["bottom", "left", "right", "top"]
+                  and all(0.0 <= v <= 1.0 for v in box.values()) and box["top"] <= box["bottom"] and box["left"] <= box["right"])
+        else:
+            ok = status == 200 and a.get("error") == "invalid_question" and a.get("reason") == "box_unsupported"
+        self.case(writer, model, "box", ok, f"status {status}, box listed: {'box' in listed}", t, json.dumps(body)[:200])
         long_state = "The customer wrote: " + "the parcel is late, again. " * 40
         one = {"q1": {"type": "noul", "instructions": "Is the customer upset?"}}
         four = {f"q{i}": {"type": "noul", "instructions": f"Is the customer upset? ({i})"} for i in range(1, 5)}
