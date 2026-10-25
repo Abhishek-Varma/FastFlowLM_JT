@@ -160,6 +160,40 @@ def run_case(processor, R, DC, case, outdir, max_video_tokens):
     return out
 
 
+def mrope_goldens(processor, R, cases):
+    """Qwen3.5's get_rope_index on real tokenized prompts with images and videos (positions are axis-major [3][n])."""
+    import types
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5Model
+    cfg = types.SimpleNamespace(vision_config=types.SimpleNamespace(spatial_merge_size=2))
+    fake = types.SimpleNamespace(config=cfg)
+    fake.get_vision_position_ids = types.MethodType(Qwen3_5Model.get_vision_position_ids, fake)
+    tok = processor.tokenizer
+    image_id = tok.convert_tokens_to_ids("<|image_pad|>")
+    video_id = tok.convert_tokens_to_ids("<|video_pad|>")
+    codes = json.load(open(os.path.join(ROOT, "decision_config.json")))["codes"]
+    good = [c for c in cases if "grid" in c]
+    picks = [("video", [good[0]], 0), ("image+video", [good[2]], 1), ("two videos", [good[1], good[3]], 0),
+             ("two videos + 2 images", [good[4], good[5]], 2), ("portrait", [good[3]], 0)]
+    out = []
+    for name, vids, n_images in picks:
+        q = R.normalize_question({"type": "noul", "instructions": "Is it there?"})
+        msgs = R.video_messages("d3", "state", q.rendered, codes, n_images, len(vids))
+        text = processor.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        image_texts = ["<|image_pad|>" * IMAGE_PADS] * n_images
+        expanded = processor.get_text_with_replacements([text], image_texts, [c["video_text"] for c in vids])[0][0]
+        ids = tok(expanded, add_special_tokens=False, return_tensors="pt")["input_ids"]
+        types_ = processor.create_mm_token_type_ids(ids)
+        image_grid = torch.tensor([[1, 16, 16]] * n_images) if n_images else None
+        video_grid = torch.tensor([c["grid"] for c in vids])
+        pos, _ = Qwen3_5Model.get_rope_index(fake, ids, torch.as_tensor(types_), image_grid, video_grid.clone())
+        groups = [[16, 16]] * n_images
+        for c in vids:
+            groups += [[c["grid"][1], c["grid"][2]]] * c["grid"][0]
+        out.append({"name": name, "ids": ids[0].tolist(), "image_id": image_id, "video_id": video_id, "groups": groups,
+                    "positions": pos[:, 0].reshape(-1).tolist(), "next": int(pos.max()) + 1})
+    return {"cases": out}
+
+
 def sampling_tables(R, DC):
     explicit = []
     for total, fps in [(1, 24), (2, 24), (3, 24), (4, 24), (5, 2), (9, 24), (33, 2), (64, 2), (65, 2), (300, 30),
@@ -215,8 +249,28 @@ def decode_goldens(R, outdir):
         fr = np.ascontiguousarray(v.frames)
         with open(os.path.join(outdir, name + ".frames.u8"), "wb") as f:
             f.write(fr.tobytes())
-        res.append({"file": name, "w": w, "h": h, "n_frames": len(fr), "indices": v.indices, "fps": v.fps,
-                    "total": v.total_frames, "frames_file": name + ".frames.u8"})
+        entry = {"file": name, "w": w, "h": h, "n_frames": len(fr), "indices": v.indices, "fps": v.fps,
+                 "total": v.total_frames, "frames_file": name + ".frames.u8", "frames_md5": md5(fr.tobytes()), "windows": {}}
+        # upstream's one-pass window decode (track), at both rates
+        for rate in (1, 2):
+            try:
+                ws = R._decode_windows(data, rate)
+                entry["windows"][str(rate)] = [{"indices": x.indices, "fps": x.fps, "total": x.total_frames,
+                                                "md5": md5(np.ascontiguousarray(x.frames).tobytes())} for x in ws]
+            except ValueError as exc:
+                entry["windows"][str(rate)] = {"error": str(exc)}
+        res.append(entry)
+    # clips with a display matrix: OpenCV rotates them upright
+    for angle in (90, 180, 270):
+        name = f"rot{angle}.mp4"
+        p = subprocess.run(["ffmpeg", "-v", "error", "-y", "-display_rotation", str(angle), "-i", os.path.join(outdir, "h264.mp4"),
+                            "-c", "copy", os.path.join(outdir, name)], capture_output=True)
+        if p.returncode:
+            continue
+        v = R._decode_video(open(os.path.join(outdir, name), "rb").read(), strict=True)
+        fr = np.ascontiguousarray(v.frames)
+        res.append({"file": name, "w": fr.shape[2], "h": fr.shape[1], "n_frames": len(fr), "indices": v.indices, "fps": v.fps,
+                    "total": v.total_frames, "frames_md5": md5(fr.tobytes()), "rotation": angle})
     return res
 
 
@@ -287,6 +341,7 @@ def main():
         open(os.path.join(a.outdir, "hummingbird.frames.u8"), "wb").write(fr.tobytes())
         doc["hummingbird"] = {"n_frames": len(fr), "indices": v.indices, "fps": v.fps, "total": v.total_frames,
                               "w": fr.shape[2], "h": fr.shape[1], "file": path}
+    json.dump(mrope_goldens(processor, R, cases), open(os.path.join(a.outdir, "mrope.json"), "w"))
     json.dump(doc, open(os.path.join(a.outdir, "cases.json"), "w"), indent=1)
 
 

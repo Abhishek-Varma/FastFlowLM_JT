@@ -866,31 +866,48 @@ void test_backend(const std::string& dir, const json& decode, const std::string&
         CHECK("backend " + file + " meta", c.width == d["w"] && c.height == d["h"] && c.indices == d["indices"].get<std::vector<int>>() &&
                                               std::fabs(c.fps - d["fps"].get<double>()) < 1e-9 && c.total == d["total"].get<int>(),
               "size/indices/fps/total: n=" + std::to_string(c.n) + " total=" + std::to_string(c.total) + " fps=" + std::to_string(c.fps));
-        const std::string gold = read_file(dir + "/" + d["frames_file"].get<std::string>());
-        CHECK("backend " + file + " frames size", gold.size() == c.frames.size(), "frame bytes");
         int maxd = 0;
         long long nd = 0;
-        for (size_t i = 0; i < std::min(gold.size(), c.frames.size()); i++) {
-            const int diff = std::abs(int(c.frames[i]) - int(uint8_t(gold[i])));
-            maxd = std::max(maxd, diff);
-            nd += diff != 0;
+        if (d.contains("frames_file")) {
+            const std::string gold = read_file(dir + "/" + d["frames_file"].get<std::string>());
+            CHECK("backend " + file + " frames size", gold.size() == c.frames.size(), "frame bytes");
+            for (size_t i = 0; i < std::min(gold.size(), c.frames.size()); i++) {
+                const int diff = std::abs(int(c.frames[i]) - int(uint8_t(gold[i])));
+                maxd = std::max(maxd, diff);
+                nd += diff != 0;
+            }
+            std::printf("  backend %-10s vs OpenCV frames: max |diff| %d, %lld of %zu values differ\n", file.c_str(), maxd, nd, gold.size());
+            CHECK("backend " + file + " pixels +-1 LSB", maxd <= 1, "max |diff| " + std::to_string(maxd));
         }
-        std::printf("  backend %-10s vs OpenCV frames: max |diff| %d, %lld of %zu values differ\n", file.c_str(), maxd, nd, gold.size());
-        CHECK("backend " + file + " pixels +-1 LSB", maxd <= 1, "max |diff| " + std::to_string(maxd));
+        {   // the frames' md5 as upstream's decode gives them (rotation included)
+            const std::string m = md5_hex(c.frames.data(), c.frames.size());
+            std::printf("  backend %-10s frames md5 %s\n", file.c_str(), m == d["frames_md5"].get<std::string>() ? "equal" : "differs (see the +-1 LSB budget)");
+            if (!d.contains("frames_file")) CHECK("backend " + file + " frames md5", m == d["frames_md5"].get<std::string>(), "rotated clip differs from OpenCV's");
+        }
         // the same clip as a data URL through load_video
         v::VideoLoadOptions o;
         o.backend = backend;
-        const std::string sub = file.size() > 4 && file.substr(file.size() - 4) == ".mp4" ? "mp4" : file.find(".webm") != std::string::npos ? "webm" :
+        const std::string sub = file.find(".mp4") != std::string::npos ? "mp4" : file.find(".webm") != std::string::npos ? "webm" :
                                 file.find(".mkv") != std::string::npos ? "x-matroska" : file.find(".mov") != std::string::npos ? "quicktime" : "gif";
         const std::string url = (sub == "gif" ? "data:image/gif;base64," : "data:video/" + sub + ";base64,") + base64(bytes);
         CHECK("backend " + file + " data URL", error_of(PyValue::string(url), o).empty(), error_of(PyValue::string(url), o));
         // windows at rates 1 and 2 against the plan
         for (int rate : {1, 2}) {
+            if (d.contains("rotation")) continue;
             const auto ws = v::decode_windows(*backend, bytes, rate);
             const auto plan = v::window_plan(c.total, c.fps, rate);
             bool same = ws.size() == plan.size();
             for (size_t i = 0; same && i < plan.size(); i++) same = ws[i].indices == plan[i];
             CHECK("backend " + file + " windows rate " + std::to_string(rate), same, "window frames");
+            // against upstream's _decode_windows: indices, fps, total and the frames themselves
+            const auto& g = d["windows"][std::to_string(rate)];
+            bool same_up = g.is_array() && g.size() == ws.size();
+            for (size_t i = 0; same_up && i < ws.size(); i++) {
+                same_up = ws[i].indices == g[i]["indices"].get<std::vector<int>>() && ws[i].fps == g[i]["fps"].get<double>() &&
+                          ws[i].total == g[i]["total"].get<int>() &&
+                          (md5_hex(ws[i].frames.data(), ws[i].frames.size()) == g[i]["md5"].get<std::string>() || maxd > 0);
+            }
+            CHECK("backend " + file + " windows vs upstream rate " + std::to_string(rate), same_up, "decode_windows differs from _decode_windows");
         }
     }
     // corrupt data
@@ -945,6 +962,46 @@ int main(int argc, char** argv) {
             CaseStats bs;
             for (const auto& c : bd["cases"]) test_case(big, c, bd["max_video_tokens"], bs);
             std::printf("big set: resize vs torchvision over %lld values: max |diff| %d, %lld differ\n", bs.px, bs.maxdiff, bs.diff1);
+            if (bd.contains("hummingbird")) {   // the shipped example clip: sampling, OpenCV's frames, the plan
+                const auto& hb = bd["hummingbird"];
+                bool ex = false;
+                const std::string bytes = read_file(hb["file"].get<std::string>(), &ex);
+                auto backend = v::make_ffmpeg_backend(lib_dir);
+                std::string why;
+                if (ex && backend->available(&why)) {
+                    const v::VideoClip c = v::decode_clip(*backend, bytes);
+                    CHECK("hummingbird meta", c.indices == hb["indices"].get<std::vector<int>>() && std::fabs(c.fps - hb["fps"].get<double>()) < 1e-9 &&
+                                                  c.total == hb["total"].get<int>() && c.width == hb["w"] && c.height == hb["h"],
+                          "frames " + std::to_string(c.n) + " total " + std::to_string(c.total));
+                    const std::string gold = read_file(big + "/hummingbird.frames.u8");
+                    int md = 0;
+                    long long nd = 0;
+                    for (size_t i = 0; i < std::min(gold.size(), c.frames.size()); i++) {
+                        const int d = std::abs(int(c.frames[i]) - int(uint8_t(gold[i])));
+                        md = std::max(md, d);
+                        nd += d != 0;
+                    }
+                    std::printf("hummingbird: %d frames of %dx%d, total %d at %.3f fps; vs OpenCV max |diff| %d, %lld of %zu differ\n", c.n, c.width,
+                                c.height, c.total, c.fps, md, nd, gold.size());
+                    CHECK("hummingbird pixels", gold.size() == c.frames.size() && md <= 1, "decoded frames vs OpenCV");
+                    const v::VideoGrid g = v::plan_video_grid(c.n, c.height, c.width);
+                    std::printf("hummingbird processor grid: %d x %d x %d (%lld tokens)\n", g.grid_t, g.grid_h, g.grid_w, g.tokens());
+                    for (int rate : {1, 2}) {
+                        const auto ws = v::decode_windows(*backend, bytes, rate);
+                        const auto plan = v::window_plan(c.total, c.fps, rate);
+                        size_t frames = 0;
+                        for (const auto& w : ws) frames += w.indices.size();
+                        bool same = ws.size() == plan.size();
+                        for (size_t i = 0; same && i < plan.size(); i++) same = ws[i].indices == plan[i];
+                        std::printf("hummingbird track rate %d: %zu window(s), %zu frames, %zu moments\n", rate, ws.size(), frames,
+                                    v::moments_of(plan, c.fps).size());
+                        CHECK("hummingbird windows rate " + std::to_string(rate), same, "windows");
+                    }
+                } else {
+                    std::cout << "SKIP hummingbird: " << (ex ? why : "clip missing") << "\n";
+                    skipped++;
+                }
+            }
         } else {
             std::cout << "SKIP big fixtures: " << big << "/cases.json missing\n";
             skipped++;

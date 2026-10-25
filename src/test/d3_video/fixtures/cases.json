@@ -4760,7 +4760,52 @@
    ],
    "fps": 10.0,
    "total": 40,
-   "frames_file": "h264.mp4.frames.u8"
+   "frames_file": "h264.mp4.frames.u8",
+   "frames_md5": "f4bb3975cbef385cf179709bf4e1acc8",
+   "windows": {
+    "1": [
+     {
+      "indices": [
+       0,
+       5,
+       10,
+       15,
+       20,
+       25,
+       30,
+       35
+      ],
+      "fps": 10.0,
+      "total": 40,
+      "md5": "8a6e2ddccfdbae34201ca8fad596fa75"
+     }
+    ],
+    "2": [
+     {
+      "indices": [
+       0,
+       2,
+       5,
+       8,
+       10,
+       12,
+       15,
+       18,
+       20,
+       22,
+       25,
+       28,
+       30,
+       32,
+       35,
+       38
+      ],
+      "fps": 10.0,
+      "total": 40,
+      "md5": "a2abcca718e6e0adbf66f2023297cdb0"
+     }
+    ]
+   }
   },
   {
    "file": "vp9.webm",
@@ -4777,7 +4822,46 @@
    ],
    "fps": 12.0,
    "total": 36,
-   "frames_file": "vp9.webm.frames.u8"
+   "frames_file": "vp9.webm.frames.u8",
+   "frames_md5": "4a9c7b24b053e25443f0689974131b74",
+   "windows": {
+    "1": [
+     {
+      "indices": [
+       0,
+       6,
+       12,
+       18,
+       24,
+       30
+      ],
+      "fps": 12.0,
+      "total": 36,
+      "md5": "eab4e57b5daf6019c8c309c19f54de5f"
+     }
+    ],
+    "2": [
+     {
+      "indices": [
+       0,
+       3,
+       6,
+       9,
+       12,
+       15,
+       18,
+       21,
+       24,
+       27,
+       30,
+       33
+      ],
+      "fps": 12.0,
+      "total": 36,
+      "md5": "743295a16f16ce1a79b88637a1199012"
+     }
+    ]
+   }
   },
   {
    "file": "h264.mkv",
@@ -4792,7 +4876,40 @@
    ],
    "fps": 15.0,
    "total": 30,
-   "frames_file": "h264.mkv.frames.u8"
+   "frames_file": "h264.mkv.frames.u8",
+   "frames_md5": "8c63897e35e5faecc5cbab9fc0e1916d",
+   "windows": {
+    "1": [
+     {
+      "indices": [
+       0,
+       8,
+       15,
+       22
+      ],
+      "fps": 15.0,
+      "total": 30,
+      "md5": "1fdb737dd148ec8fa80b2825d7f03a5a"
+     }
+    ],
+    "2": [
+     {
+      "indices": [
+       0,
+       4,
+       8,
+       11,
+       15,
+       19,
+       22,
+       26
+      ],
+      "fps": 15.0,
+      "total": 30,
+      "md5": "93e308fc21f581e9d756c10ed7cf4d91"
+     }
+    ]
+   }
   },
   {
    "file": "h264.mov",
@@ -4807,7 +4924,40 @@
    ],
    "fps": 12.0,
    "total": 24,
-   "frames_file": "h264.mov.frames.u8"
+   "frames_file": "h264.mov.frames.u8",
+   "frames_md5": "da187bd6d767888fbe8aa678c47054fc",
+   "windows": {
+    "1": [
+     {
+      "indices": [
+       0,
+       6,
+       12,
+       18
+      ],
+      "fps": 12.0,
+      "total": 24,
+      "md5": "d7389657c779093ecdb0eca1013f2bbb"
+     }
+    ],
+    "2": [
+     {
+      "indices": [
+       0,
+       3,
+       6,
+       9,
+       12,
+       15,
+       18,
+       21
+      ],
+      "fps": 12.0,
+      "total": 24,
+      "md5": "bbea431d8b4c6a1553dada73534126e0"
+     }
+    ]
+   }
   },
   {
    "file": "anim.gif",
@@ -4824,7 +4974,108 @@
    ],
    "fps": 8.333333333333334,
    "total": 28,
-   "frames_file": "anim.gif.frames.u8"
+   "frames_file": "anim.gif.frames.u8",
+   "frames_md5": "366414aad5a178419a8942ac4ef76481",
+   "windows": {
+    "1": [
+     {
+      "indices": [
+       0,
+       4,
+       8,
+       12,
+       17,
+       21
+      ],
+      "fps": 8.333333333333334,
+      "total": 28,
+      "md5": "b4d951d77510151063d0ea4a3ab28b7a"
+     }
+    ],
+    "2": [
+     {
+      "indices": [
+       0,
+       2,
+       4,
+       6,
+       8,
+       10,
+       12,
+       15,
+       17,
+       19,
+       21,
+       23,
+       25,
+       25
+      ],
+      "fps": 8.333333333333334,
+      "total": 28,
+      "md5": "7db0b4e0dd48f6a3edf874674cea02da"
+     }
+    ]
+   }
+  },
+  {
+   "file": "rot90.mp4",
+   "w": 32,
+   "h": 48,
+   "n_frames": 8,
+   "indices": [
+    0,
+    6,
+    11,
+    17,
+    22,
+    28,
+    33,
+    39
+   ],
+   "fps": 10.0,
+   "total": 40,
+   "frames_md5": "30e3fbd6d6532e926d9df7051f0e7fb1",
+   "rotation": 90
+  },
+  {
+   "file": "rot180.mp4",
+   "w": 48,
+   "h": 32,
+   "n_frames": 8,
+   "indices": [
+    0,
+    6,
+    11,
+    17,
+    22,
+    28,
+    33,
+    39
+   ],
+   "fps": 10.0,
+   "total": 40,
+   "frames_md5": "f21b10007c7f167728a2cb40b9ac9c6f",
+   "rotation": 180
+  },
+  {
+   "file": "rot270.mp4",
+   "w": 32,
+   "h": 48,
+   "n_frames": 8,
+   "indices": [
+    0,
+    6,
+    11,
+    17,
+    22,
+    28,
+    33,
+    39
+   ],
+   "fps": 10.0,
+   "total": 40,
+   "frames_md5": "dd30ac837a92357ef6cddd17ffba58b8",
+   "rotation": 270
   }
  ],
  "limit": {
