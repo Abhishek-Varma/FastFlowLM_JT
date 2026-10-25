@@ -154,19 +154,26 @@ Accuracy and latency of `d3:mini` (vllm-sr/d3-mini v3.1.3, package D3-Mini-NPU2)
 | Same set, final hidden state cosine to BF16 (median) | 725 | 0.9994 |
 | Long prompts, 835 to 31,545 tokens, top-1 agreement with BF16 | 30 | 96.7% |
 | Long prompts, final hidden state cosine to BF16 (min over lengths) | 30 | 0.988 |
-| Decision Index public suite, seeded round-robin sample (800 requests, 42 benchmarks): mean benchmark score | 800 | 61.3% (BF16: 62.6%) |
-| Same requests, top-1 agreement with BF16 (choice answers) | 7,028 | 96.8% |
+| Decision Index public suite, seeded round-robin sample (1,600 requests, 42 benchmarks): mean benchmark score | 1,600 | 62.8% (BF16: 63.8%) |
+| Same requests, top-1 agreement with BF16 (choice answers) | 12,656 | 97.0% |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | 69.2% (BF16: 71.7%) |
+| Same image questions, top-1 agreement with BF16 | 600 | 89.8% |
 
 Prompts, token ids and answer objects follow the upstream runtime. On the Decision Index sample the mean benchmark
-score is 1.25 points below the upstream BF16 model (standard error 0.75; about 19 requests per benchmark, so a single
-benchmark is very noisy). This is a sample, not the full suite, and the same sampling as for d3-nano, not the d3-lite
-subset. The GPTQ calibration prompts (300 synthetic questions) contain no Decision Index data.
+score is 0.99 points below the upstream BF16 model (standard error 0.57; about 37 requests per benchmark, so a single
+benchmark is noisy). This is a sample, not the full suite, and the same sampling as for d3-nano, not the d3-lite
+subset. The vision subset leaves out Winoground (gated), as for d3-lite and d3-nano; paired accuracy, BF16 minus d3-mini,
+is +2.5 points (95% CI +0.5 to +4.5): images cost a little accuracy (largest gaps on Mind2Web, MMMU-Pro, CV-Bench and
+CharXiv, about 60 questions each), while the answers agree with BF16 on 89.8% of the questions. The GPTQ calibration
+prompts (300 synthetic questions) contain no Decision Index data.
 
 ### Images (d3-mini)
 
 Image requests agree with the upstream BF16 model on 58 of 60 answers (96.7%; 31 hand-built requests with 64 × 64 to
-2000 × 1500 images, one to several images each; median probability difference 0.024). PNG, JPEG and WebP data URLs
-are accepted; web addresses, file paths, corrupt images and videos are refused with HTTP 422.
+2000 × 1500 images, one to several images each; median probability difference 0.024). Latency over HTTP, one question,
+median of 3: 2.1 s with a 1,024 × 768 image (876 input tokens), 3.8 s with two images, 4.4 s with a 2000 × 1500 image
+(downscaled to the 1.6 MP budget). A request with 8 questions about one image takes 10.8 s (one image encoding). PNG,
+JPEG and WebP data URLs are accepted; web addresses, file paths, corrupt images and videos are refused with HTTP 422.
 
 ### Latency
 
