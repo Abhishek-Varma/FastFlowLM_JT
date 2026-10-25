@@ -7,6 +7,7 @@
 #include <cfenv>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <set>
 
 namespace flm::d3 {
@@ -561,13 +562,24 @@ std::vector<std::string> Prepared::runnable() const {
 }
 
 Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
-                 const std::function<void(size_t, const ImageFile&)>& decode) {
+                 const std::function<void(size_t, const ImageFile&)>& decode, const PrepareOptions& options) {
+    const bool limited = !options.unsupported_for.empty();
+    const std::string refusal_tail = " by this build of " + options.unsupported_for +
+                                     " (it answers choice, noul and score questions about text and images)";
     // d3_server.Decider.arguments
     if (!body.is_object()) {
         throw RequestError("expected a JSON object such as {\"questions\": {...}, \"state\": ...}");
     }
+    if (limited) {
+        // upstream's own server does not take these fields either; here the refusal says why
+        for (const char* name : {"assets", "long_context"}) {
+            const PyValue* v = body.get(name);
+            if (v && v->truthy()) throw RequestError(std::string(name) + " is not supported" + refusal_tail);
+        }
+    }
     std::vector<std::string> unknown;
     for (const auto& m : body.members) {
+        if (limited && (m.first == "assets" || m.first == "long_context")) continue;   // falsy: nothing asked for
         if (std::find(std::begin(ACCEPTED_FIELDS), std::end(ACCEPTED_FIELDS), m.first) == std::end(ACCEPTED_FIELDS)) {
             unknown.push_back(m.first);
         }
@@ -585,6 +597,15 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
     if (!questions || !questions->is_object() || questions->members.empty()) {
         throw RequestError("questions is required: an object of one or more question IDs, each to a question");
     }
+    if (limited) {
+        for (const auto& m : questions->members) {
+            const PyValue* kind = m.second.is_object() ? m.second.get("type") : nullptr;
+            if (kind && kind->is_string() && (kind->text == "box" || kind->text == "track")) {
+                throw RequestError("question " + repr(PyValue::string(m.first)) + ": " + kind->text +
+                                   " questions are not supported" + refusal_tail);
+            }
+        }
+    }
     Prepared p;
     // MEDIA_FIELDS in order: every image is loaded (strict) before videos are looked at
     for (const char* name : {"images", "videos"}) {
@@ -594,6 +615,7 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
         if (items->items.empty()) continue;   // `loader(items) or None`: an empty list is the text path
         if (std::string(name) == "videos") {
             // upstream answers the same way for a checkpoint without the video path
+            if (limited) throw RequestError("videos are not supported" + refusal_tail);
             throw RequestError("video inputs are not available: this FastFlowLM build runs d3 on text and images");
         }
         for (size_t i = 0; i < items->items.size(); i++) {
@@ -618,6 +640,7 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
     } catch (const ContractError& e) {
         throw RequestError(e.what());
     }
+    p.state = state;
     // _prepare_images: every image's input tokens first (the processor's resize)
     for (const auto& f : p.images) {
         std::pair<int, int> hw;
@@ -658,7 +681,57 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
     return p;
 }
 
-void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length) {
+const char* const STATE_MARK = "State:\n";
+const char* const QUESTION_MARK = "\n\nQuestion:\n";
+
+size_t state_end_byte(const std::string& text, const PyValue& state) {
+    // `body = describe(state) if state not in (None, "") else "(empty)"`
+    const bool empty = state.is_null() || (state.is_string() && state.text.empty());
+    const std::string body = empty ? std::string(EMPTY_STATE) : describe(state);
+    const std::string needle = std::string(STATE_MARK) + body + QUESTION_MARK;
+    const size_t start = text.find(needle);
+    if (start == std::string::npos) {
+        throw ContractError("rendered prompt has no state segment followed by the question block");
+    }
+    return start + std::strlen(STATE_MARK) + body.size();
+}
+
+int state_token_count(const std::vector<int>& ids, const std::function<size_t(int)>& token_bytes, size_t end) {
+    int n = 0;
+    size_t stop = 0;
+    for (int id : ids) {
+        stop += token_bytes(id);
+        if (stop > end) break;   // this token reaches past the state segment: question block
+        n++;
+    }
+    if (n < 1) throw ContractError("empty state segment");
+    return n;
+}
+
+int state_block_length(const std::string& text, const PyValue& state, const std::vector<int>& ids,
+                       const std::function<std::vector<int>(const std::string&)>& encode,
+                       const std::function<size_t(int)>& token_bytes, int media, int expanded_length,
+                       std::map<std::string, size_t>* segment_cache) {
+    const std::string segment = text.substr(0, state_end_byte(text, state));
+    size_t end = 0;
+    auto hit = segment_cache ? segment_cache->find(segment) : std::map<std::string, size_t>::iterator();
+    if (segment_cache && hit != segment_cache->end()) {
+        end = hit->second;
+    } else {
+        for (int id : encode(segment)) end += token_bytes(id);
+        if (segment_cache) (*segment_cache)[segment] = end;
+    }
+    const int count = state_token_count(ids, token_bytes, end) + media;
+    if (!(0 < count && count < expanded_length)) {
+        throw std::runtime_error("a " + std::to_string(expanded_length) + "-token prompt cannot have a " +
+                                 std::to_string(count) + "-token state block");
+    }
+    return count;
+}
+
+void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length,
+              const std::function<size_t(int)>& token_bytes) {
+    std::map<std::string, size_t> segment_cache;
     int pad = -1, visual = 0;
     if (!p.images.empty()) {
         const std::vector<int> one = encode(IMAGE_TOKEN);
@@ -670,6 +743,7 @@ void tokenize(Prepared& p, const std::function<std::vector<int>(const std::strin
         auto t = p.texts.find(key);
         if (t == p.texts.end()) continue;
         std::vector<int> ids = encode(t->second);
+        const std::vector<int> plain = token_bytes ? ids : std::vector<int>();   // before the image expansion
         if (pad >= 0) {
             // each placeholder becomes its image's run of input tokens, in image order
             std::vector<int> expanded;
@@ -694,6 +768,12 @@ void tokenize(Prepared& p, const std::function<std::vector<int>(const std::strin
                                              std::to_string(max_length) + " tokens; nothing was truncated");
             continue;
         }
+        if (token_bytes) {
+            // image placeholders all lie inside the state block: each one grows into its image's run
+            const int media = pad >= 0 ? visual - static_cast<int>(p.images.size()) : 0;
+            p.state_len[key] = state_block_length(t->second, p.state, plain, encode, token_bytes, media,
+                                                  static_cast<int>(ids.size()), &segment_cache);
+        }
         p.sequences[key] = std::move(ids);
     }
 }
@@ -708,9 +788,10 @@ ojson invalid_questions(const Prepared& p) {
 }
 
 ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>>& probabilities,
-              const std::string& model_name) {
+              const std::string& model_name, bool state_once) {
     ojson answers = ojson::object();
     size_t tokens = 0;
+    int state_block = 0;   // prefix_bidir: the state block, counted once
     for (const auto& key : p.keys) {
         auto e = p.errors.find(key);
         if (e != p.errors.end()) {
@@ -718,7 +799,14 @@ ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>
             continue;
         }
         const Question& q = p.questions.at(key);
-        tokens += p.sequences.at(key).size();
+        const size_t length = p.sequences.at(key).size();
+        const auto split = p.state_len.find(key);
+        if (state_once && split != p.state_len.end()) {
+            if (state_block == 0) state_block = split->second;
+            tokens += length - split->second;
+        } else {
+            tokens += length;
+        }
         try {
             answers[key] = product_answer(q, probabilities.at(key));
         } catch (const ContractError& ex) {
@@ -728,7 +816,7 @@ ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>
     ojson out = ojson::object();
     out["model"] = model_name;
     out["answers"] = answers;
-    out["usage"] = {{"input_tokens", tokens}, {"output_tokens", 0}};
+    out["usage"] = {{"input_tokens", tokens + state_block}, {"output_tokens", 0}};
     return out;
 }
 

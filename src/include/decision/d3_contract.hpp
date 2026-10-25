@@ -125,6 +125,7 @@ ojson to_ojson(const PyValue& v);
 /// A System One request after validation and rendering (d3_runtime.Prepared, text and image paths).
 struct Prepared {
     std::vector<std::string> keys;              //!< every question ID, request order
+    PyValue state;                              //!< the request's state as given (null when absent)
     std::map<std::string, Question> questions;  //!< valid questions
     std::map<std::string, std::string> texts;   //!< rendered prompts of valid questions
     std::map<std::string, std::vector<int>> sequences;  //!< token ids of runnable questions
@@ -134,8 +135,19 @@ struct Prepared {
     std::vector<ImageFile> images;              //!< the request's images, in order (shared by every question)
     std::vector<std::pair<int, int>> image_grids; //!< per image: (grid_h, grid_w) in 16-pixel patches
     std::vector<int> image_tokens;              //!< per image: input tokens, grid_h * grid_w / 4
+    /// prefix_bidir (filled by `tokenize` when it is given token byte lengths): per runnable question, the
+    /// number S of leading tokens of its (image-expanded) sequence that form the state block
+    std::map<std::string, int> state_len;
 
     std::vector<std::string> runnable() const;
+};
+
+/// Per-model behaviour of `prepare` and `tokenize`.
+struct PrepareOptions {
+    /// A prefix_bidir checkpoint (d3:turbo) whose build runs choice / noul / score questions on text and
+    /// images only: box and track questions, `assets`, `long_context` and `videos` are refused with a 422
+    /// that says so, naming this tag. Empty (d3:lite, d3:nano, d3:mini): upstream's messages, unchanged.
+    std::string unsupported_for;
 };
 
 /// Server-level checks of a decoded body (d3_server.Decider.arguments + D3.prepare's request
@@ -144,17 +156,50 @@ struct Prepared {
 /// `decode` (when given) decodes each one right after its inspection, as upstream loads them one by
 /// one: it throws ContractError with the message for "images[i]: ..." (integrity, decoding).
 Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
-                 const std::function<void(size_t, const ImageFile&)>& decode = nullptr);
+                 const std::function<void(size_t, const ImageFile&)>& decode = nullptr,
+                 const PrepareOptions& options = PrepareOptions());
 
 /// Tokenize every rendered prompt; prompts over `max_length` (> 0) become max_length_exceeded. With
 /// images, each `<|image_pad|>` becomes that image's run of input tokens (counted in the length).
-void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length);
+/// With `token_bytes` (UTF-8 bytes one token id stands for) the prefix_bidir state length of every
+/// runnable question is computed too (`Prepared::state_len`, `state_block_length`).
+void tokenize(Prepared& p, const std::function<std::vector<int>(const std::string&)>& encode, int max_length,
+              const std::function<size_t(int)>& token_bytes = nullptr);
+
+// ---- prefix_bidir: the state block (d3_format.state_end_char / state_token_count / encode_split) ----
+/// The state segment of a rendered prompt ends where the question block starts: `state_end_char`, as a
+/// byte offset into the UTF-8 text. Throws ContractError (upstream's ValueError text) when the prompt has
+/// no state segment followed by the question block.
+size_t state_end_byte(const std::string& text, const PyValue& state);
+
+/// `state_token_count` without an offsets mapping. The tokenizers C API gives token ids only; for a
+/// byte-level BPE vocabulary a token's end offset is the running sum of `token_bytes(id)` (the UTF-8
+/// bytes its text stands for), so "all the token's characters lie before end_char" is
+/// `running_sum <= end` where `end` is the length in token bytes of the state segment: the sum over
+/// `encode(text[:end_byte])`, which is `end_byte` for NFC text and the normalized length otherwise (the
+/// tokenizer normalizes to NFC and upstream's offsets point back into the original text). A token that
+/// straddles the boundary belongs to the question block. Throws ContractError for an empty segment.
+int state_token_count(const std::vector<int>& ids, const std::function<size_t(int)>& token_bytes, size_t end);
+
+/// `encode_split`'s count for one rendered prompt: `ids` are the prompt's tokens (image placeholders not
+/// yet expanded), `media` the tokens the expansion adds (sum of image tokens - number of images).
+/// `segment_cache` (optional) remembers the token-byte length of a state segment text across the
+/// questions of one request.
+/// Throws std::runtime_error when the state block is empty or covers the whole prompt (upstream's
+/// RuntimeError: such a prompt cannot be split).
+int state_block_length(const std::string& text, const PyValue& state, const std::vector<int>& ids,
+                       const std::function<std::vector<int>(const std::string&)>& encode,
+                       const std::function<size_t(int)>& token_bytes, int media, int expanded_length,
+                       std::map<std::string, size_t>* segment_cache = nullptr);
 
 /// `invalid_questions` of a prepared request, or an empty object.
 ojson invalid_questions(const Prepared& p);
 
 /// `D3.respond`: `{"model", "answers", "usage"}` from per-question probabilities.
+/// For a prefix_bidir request (`Prepared::state_len` filled) `usage.input_tokens` counts the state block
+/// once plus every question block (upstream's default state-once path; `state_once` false, D3_STATE_ONCE=0,
+/// counts every whole prompt). Other models count the whole prompts, as ever.
 ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>>& probabilities,
-              const std::string& model_name);
+              const std::string& model_name, bool state_once = true);
 
 }  // namespace flm::d3

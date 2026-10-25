@@ -344,6 +344,86 @@ int main(int argc, char** argv) {
         }
     }
 
+    // d3:turbo (prefix_bidir): what this build does not run is refused with a 422 naming the model;
+    // other models keep upstream's messages
+    {
+        flm::d3::PrepareOptions turbo;
+        turbo.unsupported_for = "d3:turbo";
+        const auto detail = [&](const std::string& body_json, bool limited) -> std::string {
+            try {
+                flm::d3::prepare(flm::d3::parse_json(body_json), codes, nullptr, limited ? turbo : flm::d3::PrepareOptions());
+            } catch (const flm::d3::RequestError& e) {
+                return e.detail.is_string() ? e.detail.get<std::string>() : e.detail.dump();
+            }
+            return "";
+        };
+        const std::string tail = " by this build of d3:turbo (it answers choice, noul and score questions about text and images)";
+        const std::string n = "\"questions\": {\"n\": {\"type\": \"noul\"}}";
+        struct Case { std::string body; bool limited; std::string want; };
+        const std::vector<Case> cases = {
+            {"{\"questions\": {\"a\": {\"type\": \"noul\"}, \"b\": {\"type\": \"box\"}}}", true, "question 'b': box questions are not supported" + tail},
+            {"{\"questions\": {\"t\": {\"type\": \"track\"}}}", true, "question 't': track questions are not supported" + tail},
+            {"{" + n + ", \"videos\": [\"data:video/mp4;base64,AAAA\"]}", true, "videos are not supported" + tail},
+            {"{" + n + ", \"assets\": {\"x\": 1}}", true, "assets is not supported" + tail},
+            {"{" + n + ", \"long_context\": true}", true, "long_context is not supported" + tail},
+            {"{" + n + ", \"long_context\": false, \"assets\": null}", true, ""},
+            // d3:lite / nano / mini: unchanged
+            {"{\"questions\": {\"b\": {\"type\": \"box\"}}}", false, ""},   // a per-question invalid_question, not a 422 here
+            {"{" + n + ", \"videos\": [\"data:video/mp4;base64,AAAA\"]}", false,
+             "video inputs are not available: this FastFlowLM build runs d3 on text and images"},
+            {"{" + n + ", \"assets\": {\"x\": 1}}", false,
+             "'assets' not understood; a request may carry state, questions, images, videos, model"},
+        };
+        for (const auto& c : cases) {
+            checks++;
+            const std::string got = detail(c.body, c.limited);
+            if (got != c.want) fail("turbo-limits", "'" + got.substr(0, 160) + "' vs '" + c.want + "'");
+        }
+        // state_end_byte: the end of the state text inside "State:\n<state>\n\nQuestion:\n" (bytes, UTF-8)
+        const auto end_of = [&](const PyValue& state, const std::string& text) { return flm::d3::state_end_byte(text, state); };
+        checks++;
+        if (end_of(PyValue::string("h\xc3\xa9"), "xx State:\nh\xc3\xa9\n\nQuestion:\nq") != 3 + 7 + 3) fail("state_end_byte", "string");
+        checks++;
+        if (end_of(PyValue::null(), "State:\n(empty)\n\nQuestion:\nq") != 7 + 7) fail("state_end_byte", "null");
+        checks++;
+        if (end_of(PyValue::string(""), "State:\n(empty)\n\nQuestion:\nq") != 7 + 7) fail("state_end_byte", "empty string");
+        checks++;
+        if (end_of(PyValue::boolean(false), "State:\nfalse\n\nQuestion:\nq") != 7 + 5) fail("state_end_byte", "false");
+        checks++;
+        try {
+            end_of(PyValue::string("a"), "State:\nb\n\nQuestion:\nq");
+            fail("state_end_byte", "no segment must throw");
+        } catch (const flm::d3::ContractError&) {
+        }
+        // usage: the state block once plus every question block (a stand-in tokenizer: one token per character)
+        const auto chars = [](const std::string& s) { std::vector<int> v; for (unsigned char c : s) v.push_back(c); return v; };
+        const auto one_byte = [](int) -> size_t { return 1; };
+        flm::d3::Prepared pr = flm::d3::prepare(flm::d3::parse_json(
+            "{\"state\": \"hello\", \"questions\": {\"a\": {\"type\": \"noul\"}, \"b\": {\"type\": \"choice\", "
+            "\"criteria\": {\"x\": null, \"y\": \"why\"}}, \"bad\": {\"type\": \"nope\"}}}"), codes);
+        flm::d3::tokenize(pr, chars, 0, one_byte);
+        checks++;
+        const size_t pa = pr.sequences.at("a").size(), pb = pr.sequences.at("b").size();
+        const int S = pr.state_len.at("a");
+        if (S != pr.state_len.at("b") || pr.state_len.count("bad") || pa <= static_cast<size_t>(S)) fail("state_len", "shape");
+        checks++;
+        const std::string sa = flm::d3::render(PyValue::string("hello"), pr.questions.at("a"), codes);
+        if (static_cast<size_t>(S) != sa.find("State:\nhello") + 12) fail("state_len", "S is the end of the state text");
+        const std::map<std::string, std::vector<double>> probs = {{"a", {0.5, 0.5}}, {"b", {0.5, 0.5}}};
+        const auto usage = [&](bool once) { return flm::d3::respond(pr, probs, "d3-turbo", once)["usage"]["input_tokens"].get<size_t>(); };
+        checks++;
+        if (usage(true) != static_cast<size_t>(S) + (pa - S) + (pb - S)) fail("usage", "state once");
+        checks++;
+        if (usage(false) != pa + pb) fail("usage", "whole prompts (D3_STATE_ONCE=0)");
+        // no state_len (lite / nano / mini): whole prompts, as ever
+        flm::d3::Prepared old = flm::d3::prepare(flm::d3::parse_json("{\"state\": \"hello\", \"questions\": {\"a\": {\"type\": \"noul\"}}}"), codes);
+        flm::d3::tokenize(old, chars, 0);
+        checks++;
+        if (!old.state_len.empty() || flm::d3::respond(old, {{"a", {0.5, 0.5}}}, "d3-mini")["usage"]["input_tokens"].get<size_t>() != old.sequences.at("a").size()) {
+            fail("usage", "old models count the whole prompt");
+        }
+    }
+
     // json.loads(bytes): encoding detection and UnicodeDecodeError texts (from CPython 3.12)
     {
         struct Case { std::string body; std::string want; };   // want: "" = parses
