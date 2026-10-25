@@ -303,8 +303,15 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
         engine->load_weights(q4nx);
     }
     if (engine->hidden_size() != hidden_) throw std::runtime_error("readout width differs from the model's hidden size");
+    // the header this build mirrors and the library it loaded must be the same revision (d3_npu.hpp)
+    if (d3_npu_abi_version() != D3_NPU_ABI_VERSION) {
+        throw std::runtime_error("libd3_npu is revision " + std::to_string(d3_npu_abi_version()) +
+                                 " but this FastFlowLM was built for revision " + std::to_string(D3_NPU_ABI_VERSION));
+    }
+    const unsigned engine_caps = d3_npu_capabilities();
+    d3_npu* engine_raw = engine.get();
     engine_ = std::move(engine);
-    readout_engine_ = make_d3_engine_adapter(engine_.get(), encode(flm::d3::IMAGE_TOKEN).at(0));
+    readout_engine_ = make_d3_engine_adapter(engine_.get(), engine_raw, engine_caps, state_once_, encode(flm::d3::IMAGE_TOKEN).at(0));
 #else
     (void)enable_preemption;
     throw std::runtime_error("this FastFlowLM build has no d3 engine (libd3_npu)");
