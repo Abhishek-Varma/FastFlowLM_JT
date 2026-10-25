@@ -192,3 +192,57 @@ JPEG and WebP data URLs are accepted; web addresses, file paths, corrupt images 
 
 Attention runs on the NPU from 1,536 tokens, as for d3-lite (measured break-even for d3-mini: about 1,536 tokens; at
 4,096 tokens the NPU attention makes a request 17% faster, 5.3 s against 6.3 s). A prompt of 32,769 tokens is refused.
+
+## ⚡ d3-turbo on the NPU
+
+Accuracy and latency of `d3:turbo` (vllm-sr/d3-turbo, Qwen3.5-27B backbone, prefix-bidirectional attention, package
+D3-Turbo-NPU2), same machine and settings as above. **All numbers on this page are TBD** until the final package is
+measured; nothing below is a result.
+
+> **Note:**
+> - Latency is per request at the engine (no HTTP). A request is one state block plus one block per question: the
+>   state is computed once and every question runs against it (state-once).
+> - Memory: 16.5 GB of weights; the engine peaked at 25.05 GB at a 32,768-token prompt in the development build.
+
+### Accuracy against the upstream BF16 model
+
+| Set | Questions | NPU (FLM) |
+|---|---:|---:|
+| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 736 | **TBD** |
+| Same set, final hidden state cosine to BF16 (median) | 736 | **TBD** |
+| Long prompts, 6,144 to 24,576 tokens, top-1 agreement with BF16 | 5 | **TBD** |
+| Context limit, 32,767 and 32,768 tokens answered, 32,769 refused | 3 | **TBD** |
+| Image requests (31 hand-built requests, 64 × 64 to 2000 × 1500 images), top-1 agreement with BF16 | 60 | **TBD** |
+| Box questions on images (29 requests, 102 questions): median edge difference to BF16 | 102 | **TBD** |
+| Decision Index public suite, seeded round-robin sample: mean benchmark score | **TBD** | **TBD** (BF16: **TBD**) |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | **TBD** (BF16: **TBD**) |
+
+The reference is the upstream runtime on a GPU in BF16 (goldens frozen before the NPU runs). Prompts, token ids and answer
+objects follow the upstream runtime; probabilities differ by the quantization and the bf16 kernels.
+
+### Latency
+
+| Request | Median (ms) |
+|---|---:|
+| 1 question, 128 tokens | **TBD** |
+| 1 question, 330 tokens | **TBD** |
+| 1 question, 1,024 tokens | **TBD** |
+| 1 question, 4,096 tokens | **TBD** |
+| 1 question, 32,768 tokens | **TBD** |
+| 4 questions, one 330-token state | **TBD** |
+| 16 questions, one 330-token state | **TBD** |
+| 1 box question, one 1,024 × 768 image | **TBD** |
+| 4 box questions, one image | **TBD** |
+
+For comparison the earlier measurement on the development engine (one 2,105-token prompt through all 64 layers, array
+attention): 15.8 s; a 32,768-token prompt: 313 s. A first request loads the weights (about 17 s) and, with images, the
+vision tower.
+
+Attention runs on the NPU from a prompt length that has not been swept for the 27B backbone (**TBD**; the default of the
+smaller models is 1,536 tokens).
+
+### Video
+
+Status: **TBD**. Plain questions about a video in the state need the decoder (an FFmpeg of the machine, loaded at run
+time; off in the default build) and the engine's image path; `track` and `box` at a moment of a video need one engine
+call per window of the clip and are not available yet.
