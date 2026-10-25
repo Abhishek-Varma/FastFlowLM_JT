@@ -535,11 +535,34 @@ endif()
 if(EXISTS "${_d3_npu_lib}")
     list(APPEND FLM_ENGINE_LINK_LIBS d3_npu)
     target_compile_definitions(flm PRIVATE FLM_HAS_D3_NPU=1)
+    # Revision 2 of the engine API (d3_npu_abi_version(), d3_npu_capabilities(), d3_npu::encode_state_once: state
+    # once per request, see include/models/d3/flm/aie2p/d3_npu.hpp) is used only when the vendored library exports
+    # it, so the branch links against revision 1 libraries too and falls back to the per-row prefix_bidir path.
+    # AUTO looks for the symbol name in the library (or import library) file; ON / OFF force it, e.g. when
+    # relinking by hand against another library.
+    set(FLM_D3_NPU_REV2 "AUTO" CACHE STRING "Use the d3_npu state-once API (revision 2): AUTO, ON or OFF")
+    set(_d3_rev2 OFF)
+    if(FLM_D3_NPU_REV2 STREQUAL "AUTO")
+        file(READ "${_d3_npu_lib}" _d3_npu_hex HEX)
+        string(HEX "d3_npu_abi_version" _d3_npu_sym)
+        string(FIND "${_d3_npu_hex}" "${_d3_npu_sym}" _d3_npu_at)
+        if(NOT _d3_npu_at EQUAL -1)
+            set(_d3_rev2 ON)
+        endif()
+        unset(_d3_npu_hex)
+    elseif(FLM_D3_NPU_REV2)
+        set(_d3_rev2 ON)
+    endif()
+    if(_d3_rev2)
+        target_compile_definitions(flm PRIVATE FLM_D3_NPU_REV2=1)
+    endif()
+    message(STATUS "d3_npu state-once API (revision 2): ${_d3_rev2}")
 endif()
 
 # Video input for d3:turbo (src/common/video): FFmpeg's shared libraries are loaded at run time (no build-time
-# dependency); OFF leaves only the frame-list input and answers encoded videos with a clear 422.
-option(FLM_VIDEO_FFMPEG "Load FFmpeg (libavformat/libavcodec/libswscale) at run time to decode video inputs" ON)
+# dependency); OFF (the default until the engine runs videos) leaves only the frame-list input and answers
+# encoded videos with a clear 422.
+option(FLM_VIDEO_FFMPEG "Load FFmpeg (libavformat/libavcodec/libswscale) at run time to decode video inputs" OFF)
 if(FLM_VIDEO_FFMPEG)
     target_link_libraries(flm PRIVATE ${CMAKE_DL_LIBS})
 else()
