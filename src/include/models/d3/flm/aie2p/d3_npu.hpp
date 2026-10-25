@@ -16,15 +16,31 @@ struct d3_image {
     int grid_w = 0;
 };
 
-/// encode_batch()'s `payload` for image requests: the request's images, shared by every prompt.
+/// encode_batch()'s `payload`: the request's images (shared by every prompt) and, for the
+/// `prefix_bidir` attention mode, each prompt's state length. Text-only calls may pass a payload
+/// with no images (the vision tower is then not touched).
 /// Each prompt holds, in image order, one run of grid_h * grid_w / 4 `image_token_id` tokens per
 /// image (the expanded <|image_pad|> placeholders).
+///
+/// ABI: fields are append-only. The payload is read by the engine through a `void*`, so FastFlowLM
+/// and libd3_npu.so must be built from the same header revision (a caller built before `state_len`
+/// existed would hand over a shorter object).
 struct d3_image_payload {
     std::vector<d3_image> images;
     /// every image's patches in order, as the Qwen2-VL processor flattens them: per patch
     /// [3 channels][2 frames][16][16] bf16, rescaled and normalized; patches in 2 x 2 merge order
     std::vector<bf16> pixels;
     int image_token_id = 248056;
+
+    /// `prefix_bidir` attention (decision_config.json `attention_mode`): per prompt (same order and
+    /// count as `ids`), the number S of leading tokens that form the state block. In the
+    /// full-attention layers the first S tokens attend bidirectionally within themselves only; the
+    /// remaining tokens attend to all S + their own tokens (bidirectionally). The gated delta-net
+    /// layers stay causal over the whole prompt. S <= 0 or S >= the prompt's length means no split
+    /// for that prompt (every token sees every token, the `noncausal_full_attention` numerics,
+    /// bit-identical to a call without state_len). Empty (the default): no prompt is split, which is
+    /// what lite / nano / mini use. A non-empty vector must hold one entry per prompt.
+    std::vector<int> state_len;
 };
 
 class d3_npu : public decision_model{

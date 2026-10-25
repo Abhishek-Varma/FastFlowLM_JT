@@ -205,6 +205,10 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
         throw std::runtime_error("decision_config.json: this engine runs noncausal_full_attention and prefix_bidir checkpoints only");
     }
     prefix_bidir_ = attention_mode == "prefix_bidir";
+    {   // D3_STATE_ONCE=0 counts whole prompts in usage.input_tokens, as upstream's runtime does
+        const char* once = std::getenv("D3_STATE_ONCE");
+        state_once_ = !(once && std::string(once) == "0");
+    }
     if (dc.value("pooling", std::string("last")) != "last") throw std::runtime_error("decision_config.json: pooling must be last");
     if (dc.value("readout_dtype", std::string("float32")) != "float32") throw std::runtime_error("decision_config.json: readout_dtype must be float32");
     temperature_ = dc.value("temperature", 1.0f);
@@ -290,6 +294,21 @@ std::map<std::string, std::vector<double>> AutoDecisionModel::run(const flm::d3:
     std::vector<std::vector<int>> ids;
     ids.reserve(keys.size());
     for (const auto& k : keys) ids.push_back(prepared.sequences.at(k));
+    d3_image_payload text_payload;   // prefix_bidir text: a payload with no images carries the state lengths
+    if (prefix_bidir_) {
+        auto* pl = payload ? static_cast<d3_image_payload*>(payload) : &text_payload;
+        pl->state_len.clear();
+        for (const auto& k : keys) {
+            const int s = prepared.state_len.at(k);
+            // upstream (_run_state_once) refuses requests whose questions do not share one state block
+            if (!pl->state_len.empty() && (s != pl->state_len.front() ||
+                !std::equal(ids.front().begin(), ids.front().begin() + s, prepared.sequences.at(k).begin()))) {
+                throw std::runtime_error("the questions of a request do not share the state block's tokens");
+            }
+            pl->state_len.push_back(s);
+        }
+        payload = pl;
+    }
     // moved, never copied: XRT buffer copies do not own their memory
     std::vector<buffer<bf16>> hidden = engine_->encode_batch(ids, payload);
     std::vector<float> h(hidden_);
@@ -332,14 +351,20 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
         decoded.clear();
     };
     try {
-        prepared = flm::d3::prepare(body, codes_, decode);
+        flm::d3::PrepareOptions options;
+        if (prefix_bidir_) options.unsupported_for = tag_;   // box / track / assets / long_context / videos: not in this build
+        prepared = flm::d3::prepare(body, codes_, decode, options);
     } catch (const flm::d3::RequestError& e) {
         release();
         reply.status = 422;
         reply.body = {{"detail", e.detail}};
         return reply;
     }
-    flm::d3::tokenize(prepared, [this](const std::string& s) { return encode(s); }, MAX_INPUT_TOKENS);
+    // prefix_bidir: the state block length of every question (the tokenizer has no offsets API, so
+    // from token byte lengths: d3_contract state_block_length)
+    std::function<size_t(int)> token_bytes;
+    if (prefix_bidir_) token_bytes = [this](int id) { return tokenizer_->token_byte_length(id); };
+    flm::d3::tokenize(prepared, [this](const std::string& s) { return encode(s); }, MAX_INPUT_TOKENS, token_bytes);
     const auto invalid = flm::d3::invalid_questions(prepared);
     if (!invalid.empty()) {
         release();
@@ -372,8 +397,9 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
         }
     }
     std::lock_guard<std::mutex> lock(turn_);
-    const auto probabilities = run(prepared, payload.images.empty() ? nullptr : &payload);
-    reply.body = flm::d3::respond(prepared, probabilities, name_);
+    // old engines read a non-null payload as "has images": text of lite / nano / mini passes nullptr
+    const auto probabilities = run(prepared, (payload.images.empty() && !prefix_bidir_) ? nullptr : &payload);
+    reply.body = flm::d3::respond(prepared, probabilities, name_, state_once_);
     return reply;
 }
 

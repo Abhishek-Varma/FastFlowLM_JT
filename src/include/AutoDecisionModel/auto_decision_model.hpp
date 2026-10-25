@@ -70,6 +70,7 @@ private:
     std::vector<std::string> codes_;
     std::vector<float> readout_;   //!< [255, hidden] fp32
     int hidden_ = 0;
+    bool state_once_ = true;       //!< prefix_bidir usage counts the state block once (D3_STATE_ONCE=0: whole prompts)
     bool prefix_bidir_ = false;    //!< decision_config.json attention_mode: prefix_bidir (state block + question blocks)
     float temperature_ = 1.0f;
     std::mutex turn_;              //!< one request on the device at a time (d3_server.Decider)
