@@ -8,7 +8,7 @@
 
 namespace {
 /// defaults of --prefix-cache-mb and --prefix-slots
-constexpr size_t kDefaultPrefixCacheMiB = 1024;
+constexpr size_t kDefaultPrefixCacheMiB = 4096;
 constexpr size_t kDefaultPrefixSlots = 8;
 
 size_t lcp_len(const std::vector<int>& a, const std::vector<int>& b) {

@@ -230,6 +230,12 @@ void test_budget() {
     CHECK(cache.slot_count() == 2);
     CHECK(resume(cache, seq(1, 400)) == 0);           // the oldest went
     CHECK(resume(cache, seq(20000, 400)) == 300);
+    // the default budget is 4096 MiB: a 2000 MiB snapshot fits with default flags (1024 MiB would refuse it)
+    fake_engine huge;
+    huge.state_bytes = 2000ull << 20;
+    PrefixSlotCache defaults = make(huge);
+    prefill(defaults, huge, seq(1, 10), 0);
+    CHECK(defaults.slot_count() == 1);
     // 3000 rows = 1 MiB + 2.9 MiB > 3 MiB: refused
     fake_engine big;
     PrefixSlotCache small = make(big, 3, 32);
