@@ -16,6 +16,10 @@
 
 std::unordered_set<std::string> decisionModelTags = {"d3:lite", "d3:nano", "d3:mini", "d3:turbo"};
 
+/// Decision models whose warmup passes are skipped: one 2,048-row pass of a 27B backbone is minutes of
+/// NPU time, far more than the first-request latency it would hide. D3_WARMUP=1 / 0 overrides per run.
+static const std::unordered_set<std::string> decisionNoWarmupTags = {"d3:turbo"};
+
 namespace {
 
 std::string read_text(const std::filesystem::path& p) {
@@ -408,6 +412,12 @@ void AutoDecisionModel::warmup() {
     // 1,024 and 512 (one question). The engine keeps each bucket's instruction sequences for its
     // lifetime and the scratch of buckets that fit one 4,096-row pass together (these three do), so
     // the first requests in each bucket run at steady-state speed.
+    bool enabled = !decisionNoWarmupTags.count(tag_);
+    if (const char* env = std::getenv("D3_WARMUP")) enabled = std::string(env) != "0";
+    if (!enabled) {
+        header_print("FLM", "Decision model warmup skipped for " << tag_);
+        return;
+    }
     std::lock_guard<std::mutex> lock(turn_);
     const std::vector<std::vector<std::vector<int>>> passes = {
         std::vector<std::vector<int>>(4, std::vector<int>(500, 32)),   // 2,000 rows -> 2,048
