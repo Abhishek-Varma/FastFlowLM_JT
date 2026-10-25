@@ -46,8 +46,34 @@ private:
     Engine* engine_;
 };
 
+/// \brief 64-bit content hash of a byte range, continuing from `seed`
+uint64_t prefix_hash_bytes(const void* data, size_t bytes, uint64_t seed);
+
+/// \brief content hash of each image of a payload, in order, so a snapshot is only reused for the same pictures
+/// \note Works with any vision payload that has `images[i].grid_h / grid_w` and the concatenated pixel buffer
+///       `_data__processed` (patch * patch * 3 * temporal values per grid cell).
+template <class Payload>
+std::vector<uint64_t> prefix_image_hashes(const Payload& payload, size_t patch, size_t temporal) {
+    std::vector<uint64_t> hashes;
+    const auto& pixels = payload._data__processed;
+    size_t offset = 0;
+    for (const auto& img : payload.images) {
+        const size_t count = static_cast<size_t>(img.grid_h) * patch * static_cast<size_t>(img.grid_w) * patch * 3u * temporal;
+        uint64_t h = 0xcbf29ce484222325ull ^ (static_cast<uint64_t>(img.grid_h) << 32 | static_cast<uint64_t>(img.grid_w));
+        if (offset + count <= pixels.size()) {
+            h = prefix_hash_bytes(pixels.data() + offset, count * sizeof(pixels[0]), h);
+        }
+        hashes.push_back(h);
+        offset += count;
+    }
+    return hashes;
+}
+
 class PrefixSlotCache {
 public:
+    /// \brief engine slot 0 is the model's single checkpoint()/restore(); the cache hands out 1 and up only
+    static constexpr int kFirstSlot = 1;
+
     /// \brief the placeholder token id of images; slots count the image runs they contain
     int image_token_id = -1;
     /// \brief a shared head shorter than this is not worth a slot: re-processing it is cheap

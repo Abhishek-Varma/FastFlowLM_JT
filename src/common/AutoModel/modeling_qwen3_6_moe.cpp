@@ -16,21 +16,6 @@ Qwen3_6_MOE::Qwen3_6_MOE(flm_rt::device* npu_device_inst) : AutoModel(npu_device
 /************              prefix slots            **************/
 namespace {
 constexpr int kImageSoftTokenId = 248056;
-
-uint64_t hash_bytes(const void* data, size_t bytes, uint64_t h) {
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    size_t i = 0;
-    for (; i + 8 <= bytes; i += 8) {
-        uint64_t w;
-        std::memcpy(&w, p + i, 8);
-        h = (h ^ w) * 0x100000001b3ull;
-        h ^= h >> 29;
-    }
-    for (; i < bytes; i++) {
-        h = (h ^ p[i]) * 0x100000001b3ull;
-    }
-    return h;
-}
 } // namespace
 
 void Qwen3_6_MOE::_attach_prefix_cache() {
@@ -262,20 +247,7 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
     }
     if (slot_mode) {
         full_tokens.assign(tokens.begin(), tokens.end() - trim_tokens);
-        {
-            const size_t patch = slot_eng->QWEN3_6_MOE_PATCH_SIZE;
-            const size_t temporal = slot_eng->QWEN3_6_MOE_TEMPORAL_PATCH_SIZE;
-            size_t offset = 0;
-            for (const auto& img : image_payload.images) {
-                const size_t count = static_cast<size_t>(img.grid_h) * patch * static_cast<size_t>(img.grid_w) * patch * 3u * temporal;
-                uint64_t h = 0xcbf29ce484222325ull ^ (static_cast<uint64_t>(img.grid_h) << 32 | static_cast<uint64_t>(img.grid_w));
-                if (offset + count <= image_payload._data__processed.size()) {
-                    h = hash_bytes(image_payload._data__processed.data() + offset, count * sizeof(bf16), h);
-                }
-                image_hashes.push_back(h);
-                offset += count;
-            }
-        }
+        image_hashes = prefix_image_hashes(image_payload, slot_eng->QWEN3_6_MOE_PATCH_SIZE, slot_eng->QWEN3_6_MOE_TEMPORAL_PATCH_SIZE);
         match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, image_hashes);
     }
 

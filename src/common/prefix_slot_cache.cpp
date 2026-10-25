@@ -2,6 +2,8 @@
 /// \brief see prefix_slot_cache.hpp
 #include "prefix_slot_cache.hpp"
 
+#include <cstring>
+
 #include "utils/debug_utils.hpp"
 
 namespace {
@@ -21,14 +23,30 @@ bool has_prefix(const std::vector<int>& longer, const std::vector<int>& shorter)
 }
 } // namespace
 
+uint64_t prefix_hash_bytes(const void* data, size_t bytes, uint64_t h) {
+    const uint8_t* p = static_cast<const uint8_t*>(data);
+    size_t i = 0;
+    for (; i + 8 <= bytes; i += 8) {
+        uint64_t w;
+        std::memcpy(&w, p + i, 8);
+        h = (h ^ w) * 0x100000001b3ull;
+        h ^= h >> 29;
+    }
+    for (; i < bytes; i++) {
+        h = (h ^ p[i]) * 0x100000001b3ull;
+    }
+    return h;
+}
+
 size_t PrefixSlotCache::budget_bytes() const {
     const size_t mib = cache_mb_ > 0 ? static_cast<size_t>(cache_mb_) : kDefaultPrefixCacheMiB;
     return mib << 20;
 }
 
 size_t PrefixSlotCache::slot_limit() const {
+    if (slots_ == 0) return 0; // --prefix-slots 0: off
     const size_t requested = slots_ > 0 ? static_cast<size_t>(slots_) : kDefaultPrefixSlots;
-    const size_t engine_slots = ops_ ? static_cast<size_t>(std::max(ops_->max_slots(), 0)) : 0;
+    const size_t engine_slots = ops_ ? static_cast<size_t>(std::max(ops_->max_slots() - kFirstSlot, 0)) : 0;
     return std::min(requested, engine_slots);
 }
 
@@ -239,7 +257,7 @@ void PrefixSlotCache::save(const std::vector<int>& tokens, const std::vector<uin
         }
     }
     int id = -1;
-    for (int candidate = 0; candidate < ops_->max_slots() && id < 0; candidate++) {
+    for (int candidate = kFirstSlot; candidate < ops_->max_slots() && id < 0; candidate++) {
         bool used = false;
         for (const auto& slot : slots_table_) {
             used = used || slot.id == candidate;

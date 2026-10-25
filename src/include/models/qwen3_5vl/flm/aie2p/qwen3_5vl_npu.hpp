@@ -116,8 +116,9 @@ public:
     // the ABI WARNING in causal_lm.hpp). The caller reaches these through the
     // concrete class, the way it already reaches the vision parameters.
 
-    /// \brief how many checkpoint slots the engine keeps; slot 0 is checkpoint()/restore()
-    static constexpr int NUM_CHECKPOINT_SLOTS = 32;
+    /// \brief how many checkpoint slots the engine keeps: slot 0 is checkpoint()/restore(),
+    ///        1..32 are left to the caller's prefix cache
+    static constexpr int NUM_CHECKPOINT_SLOTS = 33;
 
     /// \brief save the recurrent state, the context length and attention K/V rows into `slot`
     /// \param kv_from first position whose K/V rows are saved with the slot (clamped to the
