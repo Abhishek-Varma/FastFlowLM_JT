@@ -424,6 +424,67 @@ int main(int argc, char** argv) {
         }
     }
 
+    // d3:turbo with composed requests (assets, box) and per-question reasons: check_request / prepare options
+    {
+        flm::d3::PrepareOptions c;
+        c.unsupported_for = "d3:turbo";
+        c.composed = true;
+        c.reasons = true;
+        const auto detail = [&](const std::string& body_json, const flm::d3::PrepareOptions& o) -> std::string {
+            try {
+                flm::d3::check_request(flm::d3::parse_json(body_json), o);
+            } catch (const flm::d3::RequestError& e) {
+                return e.detail.is_string() ? e.detail.get<std::string>() : e.detail.dump();
+            }
+            return "";
+        };
+        const std::string tail = " by this build of d3:turbo (it answers choice, noul, score and box questions about text and images)";
+        const std::string n = "\"questions\": {\"n\": {\"type\": \"noul\"}}";
+        struct Case { std::string body; std::string want; };
+        const std::vector<Case> cases = {
+            {"{\"questions\": {\"b\": {\"type\": \"box\", \"instructions\": \"x\"}}}", ""},
+            {"{\"questions\": {\"b\": {\"type\": \"box\", \"at\": null}}}", ""},
+            {"{\"questions\": {\"b\": {\"type\": \"box\", \"at\": 2.5}}}", "question 'b': a box at a moment of a video is not supported" + tail},
+            {"{\"questions\": {\"t\": {\"type\": \"track\"}}}", "question 't': track questions are not supported" + tail},
+            {"{" + n + ", \"assets\": {\"x\": 1}}", ""},
+            {"{" + n + ", \"long_context\": true}", "long_context is not supported" + tail},
+            {"{" + n + ", \"videos\": [\"x\"], \"zzz\": 1}", "'zzz' not understood; a request may carry state, questions, images, videos, assets, long_context, model"},
+        };
+        for (const auto& cs : cases) {
+            checks++;
+            const std::string got = detail(cs.body, c);
+            if (got != cs.want) fail("composed-checks " + cs.body.substr(0, 80), "'" + got.substr(0, 160) + "' vs '" + cs.want + "'");
+        }
+        // with refuse_video_questions off, track / box-at pass (they are answered per question)
+        checks++;
+        flm::d3::PrepareOptions inl = c;
+        inl.refuse_video_questions = false;
+        if (!detail("{\"questions\": {\"t\": {\"type\": \"track\"}, \"b\": {\"type\": \"box\", \"at\": 1}}}", inl).empty()) fail("composed-checks inline video", "must pass");
+        // reasons: every error answer of a prefix_bidir reply names one; lite / nano / mini replies are unchanged
+        const std::string body = "{\"state\": \"hello\", \"questions\": {\"a\": {\"type\": \"noul\"}, \"long\": {\"type\": \"noul\", \"instructions\": \"" + std::string(300, 'z') + "\"}}}";
+        const auto chars = [](const std::string& t) { std::vector<int> v; for (unsigned char ch : t) v.push_back(ch); return v; };
+        const auto one_byte = [](int) -> size_t { return 1; };
+        for (bool reasons : {true, false}) {
+            flm::d3::PrepareOptions o = c;
+            o.reasons = reasons;
+            flm::d3::Prepared pr = flm::d3::prepare(flm::d3::parse_json(body), codes, nullptr, o);
+            flm::d3::tokenize(pr, chars, 400, one_byte);
+            const auto reply = flm::d3::respond(pr, {{"a", {0.5, 0.5}}}, "d3-turbo");
+            checks++;
+            const ojson& e = reply["answers"]["long"];
+            if (e["error"] != "max_length_exceeded" || e.contains("reason") != reasons || (reasons && e["reason"] != "question_tokens") || reply["answers"]["a"].contains("reason"))
+                fail(std::string("reasons ") + (reasons ? "on" : "off"), e.dump());
+        }
+        // add_reasons: the defaults of upstream's DEFAULT_REASONS, an existing reason kept
+        checks++;
+        ojson answers = {{"x", {{"type", "noul"}, {"error", "invalid_model_output"}, {"message", "m"}}},
+                         {"y", {{"type", "box"}, {"error", "invalid_question"}, {"reason", "video_needed"}, {"message", "m"}}},
+                         {"z", {{"type", "noul"}, {"error", "invalid_question"}, {"message", "m"}}}, {"w", {{"type", "noul"}, {"noul", 0.5}}}};
+        flm::d3::add_reasons(answers);
+        if (answers["x"]["reason"] != "model_output" || answers["y"]["reason"] != "video_needed" || answers["z"]["reason"] != "question_malformed" || answers["w"].contains("reason"))
+            fail("reasons add_reasons", answers.dump());
+    }
+
     // json.loads(bytes): encoding detection and UnicodeDecodeError texts (from CPython 3.12)
     {
         struct Case { std::string body; std::string want; };   // want: "" = parses
