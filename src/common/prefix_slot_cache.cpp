@@ -158,6 +158,18 @@ void PrefixSlotCache::save(const std::vector<int>& tokens, const std::vector<uin
             return;
         }
     }
+    if (!boundary) {
+        // An end snapshot only a few tokens past a slot that already covers this prompt (a short side call on a
+        // shared system prompt, the first turn of a chat) would save re-processing just those tokens, at the price
+        // of a whole recurrent state, and could push out a snapshot that saves thousands. Resume from that slot.
+        for (const auto& slot : slots_table_) {
+            if (slot.tokens.size() < tokens.size() && tokens.size() - slot.tokens.size() < min_end_gain && has_prefix(tokens, slot.tokens) &&
+                slot.image_hashes.size() <= image_hashes.size() &&
+                std::equal(slot.image_hashes.begin(), slot.image_hashes.end(), image_hashes.begin())) {
+                return;
+            }
+        }
+    }
     if (row_bytes_ == 0) {
         row_bytes_ = ops_->row_bytes();
         state_bytes_ = ops_->state_bytes();

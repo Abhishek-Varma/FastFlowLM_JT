@@ -78,6 +78,8 @@ public:
     int image_token_id = -1;
     /// \brief a shared head shorter than this is not worth a slot: re-processing it is cheap
     size_t min_boundary = 512;
+    /// \brief an end snapshot must add at least this many tokens over a saved slot that covers its prompt
+    size_t min_end_gain = 64;
 
     /// \brief --prefix-cache-mb / --prefix-slots (-1 = default; 0 slots = off)
     void configure(int cache_mb, int slots) {

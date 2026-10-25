@@ -125,7 +125,7 @@ void test_longest_strict_prefix() {
     fake_engine e;
     PrefixSlotCache cache = make(e);
     const auto sys = seq(1, 600);
-    const auto t1 = cat(sys, seq(5000, 50));
+    const auto t1 = cat(sys, seq(5000, 100));
     prefill(cache, e, t1, 600);
     const auto t2 = cat(t1, seq(6000, 30));
     CHECK(resume(cache, t2) == t1.size());
@@ -142,7 +142,7 @@ void test_head_restored_after_cold_request() {
     fake_engine e;
     PrefixSlotCache cache = make(e);
     const auto sys = seq(1, 600);
-    const auto t1 = cat(sys, seq(5000, 50));
+    const auto t1 = cat(sys, seq(5000, 100));
     prefill(cache, e, t1, 600);
     // a side request with another system prompt (a title call) empties the live cache
     CHECK(resume(cache, seq(9000, 100)) == 0);
@@ -161,14 +161,14 @@ void test_eviction_order() {
     fake_engine e;
     PrefixSlotCache cache = make(e, 100000, 4);
     const auto sys_a = seq(1, 600);
-    const auto a1 = cat(sys_a, seq(5000, 50));
+    const auto a1 = cat(sys_a, seq(5000, 100));
     prefill(cache, e, a1, 600);                       // B_a, E_a1
-    const auto a2 = cat(a1, seq(6000, 50));
+    const auto a2 = cat(a1, seq(6000, 100));
     CHECK(resume(cache, a2) == a1.size());
     prefill(cache, e, a2, 600);                       // E_a2 supersedes E_a1 (B_a is already saved)
     CHECK(cache.slot_count() == 3);
     const auto sys_b = seq(20000, 600);
-    const auto b1 = cat(sys_b, seq(25000, 50));
+    const auto b1 = cat(sys_b, seq(25000, 100));
     prefill(cache, e, b1, 600);                       // B_b fits (4 slots), E_b1 forces one eviction: E_a1 (superseded)
     CHECK(cache.slot_count() == 4);
     CHECK(resume(cache, cat(a2, seq(7000, 10))) == a2.size());
@@ -177,7 +177,7 @@ void test_eviction_order() {
     // conversation c needs two slots: the end snapshots go (E_a2, least recently used, then E_b1) before any
     // boundary snapshot, so all three system prompts stay reusable
     const auto sys_c = seq(40000, 600);
-    prefill(cache, e, cat(sys_c, seq(45000, 50)), 600);
+    prefill(cache, e, cat(sys_c, seq(45000, 100)), 600);
     CHECK(cache.slot_count() == 4);
     CHECK(resume(cache, cat(a2, seq(7000, 10))) == sys_a.size());
     CHECK(resume(cache, cat(b1, seq(9000, 10))) == sys_b.size());
@@ -189,14 +189,34 @@ void test_boundary_kept_for_dependents() {
     fake_engine e;
     PrefixSlotCache cache = make(e, 100000, 2);
     const auto sys = seq(1, 600);
-    const auto t1 = cat(sys, seq(5000, 50));
+    const auto t1 = cat(sys, seq(5000, 100));
     prefill(cache, e, t1, 600);                       // B (kv_from 0), E (kv_from 600)
-    const auto t2 = cat(sys, seq(6000, 50));
+    const auto t2 = cat(sys, seq(6000, 100));
     CHECK(resume(cache, t2) == sys.size());
     prefill(cache, e, t2, 600);                       // E2 needs B: E (not B) is evicted
     cache.clear_live();
     CHECK(resume(cache, cat(t2, seq(7000, 5))) == t2.size());
     CHECK(resume(cache, cat(sys, seq(8000, 5))) == sys.size());
+}
+
+void test_small_tail_not_saved() {
+    std::printf("a side call a few tokens past the shared head is not saved, so it cannot push out the main conversation\n");
+    fake_engine e;
+    PrefixSlotCache cache = make(e, 100000, 2);
+    const auto sys = seq(1, 600);
+    const auto main1 = cat(sys, seq(5000, 1000));
+    prefill(cache, e, main1, 600);                    // B, E_main
+    for (int i = 0; i < 3; i++) {
+        const auto side = cat(sys, seq(9000 + 100 * i, 17));
+        CHECK(resume(cache, side) == sys.size());
+        prefill(cache, e, side, 600);                 // 17 tokens past B: not saved
+        CHECK(cache.slot_count() == 2);
+        CHECK(resume(cache, cat(main1, seq(20000 + 100 * i, 30))) == main1.size());
+    }
+    // the first turn of a chat (a short user message after the head) is not saved either; the next turn resumes at the head
+    const auto chat1 = cat(sys, seq(30000, 20));
+    prefill(cache, e, chat1, 600);
+    CHECK(resume(cache, cat(chat1, seq(31000, 30))) == sys.size());
 }
 
 void test_budget() {
@@ -267,6 +287,7 @@ int main() {
     test_head_restored_after_cold_request();
     test_eviction_order();
     test_boundary_kept_for_dependents();
+    test_small_tail_not_saved();
     test_budget();
     test_images();
     test_restore_failure_and_off();
