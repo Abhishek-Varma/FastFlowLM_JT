@@ -15,6 +15,7 @@
 #include <string>
 
 #include "decision/d3_contract.hpp"
+#include "decision/d3_engine_stub.hpp"
 #include "decision/py_json.hpp"
 
 #ifdef FLM_D3_TEST_TOKENIZER
@@ -421,6 +422,46 @@ int main(int argc, char** argv) {
         checks++;
         if (!old.state_len.empty() || flm::d3::respond(old, {{"a", {0.5, 0.5}}}, "d3-mini")["usage"]["input_tokens"].get<size_t>() != old.sequences.at("a").size()) {
             fail("usage", "old models count the whole prompt");
+        }
+        // plain prefix_bidir request -> ONE engine call: the shared state block and one block per question
+        {
+            const auto keys = pr.runnable();
+            const std::vector<float> readout(flm::d3::MAX_OPTIONS * 4, 0.25f);
+            flm::d3::ScriptedEngine engine(4, [&](const flm::d3::EngineStateRequest& r, size_t b) {
+                // a row that depends on the whole [state | block] row: sums of its token ids
+                float sum = 0;
+                for (int id : r.state_ids) sum += id;
+                for (int id : r.blocks[b].ids) sum += id;
+                return std::vector<float>{sum * 1e-4f, 1.f, 2.f, 3.f};
+            });
+            std::vector<flm::d3::EngineImage> images(1);
+            images[0].grid_h = 4;
+            images[0].grid_w = 6;
+            const auto request = flm::d3::plain_state_request(pr, images, 77);
+            const auto rows = engine.encode_state_once(request);
+            checks++;
+            bool ok = keys.size() == 2 && request.blocks.size() == 2 && request.state_ids.size() == static_cast<size_t>(S) &&
+                      request.images.size() == 1 && request.state_image_ids == std::vector<int>{0} && request.image_token_id == 77 &&
+                      request.video_token_id == -1 && engine.calls.size() == 1;
+            for (size_t i = 0; ok && i < keys.size(); i++) {
+                std::vector<int> whole = request.state_ids;
+                whole.insert(whole.end(), request.blocks[i].ids.begin(), request.blocks[i].ids.end());
+                ok = request.blocks[i].tag == keys[i] && whole == pr.sequences.at(keys[i]) && !request.blocks[i].ids.empty() &&
+                     request.blocks[i].readout_from_end == std::vector<int>{0} && request.blocks[i].image_ids.empty();
+            }
+            if (!ok) fail("plain_state_request", "state block, blocks and readout positions");
+            checks++;
+            const auto probs = flm::d3::plain_probabilities(pr, rows, readout.data(), 4, 1.0f);
+            if (probs.size() != 2 || probs.at("a").size() != 2 || probs.at("b").size() != 2) fail("plain_probabilities", "shape");
+            // a different state block in one request is refused, as upstream does
+            flm::d3::Prepared mixed = pr;
+            mixed.state_len["b"] = S - 1;
+            checks++;
+            try {
+                flm::d3::plain_state_request(mixed, {}, -1);
+                fail("plain_state_request", "questions with different state blocks must throw");
+            } catch (const std::runtime_error&) {
+            }
         }
     }
 

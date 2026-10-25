@@ -370,48 +370,29 @@ std::map<std::string, std::vector<double>> AutoDecisionModel::run_state_once(con
     const auto keys = prepared.runnable();
     std::map<std::string, std::vector<double>> out;
     if (keys.empty()) return out;
-    const std::vector<int>& first = prepared.sequences.at(keys.front());
-    const int s = prepared.state_len.at(keys.front());
-    flm::d3::EngineStateRequest request;
-    request.state_ids.assign(first.begin(), first.begin() + s);
-    for (const auto& k : keys) {
-        const auto& seq = prepared.sequences.at(k);
-        if (prepared.state_len.at(k) != s || !std::equal(request.state_ids.begin(), request.state_ids.end(), seq.begin())) {
-            throw std::runtime_error("the questions of a request do not share the state block's tokens");
-        }
-        flm::d3::EngineBlock block;
-        block.tag = k;
-        block.ids.assign(seq.begin() + s, seq.end());
-        block.readout_from_end = {0};
-        request.blocks.push_back(std::move(block));
-    }
     // the request's images all lie inside the state block (plain questions carry none of their own); the payload
     // holds their patches back to back, 3 x 2 x 16 x 16 values per patch
-    if (payload && !payload->images.empty()) {
-        request.image_token_id = payload->image_token_id;
+    std::vector<flm::d3::EngineImage> images;
+    if (payload) {
         constexpr size_t PER_PATCH = 3 * TEMPORAL_PATCH * flm::d3::IMAGE_PATCH_SIZE * flm::d3::IMAGE_PATCH_SIZE;
         size_t at = 0;
-        for (size_t i = 0; i < payload->images.size(); i++) {
+        for (const auto& image : payload->images) {
             flm::d3::EngineImage im;
-            im.grid_h = payload->images[i].grid_h;
-            im.grid_w = payload->images[i].grid_w;
+            im.grid_h = image.grid_h;
+            im.grid_w = image.grid_w;
             const size_t n = static_cast<size_t>(im.grid_h) * im.grid_w * PER_PATCH;
             if (at + n > payload->pixels.size()) throw std::runtime_error("image payload is shorter than its grids");
             im.pixels.resize(n);
             static_assert(sizeof(bf16) == sizeof(uint16_t), "bf16 is 16 bits");
             std::memcpy(im.pixels.data(), payload->pixels.data() + at, n * sizeof(uint16_t));
             at += n;
-            request.images.push_back(std::move(im));
-            request.state_image_ids.push_back(static_cast<int>(i));
+            images.push_back(std::move(im));
         }
     }
+    const flm::d3::EngineStateRequest request =
+        flm::d3::plain_state_request(prepared, std::move(images), payload ? payload->image_token_id : -1);
     const std::vector<std::vector<float>> hidden = readout_engine_->encode_state_once(request);
-    for (size_t i = 0; i < keys.size(); i++) {
-        const int count = static_cast<int>(prepared.questions.at(keys[i]).keys.size());
-        const auto p = flm::d3::readout_probabilities(hidden.at(i).data(), readout_.data(), hidden_, count, temperature_);
-        out[keys[i]] = std::vector<double>(p.begin(), p.end());
-    }
-    return out;
+    return flm::d3::plain_probabilities(prepared, hidden, readout_.data(), hidden_, temperature_);
 }
 
 DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {

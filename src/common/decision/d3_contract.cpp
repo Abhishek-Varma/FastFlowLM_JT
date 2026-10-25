@@ -965,4 +965,43 @@ ojson respond(const Prepared& p, const std::map<std::string, std::vector<double>
     return out;
 }
 
+EngineStateRequest plain_state_request(const Prepared& p, std::vector<EngineImage> images, int image_token_id) {
+    const auto keys = p.runnable();
+    if (keys.empty()) throw std::runtime_error("no runnable question");
+    EngineStateRequest request;
+    const std::vector<int>& first = p.sequences.at(keys.front());
+    const int s = p.state_len.at(keys.front());
+    request.state_ids.assign(first.begin(), first.begin() + s);
+    for (const auto& k : keys) {
+        const std::vector<int>& seq = p.sequences.at(k);
+        const int sk = p.state_len.at(k);
+        if (sk != s || static_cast<size_t>(sk) >= seq.size() || !std::equal(request.state_ids.begin(), request.state_ids.end(), seq.begin())) {
+            throw std::runtime_error("the questions of a request do not share the state block's tokens");
+        }
+        EngineBlock block;
+        block.tag = k;
+        block.ids.assign(seq.begin() + s, seq.end());
+        block.readout_from_end = {0};
+        request.blocks.push_back(std::move(block));
+    }
+    request.image_token_id = image_token_id;
+    request.images = std::move(images);
+    for (size_t i = 0; i < request.images.size(); i++) request.state_image_ids.push_back(static_cast<int>(i));
+    return request;
+}
+
+std::map<std::string, std::vector<double>> plain_probabilities(const Prepared& p, const std::vector<std::vector<float>>& hidden,
+                                                               const float* readout, int hidden_size, float temperature) {
+    const auto keys = p.runnable();
+    if (hidden.size() != keys.size()) throw std::runtime_error("the engine returned a different number of questions");
+    std::map<std::string, std::vector<double>> out;
+    for (size_t i = 0; i < keys.size(); i++) {
+        if (hidden[i].size() != static_cast<size_t>(hidden_size)) throw std::runtime_error("the engine returned a row of the wrong width");
+        const int count = static_cast<int>(p.questions.at(keys[i]).keys.size());
+        const auto probs = readout_probabilities(hidden[i].data(), readout, hidden_size, count, temperature);
+        out[keys[i]] = std::vector<double>(probs.begin(), probs.end());
+    }
+    return out;
+}
+
 }  // namespace flm::d3

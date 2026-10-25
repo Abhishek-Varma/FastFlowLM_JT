@@ -17,6 +17,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "decision/d3_engine.hpp"
 #include "decision/py_json.hpp"
 #include "video/video_preprocess.hpp"
 
@@ -242,6 +243,18 @@ int state_block_length(const std::string& text, const PyValue& state, const std:
 
 /// `invalid_questions` of a prepared request, or an empty object.
 ojson invalid_questions(const Prepared& p);
+
+/// prefix_bidir plain request (no `assets`, no box / track) as ONE engine call: the state block shared by every
+/// runnable question (the first S tokens of each sequence) and one block per question (the tokens after it, readout
+/// at the last token). `images` are the request's images in order, all inside the state block (a plain question has
+/// none of its own). Throws std::runtime_error when the questions do not share the state block's tokens (upstream's
+/// _run_state_once refuses that too). Blocks are in `Prepared::runnable()` order; `EngineBlock::tag` is the key.
+EngineStateRequest plain_state_request(const Prepared& p, std::vector<EngineImage> images, int image_token_id);
+
+/// The option probabilities of every runnable question from the engine's rows (one hidden row per block, in the
+/// order of `plain_state_request`): the fp32 readout of `readout_probabilities`.
+std::map<std::string, std::vector<double>> plain_probabilities(const Prepared& p, const std::vector<std::vector<float>>& hidden,
+                                                               const float* readout, int hidden_size, float temperature);
 
 /// `D3.respond`: `{"model", "answers", "usage"}` from per-question probabilities.
 /// For a prefix_bidir request (`Prepared::state_len` filled) `usage.input_tokens` counts the state block
