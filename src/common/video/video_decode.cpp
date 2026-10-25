@@ -99,8 +99,8 @@ VideoClip decode_clip(FrameBackend& backend, const std::string& bytes, const Dec
     return make_clip(frames, kept, fps, static_cast<int>(total), info.width, info.height);
 }
 
-std::vector<VideoClip> decode_windows(FrameBackend& backend, const std::string& bytes, int rate,
-                                      const DecodeLimits& limits) {
+void decode_windows(FrameBackend& backend, const std::string& bytes, int rate, const DecodeLimits& limits,
+                    const std::function<void(VideoClip&&)>& sink) {
     auto reader = open_or_throw(backend, bytes);
     const StreamInfo info = reader->info();
     const double fps = effective_fps(info.fps);
@@ -109,7 +109,7 @@ std::vector<VideoClip> decode_windows(FrameBackend& backend, const std::string& 
     if (static_cast<double>(total) / fps > limits.max_seconds) {
         throw VideoError("each video must be at most " + seconds_text(limits.max_seconds) + " seconds long");
     }
-    std::vector<VideoClip> out;
+    bool any = false;
     int number = 0;
     for (const std::vector<int>& window : window_plan(static_cast<int>(total), fps, rate)) {
         std::vector<std::pair<int, std::vector<uint8_t>>> have;     // (frame number, pixels) read for this window
@@ -133,9 +133,18 @@ std::vector<VideoClip> decode_windows(FrameBackend& backend, const std::string& 
                 }
             }
         }
-        if (!kept.empty()) out.push_back(make_clip(frames, kept, fps, static_cast<int>(total), info.width, info.height));
+        if (!kept.empty()) {
+            any = true;
+            sink(make_clip(frames, kept, fps, static_cast<int>(total), info.width, info.height));
+        }
     }
-    if (out.empty()) throw VideoError("no frame of the video could be decoded");
+    if (!any) throw VideoError("no frame of the video could be decoded");
+}
+
+std::vector<VideoClip> decode_windows(FrameBackend& backend, const std::string& bytes, int rate,
+                                      const DecodeLimits& limits) {
+    std::vector<VideoClip> out;
+    decode_windows(backend, bytes, rate, limits, [&](VideoClip&& c) { out.push_back(std::move(c)); });
     return out;
 }
 

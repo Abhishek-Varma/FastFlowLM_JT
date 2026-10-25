@@ -112,4 +112,10 @@ VideoClip load_video(const PyValue& value, const VideoLoadOptions& o) {
     }
 }
 
+std::function<std::shared_ptr<const VideoClip>(size_t, const PyValue&)> make_video_loader(VideoLoadOptions options) {
+    return [options = std::move(options)](size_t, const PyValue& value) {
+        return std::make_shared<const VideoClip>(load_video(value, options));
+    };
+}
+
 }  // namespace flm::d3::video

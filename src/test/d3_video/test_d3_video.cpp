@@ -750,6 +750,19 @@ void test_contract() {
     CHECK("6 videos refused", message(big, with_videos(6)) ==
                                   "the videos take 17,280 input tokens, over the 16,384 tokens a request may spend on videos; send fewer or shorter videos",
           message(big, with_videos(6)));
+    // end to end with the loader factory: data URL -> backend -> clip -> grid, texts, tokens
+    {
+        v::VideoLoadOptions lo;
+        lo.backend = std::make_shared<FakeBackend>(v::StreamInfo{64, 48, 24.0, 96}, 96);
+        flm::d3::PrepareOptions po;
+        po.load_video = v::make_video_loader(lo);
+        flm::d3::Prepared q = flm::d3::prepare(flm::d3::parse_json(R"({"state":"s","questions":{"q":{"type":"noul","instructions":"x"}},"videos":["data:video/mp4;base64,)" + base64("ok") + R"("]})"), codes, nullptr, po);
+        // 96 frames at 24 fps = 4 s: 8 frames, 4 groups; 64x48 stays small (min pixels) -> grid
+        CHECK("loader end to end", q.videos.size() == 1 && q.videos[0]->n == 8 && q.video_runs.size() == 1 && q.video_runs[0].size() == 4 && q.has_videos,
+              "prepared videos");
+        flm::d3::tokenize(q, fake_encode, 0);
+        CHECK("loader tokens", q.sequences.count("q") && !q.video_ids.empty() && q.video_ids[0].size() > 4 * q.video_runs[0][0], "video token ids");
+    }
     // literal placeholder in the state
     flm::d3::PrepareOptions lit = on;
     const auto p = flm::d3::prepare(flm::d3::parse_json(R"({"state":"a <|video_pad|> b","questions":{"q":{"type":"noul","instructions":"x"}},"videos":["v"]})"), codes, nullptr, lit);
@@ -908,6 +921,25 @@ void test_backend(const std::string& dir, const json& decode, const std::string&
                           (md5_hex(ws[i].frames.data(), ws[i].frames.size()) == g[i]["md5"].get<std::string>() || maxd > 0);
             }
             CHECK("backend " + file + " windows vs upstream rate " + std::to_string(rate), same_up, "decode_windows differs from _decode_windows");
+        }
+    }
+    // the whole request path with the real decoder: data URL -> prepare -> grid and texts
+    {
+        bool ok2 = false;
+        const std::string bytes = read_file(dir + "/h264.mp4", &ok2);
+        if (ok2) {
+            v::VideoLoadOptions lo;
+            lo.backend = backend;
+            flm::d3::PrepareOptions po;
+            po.load_video = v::make_video_loader(lo);
+            std::vector<std::string> codes;
+            for (int i = 0; i < 255; i++) codes.push_back(i < 26 ? std::string(1, 'A' + i) : std::string(1, 'A' + (i - 26) / 26) + std::string(1, 'A' + (i - 26) % 26));
+            const std::string body = R"({"state":"s","questions":{"q":{"type":"noul","instructions":"x"}},"videos":["data:video/mp4;base64,)" + base64(bytes) + R"("]})";
+            flm::d3::Prepared q = flm::d3::prepare(flm::d3::parse_json(body), codes, nullptr, po);
+            CHECK("e2e prepare", q.videos.size() == 1 && q.videos[0]->n == 8 && q.video_grids[0].grid_t == 4 && q.video_texts[0].find("<0.3 seconds><|vision_start|><|video_pad|>") == 0,
+                  "mp4 through prepare");
+            flm::d3::tokenize(q, fake_encode, 0);
+            CHECK("e2e tokenize", q.sequences.count("q") == 1, "tokenized");
         }
     }
     // corrupt data

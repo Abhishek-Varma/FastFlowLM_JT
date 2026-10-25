@@ -33,4 +33,7 @@ constexpr int MAX_FRAME_LIST = 2048;
 /// encoded video needs a decoder that is not there.
 VideoClip load_video(const PyValue& value, const VideoLoadOptions& options);
 
+/// `PrepareOptions::load_video` for these options (the d3_contract hook): `load_video` as a shared clip.
+std::function<std::shared_ptr<const VideoClip>(size_t, const PyValue&)> make_video_loader(VideoLoadOptions options);
+
 }  // namespace flm::d3::video

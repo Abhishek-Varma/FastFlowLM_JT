@@ -70,6 +70,11 @@ VideoClip decode_clip(FrameBackend& backend, const std::string& bytes, const Dec
 /// `_decode_windows`: one pass over the clip, split into the track windows of `window_plan(total, fps, rate)`.
 std::vector<VideoClip> decode_windows(FrameBackend& backend, const std::string& bytes, int rate,
                                       const DecodeLimits& limits = {});
+/// The same, handing each window to `sink` as soon as it is read, so a caller can resize or consume it and drop the
+/// full-size frames (a 60 s 1080p clip at rate 2 is 240 frames, 1.5 GB if all windows are kept). Throws like the
+/// vector form; `sink` is called for every window that kept a frame.
+void decode_windows(FrameBackend& backend, const std::string& bytes, int rate, const DecodeLimits& limits,
+                    const std::function<void(VideoClip&&)>& sink);
 
 /// An already decoded RGB image (a frame of a frame list).
 struct RgbFrame {
