@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from sweep_common import SweepTask, run_task
+from sweep_common import ASSETS_DIR, SweepTask, run_task
 
 REPO = Path(__file__).resolve().parents[2]
 STATE = "The order arrived damaged yesterday. The customer has a receipt and asks for a replacement today."
@@ -103,6 +103,10 @@ class DecisionSweep(SweepTask):
         # every d3 size has its own BF16 answers: d3_goldens.jsonl is d3:lite's, d3_goldens_<size>.jsonl the others'
         size = model.split(":", 1)[1]
         goldens = "d3_goldens.jsonl" if size == "lite" else f"d3_goldens_{size}.jsonl"
+        if not (ASSETS_DIR / goldens).is_file():
+            # e.g. d3_goldens_turbo.jsonl exists once the upstream BF16 reference has answered the requests
+            self.case(writer, model, "goldens", False, f"{goldens} is missing", 0.0, f"no BF16 goldens for {model} ({goldens})")
+            return
         for line in open(self.asset(goldens), encoding="utf-8"):
             rec = json.loads(line)
             status, body, t = self.post(rec["request"])
@@ -165,6 +169,24 @@ class DecisionSweep(SweepTask):
         ok = status == 200 and a.get("error") == "max_length_exceeded" and body["usage"]["input_tokens"] == 0
         self.case(writer, model, "too-long", ok, f"status {status}, {a.get('error')}", t, json.dumps(body)[:200])
 
+    def _prefix_bidir(self, writer, model: str) -> None:
+        """d3:turbo only: question types this build does not run are refused with a 422 naming the model, and
+        input_tokens counts the state block once (4 questions cost far less than 4 single-question requests)."""
+        status, body, t = self.post({"state": STATE, "questions": {"b": {"type": "box"}}})
+        detail = body.get("detail", "")
+        ok = status == 422 and isinstance(detail, str) and "not supported by this build of " + model in detail
+        self.case(writer, model, "unsupported-box", ok, f"status {status}", t, json.dumps(body)[:200])
+        long_state = "The customer wrote: " + "the parcel is late, again. " * 40
+        one = {"q1": {"type": "noul", "instructions": "Is the customer upset?"}}
+        four = {f"q{i}": {"type": "noul", "instructions": f"Is the customer upset? ({i})"} for i in range(1, 5)}
+        s1, b1, t1 = self.post({"state": long_state, "questions": one})
+        s4, b4, t4 = self.post({"state": long_state, "questions": four})
+        n1 = b1.get("usage", {}).get("input_tokens", 0)
+        n4 = b4.get("usage", {}).get("input_tokens", 0)
+        ok = s1 == 200 and s4 == 200 and n1 > 0 and n1 < n4 < 4 * n1
+        self.case(writer, model, "state-once-usage", ok, f"1 question {n1} tokens, 4 questions {n4}", t1 + t4,
+                  f"input_tokens {n1} / {n4}")
+
     # 96 x 64 PNG: a yellow box on a blue background
     IMAGE = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAiElEQVR42u3bMRXAIAxAQcKrjk5V1QkZlYAM"
              "5FQEYmoApi4Z7u8ZuJeMxHm/RfsqAkCAAAECBAgQIK06/gzPp+V81dWHDXJigAABAiRAgAABAgQIECBAAgQIECBAgAABEiBAgAABAgQIkAAB"
@@ -225,6 +247,8 @@ class DecisionSweep(SweepTask):
                 self._two_letter(writer, model)
                 self._invalid(writer, model)
                 self._too_long(writer, model)
+                if model == "d3:turbo":
+                    self._prefix_bidir(writer, model)
                 self._image(writer, model)
                 self._docs(writer, model)
         finally:
