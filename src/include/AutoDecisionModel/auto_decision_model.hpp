@@ -6,6 +6,7 @@
 ///        (vllm-sr/d3-lite v3.1.3) byte for byte (src/test/d3_contract).
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -88,6 +89,9 @@ private:
     std::unique_ptr<flm::d3::ReadoutEngine> readout_engine_;   //!< the contract's view of the engine (d3_engine_adapter)
     std::mutex turn_;              //!< one request on the device at a time (d3_server.Decider)
     ImageReader image_reader_;     //!< decodes request images (PNG, JPEG, WebP)
+    bool video_ = false;           //!< videos in the state are accepted (FLM_VIDEO_FFMPEG build, prefix_bidir, D3_VIDEO != 0)
+    /// `PrepareOptions::load_video` (video/video_input.hpp): data URL clips and frame lists -> a sampled clip
+    std::function<std::shared_ptr<const flm::d3::video::VideoClip>(size_t, const flm::d3::PyValue&)> video_loader_;
     int dump_count_ = 0;           //!< D3_DUMP_PIXELS: requests dumped so far
 
     std::vector<int> encode(const std::string& text);

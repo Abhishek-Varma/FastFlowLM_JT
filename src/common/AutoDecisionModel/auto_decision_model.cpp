@@ -14,6 +14,9 @@
 #include "minja/chat-template.hpp"
 #include "models/d3/flm/aie2p/d3_npu.hpp"   // d3_image_payload (the d3_npu class only with FLM_HAS_D3_NPU)
 #include "utils/utils.hpp"
+#ifdef FLM_D3_VIDEO
+#include "video/video_input.hpp"
+#endif
 
 std::unordered_set<std::string> decisionModelTags = {"d3:lite", "d3:nano", "d3:mini", "d3:turbo"};
 
@@ -296,6 +299,33 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
         }
     }
 
+#ifdef FLM_D3_VIDEO
+    // videos in the state (plain choice / noul / score questions): decoded on the host, every temporal group goes to the
+    // engine as an image run (its pad ids are rewritten to the image pad: positions and vision are the same, see
+    // system_one). Box at a moment / track need the per-window engine calls (M4) and stay refused.
+    if (prefix_bidir_) {
+        const char* env = std::getenv("D3_VIDEO");
+        video_ = !(env && std::string(env) == "0");
+    }
+    if (video_) {
+        flm::d3::video::VideoLoadOptions load;
+        load.backend = flm::d3::video::make_ffmpeg_backend();
+        load.decode_image = [this](const flm::d3::ImageFile& f, flm::d3::video::RgbFrame& out, std::string* why) {
+            image_data_t rgb;
+            if (!image_reader_.load_image_bytes(f.data, rgb)) {
+                if (why) *why = "the file is truncated or corrupt";
+                return false;
+            }
+            out.width = rgb.width;
+            out.height = rgb.height;
+            out.rgb.assign(rgb.pixels.data(), rgb.pixels.data() + static_cast<size_t>(rgb.width) * rgb.height * 3);
+            image_reader_.recycle(rgb);
+            return true;
+        };
+        video_loader_ = flm::d3::video::make_video_loader(std::move(load));
+    }
+#endif
+
     // the engine
     config_ = std::make_unique<LM_Config>();
     config_->from_pretrained(model_path);
@@ -441,6 +471,7 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
             options.unsupported_for = tag_;   // long_context / videos (and track): not in this build
             options.composed = composed_;
             options.reasons = true;           // d3-turbo's runtime adds `reason` to every error answer
+            if (video_) options.load_video = video_loader_;
         }
         prepared = flm::d3::prepare(body, codes_, decode, options);
     } catch (const flm::d3::RequestError& e) {
@@ -472,6 +503,28 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
         payload.images.push_back({gh, gw});
     }
     release();
+#ifdef FLM_D3_VIDEO
+    if (!prepared.videos.empty()) {
+        // The engine (revision 1 and 2) knows image runs only. Every temporal group of a video is one run of
+        // grid_h/2 x grid_w/2 tokens whose positions are (s, s + row, s + col) and whose pixels are one
+        // [3][2][16][16] patch grid: exactly an image's (Qwen3.5 get_rope_index splits a video per group; the vision
+        // tower attends within a group), so the groups follow the request's images in the payload and the video pad
+        // ids become the image pad id (the rows are replaced by the vision features anyway).
+        flm::d3::video::VideoPayload videos;
+        for (size_t v = 0; v < prepared.videos.size(); v++) {
+            flm::d3::video::append_video(videos, *prepared.videos[v], prepared.video_grids[v]);
+        }
+        const size_t at = payload.pixels.size();
+        payload.pixels.resize(at + videos.pixels.size());
+        static_assert(sizeof(bf16) == sizeof(uint16_t), "bf16 is 16 bits");
+        std::memcpy(payload.pixels.data() + at, videos.pixels.data(), videos.pixels.size() * sizeof(uint16_t));
+        for (const auto& g : videos.groups) payload.images.push_back({g.first, g.second});
+        const int image_pad = encode(flm::d3::IMAGE_TOKEN).at(0), video_pad = encode(flm::d3::VIDEO_TOKEN).at(0);
+        for (auto& entry : prepared.sequences) {
+            for (int& id : entry.second) if (id == video_pad) id = image_pad;
+        }
+    }
+#endif
     if (!payload.images.empty()) {
         const std::vector<int> pad = encode(flm::d3::IMAGE_TOKEN);
         payload.image_token_id = pad.at(0);
@@ -493,8 +546,8 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
 }
 
 nlohmann::json AutoDecisionModel::modalities() const {
-    // what this build reads: text and images (video arrives with the engine's video path)
-    return nlohmann::json::array({"text", "image"});
+    // what this build reads: text and images; video in the state when the build has the decoder (FLM_VIDEO_FFMPEG)
+    return video_ ? nlohmann::json::array({"text", "image", "video"}) : nlohmann::json::array({"text", "image"});
 }
 
 std::vector<std::string> AutoDecisionModel::question_types() const {
