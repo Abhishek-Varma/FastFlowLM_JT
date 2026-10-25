@@ -12,6 +12,15 @@
 
 #include "decision/py_math.hpp"
 
+// numpy rounds every operation (no a * b + c fusing): keep the compiler from contracting them (FMA targets)
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize("fp-contract=off")
+#elif defined(_MSC_VER)
+#pragma fp_contract(off)
+#endif
+
 namespace flm::d3::compose {
 
 const char* const DEFAULT_INSTRUCTIONS = "Choose the best matching option.";
