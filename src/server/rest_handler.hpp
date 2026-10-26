@@ -156,6 +156,9 @@ private:
     int chat_context_id;
     int ctx_length;
     int img_pre_resize;
+    /// \brief the --prefix-cache-mb / --prefix-slots values, -1 when each model's own default is used
+    int prefix_cache_mb = -1;
+    int prefix_slots = -1;
     std::string last_question;
     bool preemption;
     /// \brief the --backend value, empty when the flag was not given

@@ -13,6 +13,29 @@
 /************              Qwen3_6_MOE family            **************/
 Qwen3_6_MOE::Qwen3_6_MOE(flm_rt::device* npu_device_inst) : AutoModel(npu_device_inst, "Qwen3_6_MOE") {}
 
+/************              prefix slots            **************/
+namespace {
+constexpr int kImageSoftTokenId = 248056;
+} // namespace
+
+void Qwen3_6_MOE::_attach_prefix_cache() {
+    // FLM_DISABLE_PREFIX_SLOTS=1 turns the slots off (single-checkpoint path), to get a reference to compare against
+    static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
+    this->prefix_cache_.image_token_id = kImageSoftTokenId;
+    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
+    auto* engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine);
+    if (disabled || engine == nullptr) {
+        this->prefix_cache_.attach(nullptr);
+        return;
+    }
+    this->prefix_cache_.attach(std::make_unique<prefix_engine_adapter<qwen3_6_moe_npu>>(engine));
+}
+
+void Qwen3_6_MOE::clear_context() {
+    this->prefix_cache_.forget_all();
+    this->AutoModel::clear_context();
+}
+
 void Qwen3_6_MOE::load_model(std::string model_path, json model_info, int default_context_length, bool enable_preemption, const std::string& backend) {
     this->_shared_load_backend(model_path, model_info, default_context_length, enable_preemption, backend);
     this->setup_tokenizer(model_path);
@@ -33,6 +56,7 @@ void Qwen3_6_MOE::load_model(std::string model_path, json model_info, int defaul
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    this->_attach_prefix_cache();
 }
 
 void Qwen3_6_MOE::setup_tokenizer(std::string model_path) {
@@ -210,6 +234,23 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
     // fully-cached leading images so the surviving payload aligns with the
     // surviving image tokens after _shared_insert performs its own erase.
     // ----------------------------------------------------------------------
+    // ---- prefix slots: resume from the longest saved prefix of this prompt ----
+    const size_t trim_tokens = this->enable_think ? 2 : 4;
+    qwen3_6_moe_npu* slot_eng = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine);
+    const bool slot_mode = this->prefix_cache_.enabled() && slot_eng != nullptr && meta_info.restore_allowed && tokens.size() > trim_tokens;
+    size_t match_len = 0;
+    std::vector<int> full_tokens;          // what this prompt leaves in the engine
+    std::vector<uint64_t> image_hashes;    // content of each of its images
+    if (this->prefix_cache_.enabled() && !slot_mode) {
+        // the single-checkpoint path below moves the engine on without telling the cache
+        this->prefix_cache_.forget_all();
+    }
+    if (slot_mode) {
+        full_tokens.assign(tokens.begin(), tokens.end() - trim_tokens);
+        image_hashes = prefix_image_hashes(image_payload, slot_eng->QWEN3_6_MOE_PATCH_SIZE, slot_eng->QWEN3_6_MOE_TEMPORAL_PATCH_SIZE);
+        match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, image_hashes);
+    }
+
     size_t prefix_skip_count = 0;
     {
         const size_t idx = this->checkpoint_his.size();
@@ -224,6 +265,9 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
         // will clear the context and not skip anything.
         if (prefix_skip_count != idx) {
             prefix_skip_count = 0;
+        }
+        if (slot_mode) {
+            prefix_skip_count = match_len;
         }
 
         if (prefix_skip_count > 0 && !image_payload.images.empty()) {
@@ -290,14 +334,19 @@ bool Qwen3_6_MOE::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input,
     int restore_idx = -1;
     const bool has_images = image_payload.num_images > 0;
 
-    if (meta_info.restore_allowed) {
+    if (!slot_mode && meta_info.restore_allowed) {
         restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
 
     size_t n = tokens.size();
-    tokens.resize(n - (this->enable_think ? 2 : 4));
+    tokens.resize(n - trim_tokens);
+
+    if (slot_mode) {
+        return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, image_hashes, match_len, "<|im_start|>user",
+                                    has_images ? static_cast<void*>(&image_payload) : nullptr, last_image_token_index, is_cancelled);
+    }
 
     bool success = has_images
         ? this->_shared_insert(meta_info, tokens, is_cancelled, &image_payload, last_image_token_index)

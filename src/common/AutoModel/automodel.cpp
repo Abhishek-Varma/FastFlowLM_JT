@@ -375,6 +375,77 @@ std::string AutoModel::generate_with_prompt(
     return generate(meta_info, length_limit, os, std::move(is_cancelled));
 }
 
+size_t AutoModel::_prefix_resume(PrefixSlotCache& cache, const std::vector<int>& full_tokens, const std::vector<uint64_t>& image_hashes) {
+    std::vector<int> matched;
+    const PrefixSlotCache::resume_t resumed = cache.resume(full_tokens, image_hashes, matched);
+    if (!resumed.resumed) {
+        this->_prefix_cold_start(cache);
+        header_print("FLM", "No saved prefix matches, prefilling " << full_tokens.size() << " tokens");
+        return 0;
+    }
+    this->total_tokens = resumed.match_len;
+    this->token_history = std::move(matched);
+    // a cold prompt starts with an empty penalty history (clear_context); resuming must too,
+    // or the tokens of earlier requests change what this one generates
+    this->sampler->reset_penalties();
+    return resumed.match_len;
+}
+
+void AutoModel::_prefix_cold_start(PrefixSlotCache& cache) {
+    this->AutoModel::clear_context(); // zeroes the engine and the token history, not the slots
+    cache.clear_live();               // the engine's rows hold nothing now
+}
+
+bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
+                               const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
+                               void* payload, int last_image_token_index, std::function<bool()> is_cancelled) {
+    bool success = true;
+    uint64_t head_prefill_ns = 0;
+    // Save the end of system + tools while prefilling, so a prompt that shares only that part
+    // (another conversation, a side request) can resume there.
+    size_t boundary = 0;
+    {
+        const std::vector<int> marker = this->tokenizer->encode(boundary_marker);
+        for (size_t i = 1; i + marker.size() <= full_tokens.size() && !marker.empty(); i++) {
+            if (std::equal(marker.begin(), marker.end(), full_tokens.begin() + i)) {
+                boundary = i;
+                break;
+            }
+        }
+        if (boundary < cache.min_boundary) boundary = 0;
+    }
+    if (payload == nullptr && boundary > match_len && boundary < full_tokens.size()) {
+        std::vector<int> head(full_tokens.begin(), full_tokens.begin() + boundary);
+        chat_meta_info_t head_meta;
+        head_meta.max_prefill_len = meta_info.max_prefill_len;
+        success = this->_shared_insert(head_meta, head, is_cancelled, nullptr, 0, std::nullopt, false);
+        if (success) {
+            head_prefill_ns = head_meta.prefill_duration;
+            const std::vector<int> head_tokens(full_tokens.begin(), full_tokens.begin() + boundary);
+            cache.set_live(head_tokens);
+            cache.save(head_tokens, {}, true, 0);
+        } else {
+            meta_info.stop_reason = head_meta.stop_reason;
+        }
+    }
+    if (success) {
+        success = payload != nullptr
+            ? this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index)
+            : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+    }
+    if (!success) {
+        this->_prefix_cold_start(cache); // cancelled or failed half way: the engine holds part of a prompt; the slots are intact
+        return false;
+    }
+    // the second pass only saw the tokens after the boundary slot as new
+    meta_info.cached_prompt_tokens = static_cast<int>(match_len);
+    meta_info.prefill_duration += head_prefill_ns;
+    cache.set_live(full_tokens);
+    // the end of this prompt keeps only what follows the shared head, when a slot holds that head
+    cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    return true;
+}
+
 void AutoModel::_shared_validate_capacity(std::size_t rendered_tokens,
                                           std::optional<int> requested) const {
     if (!this->backend_ || this->backend_->max_decode_length() == 0) return;
@@ -391,10 +462,15 @@ void AutoModel::_shared_validate_capacity(std::size_t rendered_tokens,
     }
 }
 
-bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled, void* payload, int first_len_run, std::optional<int> requested_max_new_tokens) {
+bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, std::function<bool()> is_cancelled, void* payload, int first_len_run, std::optional<int> requested_max_new_tokens, bool sample_next) {
     this->_shared_validate_capacity(tokens.size(), requested_max_new_tokens);
 
-    this->_begin_turn(meta_info, tokens);
+    // a prefill-only pass (sample_next false) is the head of a longer prompt: the
+    // turn, its constraint and the sampler's penalty history all belong to the
+    // pass that finishes the prompt
+    if (sample_next) {
+        this->_begin_turn(meta_info, tokens);
+    }
 
     // print token history
     // header_print("DEBUG", "Current token history: ");
@@ -457,6 +533,9 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
     this->total_tokens += tokens.size();
     if (this->total_tokens >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping prefilling...");
+    }
+    if (!sample_next) {
+        return true;
     }
     this->profiler_list[SAMPLING_TIME].start();
     this->last_token = this->_sample(y, meta_info);
