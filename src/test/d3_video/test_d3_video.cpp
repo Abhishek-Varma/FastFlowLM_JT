@@ -298,22 +298,27 @@ void test_case(const std::string& dir, const json& c, int max_video_tokens, Case
           "resized size");
     // pixels: the resize against torchvision's (+-1 LSB budget, A8), then the whole tensor
     const std::vector<uint8_t> resized = v::resize_clip(clip, grid);
-    const std::string gold = read_file(dir + "/" + name + ".resized.u8");
-    CHECK(name + " resized size bytes", gold.size() == resized.size(), "resized golden size " + std::to_string(gold.size()));
+    // The resized frames are committed only for the small cases (gen_fixtures.py regenerates all of them); for the
+    // others the md5 of the whole pixel tensor below is the exactness check.
+    bool have_gold = false;
+    const std::string gold = read_file(dir + "/" + name + ".resized.u8", &have_gold);
     int maxdiff = 0;
     long long nd = 0;
-    if (gold.size() == resized.size()) {
-        for (size_t i = 0; i < resized.size(); i++) {
-            const int d = std::abs(static_cast<int>(resized[i]) - static_cast<int>(static_cast<uint8_t>(gold[i])));
-            maxdiff = std::max(maxdiff, d);
-            nd += d != 0;
+    if (have_gold) {
+        CHECK(name + " resized size bytes", gold.size() == resized.size(), "resized golden size " + std::to_string(gold.size()));
+        if (gold.size() == resized.size()) {
+            for (size_t i = 0; i < resized.size(); i++) {
+                const int d = std::abs(static_cast<int>(resized[i]) - static_cast<int>(static_cast<uint8_t>(gold[i])));
+                maxdiff = std::max(maxdiff, d);
+                nd += d != 0;
+            }
         }
+        stats.px += static_cast<long long>(resized.size());
+        stats.diff1 += nd;
+        stats.maxdiff = std::max(stats.maxdiff, maxdiff);
+        CHECK(name + " resize +-1 LSB", maxdiff <= 1, "max |diff| " + std::to_string(maxdiff));
     }
-    stats.px += static_cast<long long>(resized.size());
-    stats.diff1 += nd;
-    stats.maxdiff = std::max(stats.maxdiff, maxdiff);
-    CHECK(name + " resize +-1 LSB", maxdiff <= 1, "max |diff| " + std::to_string(maxdiff));
-    CHECK(name + " resize exact", maxdiff == 0, "resize differs from torchvision in " + std::to_string(nd) + " values");
+    if (have_gold) CHECK(name + " resize exact", maxdiff == 0, "resize differs from torchvision in " + std::to_string(nd) + " values");
     const std::vector<float> px = v::preprocess_video(clip, grid, cfg);
     CHECK(name + " pixel count", static_cast<long long>(px.size()) == c["pixel_count"].get<long long>(), "pixel count");
     if (maxdiff == 0) {

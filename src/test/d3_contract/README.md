@@ -42,7 +42,7 @@ Regenerating them is a reviewed change: the fixtures are the definition of "iden
 ## prefix_bidir state block (d3:turbo)
 
 `fixtures/state_split.jsonl` (`gen_state_split.py`, upstream `d3_format.encode_split` with the tokenizer's offset mapping)
-holds ~1,480 rendered prompts (the golden states, edge states ending in punctuation, whitespace, newlines, unicode,
+holds 457 rendered prompts (the committed subset: all image prompts and every 4th other prompt of the generator's ~1,480) (the golden states, edge states ending in punctuation, whitespace, newlines, unicode,
 non-NFC text and special-token text, random mixes, and image prompts) with their token ids (crc) and the state block
 length S. FastFlowLM's tokenizer API has no offsets, so `state_block_length` derives S from each token's byte length;
 `test_d3_state_split <fixtures>/state_split.jsonl <D3-Turbo-NPU2 dir> <fixtures>/images.jsonl` (built with

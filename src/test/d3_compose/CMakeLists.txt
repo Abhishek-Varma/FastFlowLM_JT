@@ -39,10 +39,14 @@ if(NOT MSVC)
     target_compile_options(test_d3_video_composed PRIVATE -ffp-contract=off)
 endif()
 
+# The committed fixtures are a compact subset (every 5th case, subset_fixtures.py); the full set is regenerated with
+# gen_compose_fixtures.py (see README.md) and used with  -DFLM_D3_COMPOSE_FIXTURES=<dir of the full set>.
+set(FLM_D3_COMPOSE_FIXTURES "${CMAKE_CURRENT_LIST_DIR}/fixtures" CACHE PATH "Directory of the compose fixtures (default: the committed subset)")
+
 enable_testing()
-add_test(NAME test_d3_video_composed COMMAND test_d3_video_composed "${CMAKE_CURRENT_LIST_DIR}/fixtures")
+add_test(NAME test_d3_video_composed COMMAND test_d3_video_composed "${FLM_D3_COMPOSE_FIXTURES}")
 add_test(NAME test_d3_compose
-         COMMAND test_d3_compose "${CMAKE_CURRENT_LIST_DIR}/fixtures" "-"
+         COMMAND test_d3_compose "${FLM_D3_COMPOSE_FIXTURES}" "-"
                  "${CMAKE_CURRENT_LIST_DIR}/../d3_contract/fixtures/fuzz.jsonl")
 
 if(FLM_D3_TEST_TOKENIZER)
@@ -57,7 +61,7 @@ if(FLM_D3_TEST_TOKENIZER)
     endif()
     if(FLM_D3_TURBO_PACKAGE)
         add_test(NAME test_d3_compose_tokenizer
-                 COMMAND test_d3_compose_tokenizer "${CMAKE_CURRENT_LIST_DIR}/fixtures" "${FLM_D3_TURBO_PACKAGE}"
+                 COMMAND test_d3_compose_tokenizer "${FLM_D3_COMPOSE_FIXTURES}" "${FLM_D3_TURBO_PACKAGE}"
                          "${CMAKE_CURRENT_LIST_DIR}/../d3_contract/fixtures/fuzz.jsonl")
     endif()
 endif()

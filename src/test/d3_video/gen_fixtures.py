@@ -4,7 +4,9 @@
 Run in venv-turbo (transformers 5.17, torchvision 0.24, opencv-python-headless), CPU only:
 
     source /scratch/tawei/npu/d3-turbo/work/env_turbo.sh
-    HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR            # the committed set (small frame budget)
+    HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR --compact  # the committed set (small frame budget; resized
+                                                                  # goldens above 210 kB dropped: md5 decides)
+    HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR            # the full small set (all resized goldens, ~4 MB)
     HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR --big      # real 0.2 MP budget, not committed (tens of MB)
 
 What it records (cases.json + <case>.resized.u8):
@@ -312,6 +314,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir")
     ap.add_argument("--big", action="store_true")
+    ap.add_argument("--compact", action="store_true",
+                    help="drop the resized-frame goldens above 210 kB (what is committed; the tests then rely on the pixel md5)")
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
     processor, R, DC = load()
@@ -343,6 +347,11 @@ def main():
                               "w": fr.shape[2], "h": fr.shape[1], "file": path}
     json.dump(mrope_goldens(processor, R, cases), open(os.path.join(a.outdir, "mrope.json"), "w"))
     json.dump(doc, open(os.path.join(a.outdir, "cases.json"), "w"), indent=1)
+    if a.compact:
+        for n in os.listdir(a.outdir):
+            f = os.path.join(a.outdir, n)
+            if n.endswith(".resized.u8") and os.path.getsize(f) > 210000:
+                os.remove(f)
 
 
 if __name__ == "__main__":
