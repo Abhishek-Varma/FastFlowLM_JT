@@ -587,6 +587,7 @@ void RestHandler::handle_systemone_models(std::function<void(const json&)> send_
                       {"max_input_tokens", this->decision_engine->max_input_tokens()},
                       {"modalities", this->decision_engine->modalities()},
                       {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}};
+        if (const auto video = this->decision_engine->video_limits(); !video.is_null()) entry["video"] = video;
         if (this->decision_engine->composed_requests()) {
             // d3:turbo: what its runtime declares (decision_config.json systemone) and this build answers
             entry["question_types"] = this->decision_engine->question_types();

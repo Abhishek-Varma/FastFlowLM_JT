@@ -24,6 +24,7 @@
 #include "npu_utils/npu_utils.hpp"
 #include "tensor_utils/q4_npu_eXpress.hpp"
 #include "tokenizer/tokenizer.hpp"
+#include "video/video_input.hpp"
 
 struct d3_image_payload;   // models/d3/flm/aie2p/d3_npu.hpp
 
@@ -69,6 +70,8 @@ public:
     /// prefix_bidir checkpoints (d3:turbo): the question types this build answers, else empty.
     std::vector<std::string> question_types() const;
     bool composed_requests() const { return composed_; }
+    /// `GET /v1/systemone/models` `video`: what a request may carry (upstream d3_server's keys); null without video.
+    nlohmann::json video_limits() const;
 
 private:
     flm_rt::device* npu_device_inst_ = nullptr;
@@ -92,6 +95,7 @@ private:
     bool video_ = false;           //!< videos in the state are accepted (FLM_VIDEO_FFMPEG build, prefix_bidir, D3_VIDEO != 0)
     /// `PrepareOptions::load_video` (video/video_input.hpp): data URL clips and frame lists -> a sampled clip
     std::function<std::shared_ptr<const flm::d3::video::VideoClip>(size_t, const flm::d3::PyValue&)> video_loader_;
+    flm::d3::video::VideoLoadOptions video_options_;   //!< the decoder, limits and image reader of `videos`
     int dump_count_ = 0;           //!< D3_DUMP_PIXELS: requests dumped so far
 
     std::vector<int> encode(const std::string& text);

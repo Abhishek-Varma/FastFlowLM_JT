@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <iomanip>
 #include <fstream>
 #include <sstream>
 
@@ -300,15 +301,15 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     }
 
 #ifdef FLM_D3_VIDEO
-    // videos in the state (plain choice / noul / score questions): decoded on the host, every temporal group goes to the
-    // engine as an image run (its pad ids are rewritten to the image pad: positions and vision are the same, see
-    // system_one). Box at a moment / track need the per-window engine calls (M4) and stay refused.
+    // videos: decoded on the host (FFmpeg, loaded at run time). Plain questions read them in the state (every temporal
+    // group goes to the engine as a visual run; see system_one for the plain path), a box at a moment / a track reads the
+    // clip window by window (one state-once call per window, system_one_composed).
     if (prefix_bidir_) {
         const char* env = std::getenv("D3_VIDEO");
         video_ = !(env && std::string(env) == "0");
     }
     if (video_) {
-        flm::d3::video::VideoLoadOptions load;
+        flm::d3::video::VideoLoadOptions& load = video_options_;
         load.backend = flm::d3::video::make_ffmpeg_backend();
         load.decode_image = [this](const flm::d3::ImageFile& f, flm::d3::video::RgbFrame& out, std::string* why) {
             image_data_t rgb;
@@ -322,7 +323,7 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
             image_reader_.recycle(rgb);
             return true;
         };
-        video_loader_ = flm::d3::video::make_video_loader(std::move(load));
+        video_loader_ = flm::d3::video::make_video_loader(load);
     }
 #endif
 
@@ -357,12 +358,26 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
     if (composed_) {
         // a box reads four hidden rows of one block (readout_from_end): only the state-once engine returns them
         // (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS); without it box / track are answered per question as unsupported
-        const bool rows = state_once_ && (engine_caps & 3u) == 3u;
+        const bool rows = state_once_ && (engine_caps & (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS)) == (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS);
         auto& types = composed_config_.question_types;
         if (!rows) {
             types.erase(std::remove_if(types.begin(), types.end(), [](const std::string& t) { return t == "box" || t == "track"; }), types.end());
             header_print("FLM", "d3 engine without state-once readout rows: box questions are not answered");
+        } else if (!video_) {
+            // a track reads a video: without the decoder it is not declared (the models listing, the refusal)
+            types.erase(std::remove(types.begin(), types.end(), std::string("track")), types.end());
         }
+        composed_config_.video = video_;
+        composed_config_.refuse_video_questions = !video_;
+        if (video_ && rows) {
+            if (const char* limit = std::getenv("D3_MOMENT_ROWS")) composed_config_.moment_row_limit = std::max(1, std::atoi(limit));
+        }
+#ifdef FLM_D3_NPU_REV2
+        header_print("FLM", "d3 engine capabilities: state-once " << ((engine_caps & D3_CAP_STATE_ONCE) ? "yes" : "no")
+                     << ", readout rows " << ((engine_caps & D3_CAP_READOUT_ROWS) ? "yes" : "no")
+                     << ", images in questions " << ((engine_caps & D3_CAP_QUESTION_IMAGES) ? "yes" : "no")
+                     << ", video " << ((engine_caps & D3_CAP_VIDEO) ? "yes" : "no (video pads are rewritten to image pads)"));
+#endif
     }
 #else
     (void)enable_preemption;
@@ -553,24 +568,33 @@ nlohmann::json AutoDecisionModel::modalities() const {
 std::vector<std::string> AutoDecisionModel::question_types() const {
     std::vector<std::string> out;
     if (!composed_) return out;
-    for (const auto& t : composed_config_.question_types) {
-        if (t != "track") out.push_back(t);   // track needs video (not in this build)
-    }
+    for (const auto& t : composed_config_.question_types) out.push_back(t);
     return out;
+}
+
+nlohmann::json AutoDecisionModel::video_limits() const {
+    if (!video_) return nullptr;
+    // d3_server.models(): video_contract() and MAX_VIDEO_BYTES
+    return {{"fps", flm::d3::video::VIDEO_FPS},
+            {"max_frames", flm::d3::video::VIDEO_MAX_FRAMES},
+            {"max_pixels_per_frame", flm::d3::video::VIDEO_MAX_PIXELS},
+            {"max_tokens_per_request", flm::d3::video::VIDEO_MAX_TOKENS},
+            {"max_bytes", flm::d3::video::MAX_VIDEO_BYTES}};
 }
 
 DecisionReply AutoDecisionModel::system_one_composed(const flm::d3::PyValue& body) {
     DecisionReply reply;
-    // images by table index: decoded when their header passes, preprocessed when an engine request needs them
-    std::vector<image_data_t> decoded;
+    // images by table index: decoded when their header passes (the table also holds video groups, so by the index the
+    // contract passes), preprocessed when an engine request needs them
+    std::map<size_t, image_data_t> decoded;
     const auto release = [&]() {
-        for (auto& d : decoded) image_reader_.recycle(d);
+        for (auto& d : decoded) image_reader_.recycle(d.second);
         decoded.clear();
     };
     flm::d3::ComposedHooks hooks;
     hooks.encode = [this](const std::string& s) { return encode(s); };
     hooks.token_bytes = [this](int id) { return tokenizer_->token_byte_length(id); };
-    hooks.decode = [&](size_t, const flm::d3::ImageFile& f) {
+    hooks.decode = [&](size_t index, const flm::d3::ImageFile& f) {
         image_data_t rgb;
         if (!image_reader_.load_image_bytes(f.data, rgb)) {
             throw flm::d3::ContractError("the image could not be decoded (the file is truncated or corrupt)");
@@ -579,8 +603,16 @@ DecisionReply AutoDecisionModel::system_one_composed(const flm::d3::PyValue& bod
             image_reader_.recycle(rgb);
             throw flm::d3::ContractError("the image could not be decoded (its pixels do not match its header)");
         }
-        decoded.push_back(std::move(rgb));
+        decoded.emplace(index, std::move(rgb));
     };
+#ifdef FLM_D3_VIDEO
+    if (video_) {
+        hooks.load_video = video_loader_;
+        hooks.load_windows = [this](const flm::d3::PyValue& value, int rate) {
+            return flm::d3::video::load_video_windows(value, rate, video_options_, composed_config_.video_config);
+        };
+    }
+#endif
     flm::d3::ComposedRequest request;
     try {
         request = flm::d3::prepare_composed(body, codes_, composed_config_, hooks);
@@ -595,25 +627,45 @@ DecisionReply AutoDecisionModel::system_one_composed(const flm::d3::PyValue& bod
     }
     // the processor's pixels of one table entry, once per request (every use shares them)
     std::map<size_t, flm::d3::EngineImage> prepared_images;
+    std::map<int, flm::d3::video::VideoPayload> clip_pixels;   // the request's videos for plain questions, all groups
     const auto image = [&](size_t index) -> flm::d3::EngineImage {
+        const auto& im = request.images.at(index);
+        flm::d3::EngineImage out;
+        out.grid_h = im.grid_h;
+        out.grid_w = im.grid_w;
+        if (im.clip >= 0) {
+            auto have = clip_pixels.find(im.clip);
+            if (have == clip_pixels.end()) {
+                flm::d3::video::VideoPayload payload;
+                flm::d3::video::append_video(payload, *request.clips.at(static_cast<size_t>(im.clip)),
+                                             request.clip_grids.at(static_cast<size_t>(im.clip)), composed_config_.video_config);
+                have = clip_pixels.emplace(im.clip, std::move(payload)).first;
+            }
+            const size_t n = static_cast<size_t>(im.grid_h) * im.grid_w * flm::d3::video::PATCH_VALUES;
+            const auto& px = have->second.pixels;
+            if ((static_cast<size_t>(im.group) + 1) * n > px.size()) throw std::runtime_error("video payload is shorter than its groups");
+            out.pixels.assign(px.begin() + static_cast<long>(n * im.group), px.begin() + static_cast<long>(n * (im.group + 1)));
+            return out;
+        }
         auto hit = prepared_images.find(index);
         if (hit != prepared_images.end()) return hit->second;
-        const auto& im = request.images.at(index);
         std::vector<bf16> pixels;
         if (!preprocess_image(decoded.at(index), im.grid_h, im.grid_w, pixels)) {
             throw std::runtime_error("could not prepare image " + im.source);
         }
-        flm::d3::EngineImage out;
-        out.grid_h = im.grid_h;
-        out.grid_w = im.grid_w;
         out.pixels.resize(pixels.size());
         static_assert(sizeof(bf16) == sizeof(uint16_t), "bf16 is 16 bits");
         std::memcpy(out.pixels.data(), pixels.data(), pixels.size() * sizeof(uint16_t));
         return prepared_images.emplace(index, std::move(out)).first->second;
     };
+    const auto progress = [](size_t done, size_t calls, const std::string& state, double seconds) {
+        if (calls > 1 || state != "request") {
+            header_print("FLM", "d3 state " << state << " (" << done << "/" << calls << ") " << std::fixed << std::setprecision(1) << seconds << " s");
+        }
+    };
     try {
         std::lock_guard<std::mutex> lock(turn_);
-        reply.body = flm::d3::run_composed(request, *readout_engine_, readout_.data(), composed_config_, image);
+        reply.body = flm::d3::run_composed(request, *readout_engine_, readout_.data(), composed_config_, image, progress);
     } catch (...) {
         release();
         throw;
