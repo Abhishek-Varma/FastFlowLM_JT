@@ -241,8 +241,25 @@ vision tower.
 Attention runs on the NPU from a prompt length that has not been swept for the 27B backbone (**TBD**; the default of the
 smaller models is 1,536 tokens).
 
-### Video
+### Video, box and track (development measurements)
 
-Status: **TBD**. Plain questions about a video in the state need the decoder (an FFmpeg of the machine, loaded at run
-time; off in the default build) and the engine's image path; `track` and `box` at a moment of a video need one engine
-call per window of the clip and are not available yet.
+Measured through `flm serve --decision d3:turbo` (HTTP, GPTQ package, local engine build with images in question blocks and
+video windows, an NPU shared with other jobs) against the frozen BF16 goldens of the same requests (upstream runtime, one
+row per question and one row per video moment). Not final numbers: the page's other rows stay **TBD**.
+
+| Set | Requests | Answers / boxes compared | Result against BF16 | Seconds per request |
+|---|---:|---:|---|---|
+| Plain questions about a video (2 fps, up to 32 frames) | 11 | 45 | top-1 100 %, mean max difference 0.016 | 4 to 26 (median 18) |
+| Box at a video moment | 11 | 22 boxes | edge difference median 0.031, IoU 0.77 | 7 to 40 |
+| Track | 13 | 120 moments | edge difference median 0.017, IoU 0.84, `visible` decision agrees on 99 % | 7 to 103 |
+| Box on images | 29 | 99 boxes | edge difference median 0.006, IoU 0.91 | 3 to 19 (median 11) |
+| `assets` (state, options, instructions) | 15 | 26 answers, 7 boxes | top-1 100 %, box IoU median 0.98 | 11 to 114 (median 28) |
+
+Error answers, `usage.input_tokens` and the shape of every answer are identical to the upstream runtime on all of these.
+A box differs from the BF16 box by the vision tower's noise (a few hundredths of the image size) and a confidence moves by about the
+same amount. Time per window of a track (one state of up to 32 frames, 16 moments): about 36 s; a 60 second clip at 2 updates per
+second is 8 windows and 120 moments: 278 s, at 1 update per second 145 s. A box at one moment of a 60 second clip: 29 s, a plain
+question about it: 28 s.
+
+Videos need the decoder (an FFmpeg of the machine, loaded at run time; `-DFLM_VIDEO_FFMPEG=ON`), at most 60 seconds per video,
+16,384 input tokens for all videos of a request and 256 moments per request.
