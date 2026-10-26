@@ -619,10 +619,18 @@ void RestHandler::handle_systemone_models(std::function<void(const json&)> send_
     json data = json::array();
     if (this->decision_engine) {
         // what upstream d3_server's /v1/models states: the input limit, the modalities and the image budget
-        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
-                        {"max_input_tokens", this->decision_engine->max_input_tokens()},
-                        {"modalities", json::array({"text", "image"})},
-                        {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}});
+        json entry = {{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
+                      {"max_input_tokens", this->decision_engine->max_input_tokens()},
+                      {"modalities", this->decision_engine->modalities()},
+                      {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}};
+        if (const auto video = this->decision_engine->video_limits(); !video.is_null()) entry["video"] = video;
+        if (this->decision_engine->composed_requests()) {
+            // d3:turbo: what its runtime declares (decision_config.json systemone) and this build answers
+            entry["question_types"] = this->decision_engine->question_types();
+            entry["assets"] = true;
+            entry["long_context"] = false;
+        }
+        data.push_back(std::move(entry));
     }
     send_response({{"object", "list"}, {"data", data}});
 }
@@ -635,7 +643,7 @@ void RestHandler::handle_systemone(const std::string& raw_body,
     json reply;
     if (!this->decision_engine) {
         reply["__http_status"] = 404;
-        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite, d3:nano or d3:mini"}};
+        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite, d3:nano, d3:mini or d3:turbo"}};
         send_response(reply);
         return;
     }
