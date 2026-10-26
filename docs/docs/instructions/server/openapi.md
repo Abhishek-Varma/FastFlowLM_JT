@@ -21,7 +21,7 @@ parent: Local Server (Server Mode)
   - [Example: Multi-Modal Input](#️-example-multi-modal-input)   
   - [Example: Flash Models (Single-Turn, Pinned System Prompt)](#-example-flash-models-single-turn-pinned-system-prompt)   
 
-> 📘 **Related pages:** [Tool Calling](https://fastflowlm.com/docs/instructions/server/tool_calling/) · [Reasoning, Tool Calls & Streaming](https://fastflowlm.com/docs/instructions/server/reasoning_and_tools/) (`reasoning_content`, streamed tool call deltas, the `think` switch) · [Structured Output & tool_choice](https://fastflowlm.com/docs/instructions/server/structured_output/) (`tool_choice`, `parallel_tool_calls`, `response_format` JSON / JSON schema)
+> 📘 **Related pages:** [Tool Calling](https://fastflowlm.com/docs/instructions/server/tool_calling/) · [Reasoning, Tool Calls & Streaming](https://fastflowlm.com/docs/instructions/server/reasoning_and_tools/) (`reasoning_content`, streamed tool call deltas, the `think` switch) · [Structured Output & tool_choice](https://fastflowlm.com/docs/instructions/server/structured_output/) (`tool_choice`, `parallel_tool_calls`, `response_format` JSON / JSON schema) · [Request Parameters & Long Prompts](https://fastflowlm.com/docs/instructions/server/request_parameters/) (sampling fields, `seed`, unknown fields, prefill chunking)
 
 ---
 
@@ -322,6 +322,8 @@ del response, client
 import gc
 gc.collect()
 ```
+
+> ⚠️ Sampling settings stay in effect for later requests that don't send them, until the model is reloaded. `seed` is ignored. What each field does, the penalty window and model defaults: [Request Parameters & Long Prompts](https://fastflowlm.com/docs/instructions/server/request_parameters/).
 
 ---
 
