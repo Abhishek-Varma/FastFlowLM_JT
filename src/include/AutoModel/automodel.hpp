@@ -467,8 +467,13 @@ public:
 	void set_frequency_penalty_window(int frequency_penalty_window);
 
 	/// \brief Set the penalty window
-	/// \param penalty_window the penalty window
+	/// \param penalty_window how many generated tokens the penalties look at:
+	///        -1 the whole reply, 0 penalties off
 	void set_penalty_window(int penalty_window);
+
+	/// \brief Restart sampling from a seed, with an empty penalty window
+	/// \param seed the seed
+	void set_seed(uint64_t seed);
 
 	/// \brief Start the ttft timer
 	/// \return the ttft timer
