@@ -216,10 +216,10 @@ build yet.
 | Context limit: 32,767 and 32,768 tokens answered (top-1 agreement), 32,769 refused | 2 | 100% (2 of 2) |
 | Image requests (31 hand-built requests, 64 × 64 to 2000 × 1500 images), top-1 agreement with BF16 | 60 | 93.3% |
 | Box questions on images (29 requests): median edge difference to BF16 / median IoU with BF16's box | 99 boxes | 0.006 / 0.91 |
-| Decision Index public suite, seeded round-robin sample: mean benchmark score | TBD(G3) | TBD(G3) (BF16: TBD(G3)) |
-| Same requests, top-1 agreement with BF16 (choice answers) | TBD(G3) | TBD(G3) |
-| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | TBD(VISION) (BF16: TBD(VISION)) |
-| Same image questions, top-1 agreement with BF16 | 600 | TBD(VISION) |
+| Decision Index public suite, seeded round-robin sample: mean benchmark score | 782 requests, 42 benchmarks | 77.18 (BF16: 76.12; +1.06 pt, standard error 0.48) |
+| Same requests, top-1 agreement with BF16 (choice answers) | 7,026 | 98.9% |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | 79.0% (BF16: 81.0%; paired difference +2.0 pt, 95% CI -0.3 to +4.3) |
+| Same image questions, top-1 agreement with BF16 | 600 | 88.8% |
 
 The reference is the upstream runtime on a GPU in BF16 (goldens frozen before the NPU runs). Prompts, token ids and answer
 objects follow the upstream runtime (error answers, `usage.input_tokens` and the shape of every answer are identical on all
