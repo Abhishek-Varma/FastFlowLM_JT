@@ -43,7 +43,13 @@ Regenerating them is a reviewed change: the fixtures are the definition of "iden
   fixtures with FastFlowLM's own `Tokenizer` (ids and token byte lengths) instead of the recorded ids. Prompts with
   combining marks (Thai, Devanagari) are skipped: transformers' `Qwen2Tokenizer` and `tokenizer.json` split those
   differently (pre-existing, see flm_log.md).
-- `-DFLM_D3_TEST_ADAPTER=ON` builds `test_d3_adapter`: the engine adapter's per-row path against a mock
-  `decision_model` (needs the device runtime headers). The state-once path needs the real library and is only
-  compile-checked.
+- `-DFLM_D3_TEST_ADAPTER=ON` builds `test_d3_adapter`: the engine adapter's routing by capability bits, the
+  `d3_state_request` it builds (question-image table, video pads as `video_token_id` or rewritten) and the per-row path
+  against a mock `decision_model` (needs the device runtime headers). The call into the real library
+  (`d3_npu::encode_state_once`) is only compile-checked.
+- `test_d3_video_composed` (always built; needs only the fixtures' `decision_config.json`): M4 of the composed requests
+  through the scripted engine, with a fake window source: a track at rate 2 (one state-once call per window, the
+  moments as blocks with five readout rows, video pad runs, the window's pixels, usage, release of the pixels), a box at
+  a moment (nearest moment, `time`), the question shapes and refusals of `_video_box`, the row budget (A5), unreadable
+  clips, a request with a state image + plain video question + box + track, and `load_video_windows` over a fake decoder.
 - `D3_TEST_MAXFAIL=<n>` prints more than the first 60 failures.

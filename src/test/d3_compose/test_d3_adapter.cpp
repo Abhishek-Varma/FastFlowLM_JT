@@ -1,10 +1,12 @@
 /// \file test_d3_adapter.cpp
-/// \brief The engine adapter's per-row (M1) path against a mock `decision_model`: which prompts and payloads reach
+/// \brief The engine adapter: its routing by capability bits, the d3_state_request it builds (question images, video pads) and the
+///        per-row (M1) path against a mock `decision_model`: which prompts and payloads reach
 ///        `encode_batch` for blocks with and without own images, and what it refuses. CPU only. The state-once path
 ///        (`d3_npu::encode_state_once`) needs the real library and is only compile-checked here.
 #include <iostream>
 
 #include "AutoDecisionModel/d3_engine_adapter.hpp"
+#include "AutoDecisionModel/d3_engine_adapter_call.hpp"
 #include "decision/d3_engine.hpp"
 #include "models/d3/flm/aie2p/d3_npu.hpp"
 
@@ -87,6 +89,87 @@ int main() {
     std::string what;
     try { adapter->encode_state_once(req); } catch (const std::runtime_error& e) { what = e.what(); }
     expect(what.find("Box question reads four") != std::string::npos, "box refused without state-once");
+    // ---- routing by capability bits (not the revision): what one state-once call takes, what falls back to the per-row path
+    {
+        flm::d3::EngineStateRequest r;
+        r.state_ids = {1, 2, 3};
+        flm::d3::EngineImage im;
+        im.grid_h = im.grid_w = 2;
+        r.images = {im, im};
+        r.blocks = {flm::d3::EngineBlock{"plain", {10, 11}, {0}, {}},
+                    flm::d3::EngineBlock{"img", {20, 99}, {0}, {1}},
+                    flm::d3::EngineBlock{"box", {30, 31, 32, 33, 34, 35, 36, 37, 38, 39}, {9, 6, 3, 0}, {}},
+                    flm::d3::EngineBlock{"box_img", {40, 99, 41, 42, 43, 44, 45, 46, 47, 48, 49}, {9, 6, 3, 0}, {1}}};
+        const auto route = [&](unsigned caps, bool once) {
+            std::vector<size_t> fused, per_row;
+            route_d3_blocks(r, caps, once, fused, per_row);
+            return std::make_pair(fused, per_row);
+        };
+        using V = std::vector<size_t>;
+        expect(route(15, true) == std::make_pair(V{0, 1, 2, 3}, V{}), "caps 15: everything in one call");
+        expect(route(3, true) == std::make_pair(V{0, 2}, V{1, 3}), "caps 3 (revision 2 as frozen): blocks with images fall back");
+        expect(route(1, true) == std::make_pair(V{0}, V{1, 2, 3}), "state-once without readout rows: boxes fall back (and are refused)");
+        expect(route(7, true) == std::make_pair(V{0, 1, 2, 3}, V{}), "question images without the video bit");
+        expect(route(15, false) == std::make_pair(V{}, V{0, 1, 2, 3}), "D3_STATE_ONCE=0: all per row");
+        expect(route(0, true) == std::make_pair(V{}, V{0, 1, 2, 3}), "no capabilities (a revision 1 library)");
+    }
+    // ---- the d3_state_request of a call: question image table, video pads
+    {
+        flm::d3::EngineStateRequest r;
+        r.image_token_id = 99;
+        r.video_token_id = 98;
+        r.state_ids = {1, 98, 98, 2};
+        r.state_image_ids = {0};
+        flm::d3::EngineImage st, a, b;
+        st.grid_h = 2; st.grid_w = 4; st.pixels.assign(8 * 1536, 5);
+        a.grid_h = a.grid_w = 2; a.pixels.assign(4 * 1536, 6);
+        b.grid_h = 2; b.grid_w = 2; b.pixels.assign(4 * 1536, 7);
+        r.images = {st, a, b};
+        r.blocks = {flm::d3::EngineBlock{"x", {10, 99, 11, 99, 12}, {0}, {1, 1}},   // the same table image twice
+                    flm::d3::EngineBlock{"y", {20, 99, 21}, {0}, {2}},
+                    flm::d3::EngineBlock{"z", {30, 31}, {1, 0}, {}}};
+        auto call = make_d3_fused_call(r, {0, 1, 2}, 15, 248056);
+        expect(call->call.questions.size() == 3 && call->call.questions[0].image_ids == std::vector<int>{0, 0} &&
+                   call->call.questions[1].image_ids == std::vector<int>{1} && call->call.questions[2].image_ids.empty(),
+               "question_images table: one entry per distinct image, image_ids in pad-run order");
+        expect(call->call.question_images.images.size() == 2 && call->call.question_images.pixels.size() == 8 * 1536 &&
+                   call->call.question_images.image_token_id == 99,
+               "question_images payload");
+        expect(call->call.media == &call->media && call->media.images.size() == 1 && call->media.images[0].grid_w == 4 && call->media.image_token_id == 99,
+               "the state's images are the media");
+        expect(call->call.video_token_id == 98 && call->call.state_ids == r.state_ids, "D3_CAP_VIDEO: the video pad id goes to the engine");
+        expect(call->call.questions[2].readout_from_end == std::vector<int>{1, 0} && call->call.questions[0].ids == r.blocks[0].ids, "readout rows and ids kept");
+        auto old = make_d3_fused_call(r, {2, 0}, 3, 248056);   // an engine without D3_CAP_VIDEO: pads become image pads
+        expect(old->call.video_token_id == -1 && old->call.state_ids == std::vector<int>{1, 99, 99, 2} && old->call.questions.size() == 2 &&
+                   old->call.questions[0].ids == r.blocks[2].ids && old->call.questions[1].image_ids == std::vector<int>{0, 0},
+               "without D3_CAP_VIDEO the video pad ids are rewritten to the image pad id; blocks in the order asked");
+        // no state images: no media; the default image id when the request has none
+        flm::d3::EngineStateRequest t;
+        t.state_ids = {1, 2};
+        t.blocks = {flm::d3::EngineBlock{"w", {3}, {0}, {}}};
+        auto plain = make_d3_fused_call(t, {0}, 15, 248056);
+        expect(plain->call.media == nullptr && plain->call.video_token_id == -1 && plain->call.question_images.image_token_id == 248056, "text only call");
+    }
+    // ---- the per-row path knows image runs only: a video request is rewritten to image pads
+    {
+        MockEngine mock2;
+        auto adapter2 = make_d3_engine_adapter(&mock2, nullptr, 0, true);
+        flm::d3::EngineStateRequest r;
+        r.image_token_id = 99;
+        r.video_token_id = 98;
+        r.state_ids = {1, 98, 98, 2};
+        r.state_image_ids = {0, 1};
+        flm::d3::EngineImage g;
+        g.grid_h = g.grid_w = 2;
+        g.pixels.assign(4 * 1536, 1);
+        r.images = {g, g};
+        r.blocks = {flm::d3::EngineBlock{"q", {10, 11}, {0}, {}}};
+        adapter2->encode_state_once(r);
+        expect(mock2.calls.size() == 1 && mock2.calls[0].ids[0] == std::vector<int>{1, 99, 99, 2, 10, 11} && mock2.calls[0].grids.size() == 2 &&
+                   mock2.calls[0].state_len == std::vector<int>{4},
+               "per-row path: video pad ids become image pad ids, the groups are image entries");
+    }
+    expect(replace_token({1, 2, 1, 3}, 1, 9) == std::vector<int>{9, 2, 9, 3}, "replace_token");
     std::cout << "d3 adapter: " << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

@@ -29,7 +29,18 @@ if(NOT MSVC)
     target_compile_options(test_d3_compose PRIVATE -ffp-contract=off)
 endif()
 
+# M4 of the composed requests (box at a video moment, track, videos): the window loop through a scripted engine, and
+# load_video_windows over a fake decoder (video_decode.cpp / video_input.cpp; FFmpeg itself is not loaded here)
+add_executable(test_d3_video_composed test_d3_video_composed.cpp ${D3_COMPOSE_SOURCES}
+    "${FLM_SOURCE_DIR}/common/video/video_decode.cpp"
+    "${FLM_SOURCE_DIR}/common/video/video_input.cpp")
+target_include_directories(test_d3_video_composed PRIVATE "${FLM_SOURCE_DIR}/include")
+if(NOT MSVC)
+    target_compile_options(test_d3_video_composed PRIVATE -ffp-contract=off)
+endif()
+
 enable_testing()
+add_test(NAME test_d3_video_composed COMMAND test_d3_video_composed "${CMAKE_CURRENT_LIST_DIR}/fixtures")
 add_test(NAME test_d3_compose
          COMMAND test_d3_compose "${CMAKE_CURRENT_LIST_DIR}/fixtures" "-"
                  "${CMAKE_CURRENT_LIST_DIR}/../d3_contract/fixtures/fuzz.jsonl")
