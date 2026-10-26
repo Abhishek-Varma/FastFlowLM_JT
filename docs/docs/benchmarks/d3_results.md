@@ -196,14 +196,19 @@ Attention runs on the NPU from 1,536 tokens, as for d3-lite (measured break-even
 ## ⚡ d3-turbo on the NPU
 
 Accuracy and latency of `d3:turbo` (vllm-sr/d3-turbo v1.1, Qwen3.5-27B backbone, prefix-bidirectional attention, package
-D3-Turbo-NPU2, Q4_K with GPTQ), same machine and settings as above. Cells that read `TBD(...)` are not measured on the final
-build yet.
+D3-Turbo-NPU2, Q4_K with GPTQ), same machine and settings as above.
 
 > **Note:**
-> - Latency is per request at the engine (no HTTP). A request is one state block plus one block per question: the
->   state is computed once and every question runs against it (state-once).
+> - Latency in the table below is end to end over HTTP (`flm serve --decision d3:turbo`, the release libraries and
+>   xclbins of the pull request build) on an otherwise idle machine: median and range of 5 requests after one warm-up
+>   request. A request is one state block plus one block per question: the state is computed once and every question
+>   runs against it (state-once).
 > - Memory: 16.6 GB of weights; the server process peaks at 17.4 GB for prompts up to 4,096 tokens, 22.4 GB at 24,000 and
->   25.3 GB at 32,768 tokens.
+>   26.3 GB at 32,768 tokens (a fresh server of the pull request build, one request). In a soak run of 1,000 mixed requests (text, image
+>   and long-prompt requests, several questions per request, repeated requests and malformed bodies), first one after the
+>   other and then the same schedule from 4 concurrent clients next to a streaming chat model, there were 0 status and 0
+>   answer mismatches between the two runs (905 answered, 95 refused with 422 as expected) and no crash or hang; the server
+>   process went from 18.1 GB after the load to a transient peak of 29.4 GB and settled at 21.9 GB.
 
 ### Accuracy against the upstream BF16 model
 
@@ -232,25 +237,29 @@ vision kernels of d3-mini by 0.58) dominates, so the judge is the Decision Index
 ### Images (d3-turbo)
 
 Image requests agree with the upstream BF16 model on 56 of 60 answers (93.3%; 31 hand-built requests; mean largest
-probability difference 0.042). Latency of an image request: TBD(IMAGE-TIMINGS) (1,024 × 768 image, two images, 2000 × 1500
-image, 8 questions about one image). Box questions on an image (one to eight per request) took 3 to 19 s per request
-(median 11 s) in the development measurements below.
+probability difference 0.042). Latency of an image request on an idle machine (HTTP, median of 5 after a warm-up): one question about a 1,024 × 768 image 7.6 s (range 7.55 to 7.66 s), two 1,024 × 768 images 14.6 s (14.58 to 14.63 s), one 2000 × 1500 image 15.3 s (15.23 to 15.33 s; the image is scaled to 1.6 megapixels), 8 questions about one 1,024 × 768 image 10.6 s (10.57 to 10.66 s). The first request with an image also loads the vision tower. Box questions on an image (one to eight per request, 29 hand-built requests) took 3 to 20 s per request
+(median 11 s) on the idle machine, see the table below.
 
 ### Latency
 
-| Request | Median (ms) |
-|---|---:|
-| 1 question, 128 tokens | TBD(LATENCY) |
-| 1 question, 330 tokens | TBD(LATENCY) |
-| 1 question, 1,024 tokens | TBD(LATENCY) |
-| 1 question, 4,096 tokens | TBD(LATENCY) |
-| 1 question, 32,768 tokens | TBD(LATENCY) |
-| 4 questions, one 330-token state | TBD(LATENCY) |
-| 16 questions, one 330-token state | TBD(LATENCY) |
-| 1 box question, one 1,024 × 768 image | TBD(LATENCY) |
-| 4 box questions, one image | TBD(LATENCY) |
+| Request | Median (s) | Range (s) |
+|---|---:|---:|
+| 1 question, 128 tokens | 2.85 | 2.83 to 2.88 |
+| 1 question, 330 tokens | 3.22 | 3.18 to 3.24 |
+| 1 question, 1,024 tokens | 6.86 | 6.78 to 6.88 |
+| 1 question, 4,096 tokens | 27.4 | 27.3 to 27.6 |
+| 1 question, 32,768 tokens | 314 | 314 to 315 |
+| 4 questions, one 330-token state | 6.09 | 6.06 to 6.14 |
+| 16 questions, one 330-token state | 9.52 | 9.52 to 9.58 |
+| 1 box question, one 1,024 × 768 image | 7.62 | 7.61 to 7.66 |
+| 4 box questions, one image | 10.45 | 10.42 to 10.52 |
 
-Development measurements (plain Q4_K package, an NPU shared with other jobs, so upper bounds), time to the answer of one
+A request of n tokens has n tokens in all (state block plus question block); the 4 and 16 question requests are 597 and
+1,247 tokens in all (state 330 tokens, the rest are the question blocks). A 32,768-token request is 32,767 tokens by FastFlowLM's
+count. On the idle machine a pass over the weights costs about 2.8 s, then 5 to 10 ms per token (more at longer prompts); a
+further question about the same state costs 0.4 to 1 s.
+
+Earlier development measurements (plain Q4_K package, an NPU shared with other jobs, so upper bounds), time to the answer of one
 question: 64 tokens 5.6 s, 330 tokens 5.5 s, 1,024 tokens 11.9 s, 2,048 tokens 23.4 s, 4,096 tokens 42 s, 8,192 tokens 84 s,
 16,384 tokens 186 s, 32,768 tokens 430 s (the first timing of the 64 layers alone at 32,768 tokens: 313 s). A pass over the weights
 costs about 4 to 5 s whatever the prompt (the 16.5 GB of weights stream through the NPU), plus 7 to 12 ms per token row. Before
@@ -264,15 +273,17 @@ within the noise of the shared NPU, about ±30%).
 ### Video, box and track (development measurements)
 
 Measured through `flm serve --decision d3:turbo` (HTTP, GPTQ package, a local engine build with images in question blocks and
-video windows, an NPU shared with other jobs) against the frozen BF16 goldens of the same requests (upstream runtime, one
-row per question and one row per video moment). Not final numbers; timings are upper bounds.
+video windows) against the frozen BF16 goldens of the same requests (upstream runtime, one row per question and one row per
+video moment). The seconds per request were measured again with the pull request build on an idle machine (one pass over
+each request set; requests that are refused before any work, such as a box question without a video, are left out): they
+agree with the first measurements on the shared machine, because the time is spent on the NPU.
 
 | Set | Requests | Answers / boxes compared | Result against BF16 | Seconds per request |
 |---|---:|---:|---|---|
-| Plain questions about a video (2 fps, up to 32 frames) | 11 | 45 | top-1 100 %, mean max difference 0.016 | 4 to 26 (median 18) |
-| Box at a video moment | 11 | 22 boxes | edge difference median 0.031, IoU 0.77 | 7 to 40 |
-| Track | 13 | 120 moments | edge difference median 0.017, IoU 0.84, `visible` decision agrees on 99 % | 7 to 103 |
-| Box on images | 29 | 99 boxes | edge difference median 0.006, IoU 0.91 | 3 to 19 (median 11) |
+| Plain questions about a video (2 fps, up to 32 frames) | 11 | 45 | top-1 100 %, mean max difference 0.016 | 4 to 27 (median 18) |
+| Box at a video moment | 11 | 22 boxes | edge difference median 0.031, IoU 0.77 | 7 to 41 (median 22) |
+| Track | 13 | 120 moments | edge difference median 0.017, IoU 0.84, `visible` decision agrees on 99 % | 7 to 103 (median 14) |
+| Box on images | 29 | 99 boxes | edge difference median 0.006, IoU 0.91 | 3 to 20 (median 11) |
 | `assets` (state, options, instructions) | 15 | 26 answers, 7 boxes | top-1 100 %, box IoU median 0.98 | 11 to 114 (median 28) |
 
 A box differs from the BF16 box by the vision tower's noise (a few hundredths of the image size) and a confidence moves by about the
