@@ -150,6 +150,14 @@ ojson refusal(const PyValue* kind, const PyValue& question, const std::vector<st
         return e;
     }
     if (!question.is_object() || refs.empty()) return nullptr;
+    if (k == "box" && !config.box_question_images && mentions(question, refs)) {
+        ojson e = ojson::object();
+        e["type"] = type_json(kind);
+        e["error"] = "invalid_question";
+        e["reason"] = "question_images_unsupported";
+        e["message"] = config.model_name + " reads images in the state only, not in a box question's text";
+        return e;
+    }
     for (const char* place : {"instructions", "criteria"}) {
         const PyValue* value = question.get(place);
         if (!contains(config.image_placements, place) && value && mentions(*value, refs)) {

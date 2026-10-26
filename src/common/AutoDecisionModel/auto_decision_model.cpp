@@ -360,6 +360,7 @@ void AutoDecisionModel::load_model(const std::string& model_path, const nlohmann
         // (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS); without it box / track are answered per question as unsupported
         const bool rows = state_once_ && (engine_caps & (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS)) == (D3_CAP_STATE_ONCE | D3_CAP_READOUT_ROWS);
         auto& types = composed_config_.question_types;
+        composed_config_.box_question_images = (engine_caps & D3_CAP_QUESTION_IMAGES) != 0;
         if (!rows) {
             types.erase(std::remove_if(types.begin(), types.end(), [](const std::string& t) { return t == "box" || t == "track"; }), types.end());
             header_print("FLM", "d3 engine without state-once readout rows: box questions are not answered");

@@ -45,6 +45,9 @@ struct ComposedConfig {
     /// A2: upstream rejects `score` questions in any composed request ("score questions take no images here",
     /// d3_runtime.py:3039) although nothing about them is an image. true replicates it; false answers them.
     bool refuse_score = true;
+    /// false: an engine without question-image support (no D3_CAP_QUESTION_IMAGES) cannot read the several hidden rows of a box
+    /// question whose own text holds an image, so that question is refused inline (`question_images_unsupported`) instead of failing.
+    bool box_question_images = true;
     bool video = false;                       //!< M4: videos (the request's `videos`, box at a moment, track)
     /// Without video: a `track` question, or a box at a video moment, refuses the whole request with a 422. Off, they
     /// are answered per question as upstream does (`video_needed`, or the refusal of a feature not declared).
