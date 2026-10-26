@@ -175,7 +175,8 @@ class DecisionSweep(SweepTask):
         the state block once (4 questions cost far less than 4 single-question requests)."""
         try:
             with urllib.request.urlopen(f"{self.base_url}/systemone/models", timeout=30) as resp:
-                listed = (json.loads(resp.read())["data"][0].get("question_types") or [])
+                entry = json.loads(resp.read())["data"][0]
+                listed = entry.get("question_types") or []
         except (urllib.error.URLError, ValueError, KeyError, IndexError) as err:
             self.case(writer, model, "models", False, "GET /v1/systemone/models failed", 0.0, str(err))
             return
@@ -198,6 +199,35 @@ class DecisionSweep(SweepTask):
         ok = s1 == 200 and s4 == 200 and n1 > 0 and n1 < n4 < 4 * n1
         self.case(writer, model, "state-once-usage", ok, f"1 question {n1} tokens, 4 questions {n4}", t1 + t4,
                   f"input_tokens {n1} / {n4}")
+        # what the build lists is what it answers: boxes on an image, assets, a track over a frame-list video
+        # (needs no FFmpeg), long_context refused
+        if "box" in listed:
+            status, body, t = self.post({"state": "A small test picture.", "images": [self.IMAGE],
+                                         "questions": {"b": {"type": "box", "instructions": "The yellow rectangle"}}})
+            a = body.get("answers", {}).get("b", {})
+            box = a.get("box", {})
+            ok = (status == 200 and list(a) == ["type", "box", "confidence"] and sorted(box) == ["bottom", "left", "right", "top"]
+                  and all(0.0 <= v <= 1.0 for v in box.values()) and body["usage"]["input_tokens"] > 100)
+            self.case(writer, model, "box-image", ok, f"status {status}, box {box}", t, json.dumps(body)[:200])
+        if entry.get("assets"):
+            status, body, t = self.post({"state": "Picture: <pic>", "assets": {"<pic>": self.IMAGE},
+                                         "questions": {"bg": {"type": "choice", "instructions": "What is the main colour of the background?",
+                                                              "criteria": {"blue": "Blue", "red": "Red", "green": "Green"}}}})
+            a = body.get("answers", {}).get("bg", {})
+            ok = status == 200 and answer_shape_ok(a) and "error" not in a and body["usage"]["input_tokens"] > 100
+            self.case(writer, model, "assets", ok, f"status {status}, choice {a.get('choice')}", t, json.dumps(body)[:200])
+        if "track" in listed:
+            status, body, t = self.post({"state": "A short clip.", "videos": [{"frames": [self.IMAGE] * 4}],
+                                         "questions": {"t": {"type": "track", "instructions": "The yellow rectangle", "rate": 1}}})
+            a = body.get("answers", {}).get("t", {})
+            entries = a.get("track") or []
+            ok = (status == 200 and a.get("type") == "track" and len(entries) >= 1
+                  and all(sorted(e) == ["box", "confidence", "time", "visible"] and 0.0 <= e["visible"] <= 1.0 for e in entries))
+            self.case(writer, model, "track", ok, f"status {status}, {len(entries)} moments", t, json.dumps(body)[:200])
+        status, body, t = self.post({"state": STATE, "long_context": True, "questions": {"q": {"type": "noul"}}})
+        ok = (status == 422) == (entry.get("long_context") is False)
+        self.case(writer, model, "long-context", ok, f"status {status}, listed long_context {entry.get('long_context')}", t,
+                  json.dumps(body)[:200])
 
     # 96 x 64 PNG: a yellow box on a blue background
     IMAGE = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAiElEQVR42u3bMRXAIAxAQcKrjk5V1QkZlYAM"
