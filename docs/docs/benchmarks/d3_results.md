@@ -195,57 +195,77 @@ Attention runs on the NPU from 1,536 tokens, as for d3-lite (measured break-even
 
 ## ⚡ d3-turbo on the NPU
 
-Accuracy and latency of `d3:turbo` (vllm-sr/d3-turbo, Qwen3.5-27B backbone, prefix-bidirectional attention, package
-D3-Turbo-NPU2), same machine and settings as above. **All numbers on this page are TBD** until the final package is
-measured; nothing below is a result.
+Accuracy and latency of `d3:turbo` (vllm-sr/d3-turbo v1.1, Qwen3.5-27B backbone, prefix-bidirectional attention, package
+D3-Turbo-NPU2, Q4_K with GPTQ), same machine and settings as above. Cells that read `TBD(...)` are not measured on the final
+build yet.
 
 > **Note:**
 > - Latency is per request at the engine (no HTTP). A request is one state block plus one block per question: the
 >   state is computed once and every question runs against it (state-once).
-> - Memory: 16.5 GB of weights; the engine peaked at 25.05 GB at a 32,768-token prompt in the development build.
+> - Memory: 16.6 GB of weights; the server process peaks at 17.4 GB for prompts up to 4,096 tokens, 22.4 GB at 24,000 and
+>   25.3 GB at 32,768 tokens.
 
 ### Accuracy against the upstream BF16 model
 
 | Set | Questions | NPU (FLM) |
 |---|---:|---:|
-| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 736 | **TBD** |
-| Same set, final hidden state cosine to BF16 (median) | 736 | **TBD** |
-| Long prompts, 6,144 to 24,576 tokens, top-1 agreement with BF16 | 5 | **TBD** |
-| Context limit, 32,767 and 32,768 tokens answered, 32,769 refused | 3 | **TBD** |
-| Image requests (31 hand-built requests, 64 × 64 to 2000 × 1500 images), top-1 agreement with BF16 | 60 | **TBD** |
-| Box questions on images (29 requests, 102 questions): median edge difference to BF16 | 102 | **TBD** |
-| Decision Index public suite, seeded round-robin sample: mean benchmark score | **TBD** | **TBD** (BF16: **TBD**) |
-| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | **TBD** (BF16: **TBD**) |
+| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 736 | 95.7% |
+| Same set, final hidden state cosine to BF16 (median) | 736 | 0.9990 |
+| Long prompts, 6,144 to 24,576 tokens, top-1 agreement with BF16 | 5 | 100% (5 of 5) |
+| Long prompts, final hidden state cosine to BF16 (min over lengths) | 5 | 0.998 |
+| Context limit: 32,767 and 32,768 tokens answered (top-1 agreement), 32,769 refused | 2 | 100% (2 of 2) |
+| Image requests (31 hand-built requests, 64 × 64 to 2000 × 1500 images), top-1 agreement with BF16 | 60 | 93.3% |
+| Box questions on images (29 requests): median edge difference to BF16 / median IoU with BF16's box | 99 boxes | 0.006 / 0.91 |
+| Decision Index public suite, seeded round-robin sample: mean benchmark score | TBD(G3) | TBD(G3) (BF16: TBD(G3)) |
+| Same requests, top-1 agreement with BF16 (choice answers) | TBD(G3) | TBD(G3) |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | TBD(VISION) (BF16: TBD(VISION)) |
+| Same image questions, top-1 agreement with BF16 | 600 | TBD(VISION) |
 
 The reference is the upstream runtime on a GPU in BF16 (goldens frozen before the NPU runs). Prompts, token ids and answer
-objects follow the upstream runtime; probabilities differ by the quantization and the bf16 kernels.
+objects follow the upstream runtime (error answers, `usage.input_tokens` and the shape of every answer are identical on all
+request sets below); probabilities differ by the quantization and the bf16 kernels. The text sets were measured through
+`flm serve` (212 requests, 735 answered questions: top-1 95.7%, mean largest probability difference 0.021); the cosine row
+is the engine-level measurement of the same set. The image set misses the 93% agreement floor of the smaller models at the
+engine level (91.7%): the vision tower's noise (the NPU's vision features differ from BF16's by about 0.31 relative L2, the
+vision kernels of d3-mini by 0.58) dominates, so the judge is the Decision Index vision subset above.
+
+### Images (d3-turbo)
+
+Image requests agree with the upstream BF16 model on 56 of 60 answers (93.3%; 31 hand-built requests; mean largest
+probability difference 0.042). Latency of an image request: TBD(IMAGE-TIMINGS) (1,024 × 768 image, two images, 2000 × 1500
+image, 8 questions about one image). Box questions on an image (one to eight per request) took 3 to 19 s per request
+(median 11 s) in the development measurements below.
 
 ### Latency
 
 | Request | Median (ms) |
 |---|---:|
-| 1 question, 128 tokens | **TBD** |
-| 1 question, 330 tokens | **TBD** |
-| 1 question, 1,024 tokens | **TBD** |
-| 1 question, 4,096 tokens | **TBD** |
-| 1 question, 32,768 tokens | **TBD** |
-| 4 questions, one 330-token state | **TBD** |
-| 16 questions, one 330-token state | **TBD** |
-| 1 box question, one 1,024 × 768 image | **TBD** |
-| 4 box questions, one image | **TBD** |
+| 1 question, 128 tokens | TBD(LATENCY) |
+| 1 question, 330 tokens | TBD(LATENCY) |
+| 1 question, 1,024 tokens | TBD(LATENCY) |
+| 1 question, 4,096 tokens | TBD(LATENCY) |
+| 1 question, 32,768 tokens | TBD(LATENCY) |
+| 4 questions, one 330-token state | TBD(LATENCY) |
+| 16 questions, one 330-token state | TBD(LATENCY) |
+| 1 box question, one 1,024 × 768 image | TBD(LATENCY) |
+| 4 box questions, one image | TBD(LATENCY) |
 
-For comparison the earlier measurement on the development engine (one 2,105-token prompt through all 64 layers, array
-attention): 15.8 s; a 32,768-token prompt: 313 s. A first request loads the weights (about 17 s) and, with images, the
-vision tower.
+Development measurements (plain Q4_K package, an NPU shared with other jobs, so upper bounds), time to the answer of one
+question: 64 tokens 5.6 s, 330 tokens 5.5 s, 1,024 tokens 11.9 s, 2,048 tokens 23.4 s, 4,096 tokens 42 s, 8,192 tokens 84 s,
+16,384 tokens 186 s, 32,768 tokens 430 s (the first timing of the 64 layers alone at 32,768 tokens: 313 s). A pass over the weights
+costs about 4 to 5 s whatever the prompt (the 16.5 GB of weights stream through the NPU), plus 7 to 12 ms per token row. Before
+the state was computed once, 16 questions about a 330-token state took 62 s; against one pass per question the state-once engine is 2.5 times faster at a 300-token state with 16 questions, 9.4 times at
+1,024 tokens and 8.7 times at 4,096 tokens (64 questions: 4.1, 10.4 and 32 times). A first request loads the weights (about
+17 s) and, with images, the vision tower.
 
-Attention runs on the NPU from a prompt length that has not been swept for the 27B backbone (**TBD**; the default of the
-smaller models is 1,536 tokens).
+Attention runs on the NPU from 1,536 tokens, as for the smaller models (the break-even was measured on the 27B backbone only
+within the noise of the shared NPU, about ±30%).
 
 ### Video, box and track (development measurements)
 
-Measured through `flm serve --decision d3:turbo` (HTTP, GPTQ package, local engine build with images in question blocks and
+Measured through `flm serve --decision d3:turbo` (HTTP, GPTQ package, a local engine build with images in question blocks and
 video windows, an NPU shared with other jobs) against the frozen BF16 goldens of the same requests (upstream runtime, one
-row per question and one row per video moment). Not final numbers: the page's other rows stay **TBD**.
+row per question and one row per video moment). Not final numbers; timings are upper bounds.
 
 | Set | Requests | Answers / boxes compared | Result against BF16 | Seconds per request |
 |---|---:|---:|---|---|
@@ -255,11 +275,11 @@ row per question and one row per video moment). Not final numbers: the page's ot
 | Box on images | 29 | 99 boxes | edge difference median 0.006, IoU 0.91 | 3 to 19 (median 11) |
 | `assets` (state, options, instructions) | 15 | 26 answers, 7 boxes | top-1 100 %, box IoU median 0.98 | 11 to 114 (median 28) |
 
-Error answers, `usage.input_tokens` and the shape of every answer are identical to the upstream runtime on all of these.
 A box differs from the BF16 box by the vision tower's noise (a few hundredths of the image size) and a confidence moves by about the
 same amount. Time per window of a track (one state of up to 32 frames, 16 moments): about 36 s; a 60 second clip at 2 updates per
-second is 8 windows and 120 moments: 278 s, at 1 update per second 145 s. A box at one moment of a 60 second clip: 29 s, a plain
-question about it: 28 s.
+second is 8 windows and 120 moments: 278 s (peak memory 19.5 GB), at 1 update per second 145 s. A box at one moment of a 60 second
+clip: 29 s, a plain question about it: 28 s.
 
-Videos need the decoder (an FFmpeg of the machine, loaded at run time; `-DFLM_VIDEO_FFMPEG=ON`), at most 60 seconds per video,
-16,384 input tokens for all videos of a request and 256 moments per request.
+Limits, as measured: a 61 second clip is refused (`422`), a request may take at most 256 video moments and 16,384 video input
+tokens (`422`; `D3_MOMENT_ROWS` changes the first), `long_context: true` is refused. Videos need the FFmpeg shared libraries of the
+machine (loaded at run time); without them an encoded video is refused with `422` and frame lists still work.
