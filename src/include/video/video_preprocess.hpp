@@ -127,6 +127,26 @@ struct VideoPayload {
     int video_token_id = -1;                   //!< `<|video_pad|>`'s id (the tokenizer's)
 };
 
+/// One track window as the engine's per-window call reads it (a box at a moment / a track): the window's grid after the
+/// processor's resize (its own frame budget: a short last window gets bigger frames), its groups' times and the pixels
+/// of all its groups (bf16, `grid.grid_t * grid_h * grid_w` patches of PATCH_VALUES). `pixels` is released
+/// after the window's call (`release_pixels`), the rest stays for the answers.
+struct VideoWindow {
+    VideoGrid grid;
+    std::vector<int> indices;       //!< source frame numbers (even count, as decoded)
+    double fps = 0.0;
+    int total = 0;
+    std::vector<double> times;      //!< `group_times`: one time per temporal group (the moments)
+    std::vector<uint16_t> pixels;   //!< bf16 bits; empty once released
+    void release_pixels() { std::vector<uint16_t>().swap(pixels); }
+    /// bf16 values of one group (empty when released)
+    std::vector<uint16_t> group_pixels(int g) const {
+        const size_t n = static_cast<size_t>(grid.grid_h) * grid.grid_w * PATCH_VALUES;
+        if (pixels.size() < (static_cast<size_t>(g) + 1) * n) return {};
+        return std::vector<uint16_t>(pixels.begin() + static_cast<long>(n * g), pixels.begin() + static_cast<long>(n * (g + 1)));
+    }
+};
+
 /// Append one clip's groups (and pixels) to the payload.
 void append_video(VideoPayload& payload, const VideoClip& clip, const VideoGrid& grid,
                   const VideoProcessorConfig& cfg = {});

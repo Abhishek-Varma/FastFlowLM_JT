@@ -33,6 +33,12 @@ constexpr int MAX_FRAME_LIST = 2048;
 /// encoded video needs a decoder that is not there.
 VideoClip load_video(const PyValue& value, const VideoLoadOptions& options);
 
+/// `load_video_windows(value, rate)` of the track / box-at-a-moment path: the clip decoded once, in one pass, into its
+/// windows (`window_plan`), each already resized and patchified (`VideoWindow::pixels`). Only a data URL string is
+/// taken (frame lists are not: upstream's text). Throws VideoError, VideoBackendUnavailable.
+std::vector<VideoWindow> load_video_windows(const PyValue& value, int rate, const VideoLoadOptions& options,
+                                            const VideoProcessorConfig& cfg = {});
+
 /// `PrepareOptions::load_video` for these options (the d3_contract hook): `load_video` as a shared clip.
 std::function<std::shared_ptr<const VideoClip>(size_t, const PyValue&)> make_video_loader(VideoLoadOptions options);
 

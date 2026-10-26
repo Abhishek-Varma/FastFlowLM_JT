@@ -77,14 +77,12 @@ VideoClip load_frames(const PyValue& value, const VideoLoadOptions& o) {
 
 }  // namespace
 
-VideoClip load_video(const PyValue& value, const VideoLoadOptions& o) {
-    if (value.is_object() && o.allow_frame_lists) return load_frames(value, o);
-    if (!value.is_string()) throw VideoError(NOT_INLINE);
-    if (value.text.empty()) {
-        throw VideoError("a video is a path, an http(s) URL, a data:video/...;base64 URL or a frame array");
-    }
+namespace {
+
+/// `_video_data_url_payload(value, strict=True)` and the backend check: the encoded bytes of a data URL video.
+/// Throws VideoError, VideoBackendUnavailable.
+std::string video_bytes(const PyValue& value, const VideoLoadOptions& o) {
     if (value.text.compare(0, 5, "data:") != 0) throw VideoError(NOT_INLINE);
-    // _video_data_url_payload(value, strict=True)
     std::string text, rest;
     try {
         try {
@@ -104,12 +102,45 @@ VideoClip load_video(const PyValue& value, const VideoLoadOptions& o) {
             throw ContractError("video data URLs take the types mp4, webm, quicktime, x-matroska, got " +
                                 repr(PyValue::string(subtype)));
         }
-        const std::string bytes = decode_base64(text, MAX_VIDEO_BYTES);
+        std::string bytes = decode_base64(text, MAX_VIDEO_BYTES);
         if (!o.backend) throw VideoBackendUnavailable(backend_unavailable_message("no decoder configured"));
-        return decode_clip(*o.backend, bytes, o.limits);
+        return bytes;
     } catch (const ContractError& e) {
         throw VideoError(e.what());
     }
+}
+
+}  // namespace
+
+VideoClip load_video(const PyValue& value, const VideoLoadOptions& o) {
+    if (value.is_object() && o.allow_frame_lists) return load_frames(value, o);
+    if (!value.is_string()) throw VideoError(NOT_INLINE);
+    if (value.text.empty()) {
+        throw VideoError("a video is a path, an http(s) URL, a data:video/...;base64 URL or a frame array");
+    }
+    const std::string bytes = video_bytes(value, o);
+    return decode_clip(*o.backend, bytes, o.limits);
+}
+
+std::vector<VideoWindow> load_video_windows(const PyValue& value, int rate, const VideoLoadOptions& o,
+                                            const VideoProcessorConfig& cfg) {
+    if (!value.is_string() || value.text.empty()) {
+        throw VideoError("a video Box needs a path, an http(s) URL or a data:video/...;base64 URL");
+    }
+    const std::string bytes = video_bytes(value, o);
+    std::vector<VideoWindow> out;
+    // each window is resized and patchified as soon as it is read: only its bf16 pixels (38 MB at 32 frames of 0.2 MP) stay
+    decode_windows(*o.backend, bytes, rate, o.limits, [&](VideoClip&& clip) {
+        VideoWindow w;
+        w.grid = plan_video_grid(clip.n, clip.height, clip.width, cfg);
+        preprocess_video_bf16(clip, w.grid, w.pixels, cfg);
+        w.indices = clip.indices;
+        w.fps = clip.fps;
+        w.total = clip.total;
+        w.times = group_times(clip.indices, clip.fps);
+        out.push_back(std::move(w));
+    });
+    return out;
 }
 
 std::function<std::shared_ptr<const VideoClip>(size_t, const PyValue&)> make_video_loader(VideoLoadOptions options) {
