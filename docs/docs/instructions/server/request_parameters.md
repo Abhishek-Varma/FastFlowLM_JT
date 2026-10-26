@@ -133,7 +133,7 @@ Like the other sampling fields, the window size [sticks](#️-sampling-fields) u
 
 ## 🎲 `seed` and Repeatable Output
 
-Send an integer `seed` and FLM samples from it: the same request with the same `seed` gives the same text, on `/v1/chat/completions` and `/v1/completions`, streamed or not, as long as the model computes the same logits each time (not every model does: see the caveats below). Any 64-bit integer works, negative ones included.
+Send an integer `seed` and FLM samples from it: the same request with the same `seed` gives the same text, on `/v1/chat/completions` and `/v1/completions`, streamed or not. Any 64-bit integer works, negative ones included.
 
 ```python
 response = client.chat.completions.create(
@@ -155,13 +155,12 @@ What `seed` does:
 
 There is no `system_fingerprint` to compare: non-streaming responses have none, and each stream gets a random one.
 
-Greedy decoding (`temperature=0` or `top_k=1`) doesn't use the random generator, so it is repeatable without a seed. Three caveats hold for seeded and greedy output alike:
+Greedy decoding (`temperature=0` or `top_k=1`) doesn't use the random generator, so it is repeatable without a seed. Two caveats hold for seeded and greedy output alike:
 
-- **Some models don't compute the same logits twice.** On models such as `llama3.2:1b`, `llama3.2:3b` and `qwen3:0.6b`, the same prompt read from scratch gives slightly different logits on each run, from the first generated token on. The difference is tiny, but where two tokens are almost equally likely it decides which one is picked, and the text goes its own way from there. On these models neither `seed` nor greedy decoding guarantees the same text. Models such as `gemma3:1b`, `lfm2:1.2b` and `qwen3.5:0.8b` compute identical logits, and give the same text every time.
 - **Penalties still apply.** They change *which* token is picked, but in the same way every time, as long as each request sends the same values.
 - **A cached prompt can change the wording.** A prompt resumed from the [prefix cache](https://fastflowlm.com/docs/instructions/server/prefix_cache/#️-limits-to-know-about) or the prompt cache is not bit-for-bit identical to the same prompt read from scratch, so the same request can differ between a cold run and a cached one.
 
-To check a model, send the same greedy request twice with `logprobs: true`: if the `logprob` values differ, so can the text.
+If the same request doesn't repeat, send it twice with `logprobs: true`. If the `logprob` values differ, the model read the prompt differently (usually because one run was cached), not because of the seed.
 
 ---
 
