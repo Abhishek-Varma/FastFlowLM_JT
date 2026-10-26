@@ -487,6 +487,10 @@ DecisionReply AutoDecisionModel::system_one(const std::string& raw_body) {
             options.unsupported_for = tag_;   // long_context / videos (and track): not in this build
             options.composed = composed_;
             options.reasons = true;           // d3-turbo's runtime adds `reason` to every error answer
+            const auto& types = composed_config_.question_types;
+            if (video_ && std::find(types.begin(), types.end(), std::string("track")) != types.end()) {
+                options.answers = "choice, noul, score, box and track questions about text, images and video";
+            }
             if (video_) options.load_video = video_loader_;
         }
         prepared = flm::d3::prepare(body, codes_, decode, options);

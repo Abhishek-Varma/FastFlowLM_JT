@@ -569,9 +569,12 @@ ComposedRequest prepare_composed(const PyValue& body, const std::vector<std::str
     options.unsupported_for = config.tag;
     options.composed = true;
     options.reasons = true;
+    options.answers = contains(config.question_types, "track") && config.video
+                          ? "choice, noul, score, box and track questions about text, images and video"
+                          : "choice, noul, score and box questions about text and images";
     options.refuse_video_questions = config.refuse_video_questions && contains(config.question_types, "track");
     const PyValue& questions = check_request(body, options);
-    const std::string tail = " by this build of " + config.tag + " (it answers choice, noul, score and box questions about text and images)";
+    const std::string tail = " by this build of " + config.tag + " (it answers " + options.answers + ")";
 
     ComposedRequest req;
     const PyValue* assets = body.get("assets");

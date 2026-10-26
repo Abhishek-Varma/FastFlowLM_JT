@@ -184,6 +184,9 @@ struct PrepareOptions {
     /// contract 3.1.0, which d3-turbo's runtime implements). Off for d3:lite / nano / mini: their upstream
     /// runtime does not add it, and their replies stay bit-identical.
     bool reasons = false;
+    /// What this build answers, named in a refusal ("... by this build of d3:turbo (it answers <answers>)"); empty: the
+    /// default text for the mode (choice, noul, score [and box] questions about text and images).
+    std::string answers;
     /// Videos (d3:turbo with the video decoder on): loads `videos[i]` (see video/video_input.hpp: throws
     /// video::VideoError, or video::VideoBackendUnavailable when no decoder is there). Null: `videos` stays
     /// refused with the messages above, so nothing changes for builds without the decoder.

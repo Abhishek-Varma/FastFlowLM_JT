@@ -597,7 +597,9 @@ std::vector<std::string> Prepared::runnable() const {
 const PyValue& check_request(const PyValue& body, const PrepareOptions& options) {
     const bool limited = !options.unsupported_for.empty();
     const bool composed = limited && options.composed;
-    const std::string refusal_tail = composed
+    const std::string refusal_tail = !options.answers.empty()
+        ? " by this build of " + options.unsupported_for + " (it answers " + options.answers + ")"
+        : composed
         ? " by this build of " + options.unsupported_for +
               " (it answers choice, noul, score and box questions about text and images)"
         : " by this build of " + options.unsupported_for +
@@ -668,7 +670,9 @@ Prepared prepare(const PyValue& body, const std::vector<std::string>& codes,
                  const std::function<void(size_t, const ImageFile&)>& decode, const PrepareOptions& options) {
     const bool limited = !options.unsupported_for.empty();
     const std::string refusal_tail = " by this build of " + options.unsupported_for +
-                                     (options.composed
+                                     (!options.answers.empty()
+                                          ? " (it answers " + options.answers + ")"
+                                          : options.composed
                                           ? " (it answers choice, noul, score and box questions about text and images)"
                                           : " (it answers choice, noul and score questions about text and images)");
     const PyValue* questions = &check_request(body, options);

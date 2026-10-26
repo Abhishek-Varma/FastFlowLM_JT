@@ -301,6 +301,9 @@ int main(int argc, char** argv) {
         fake.unavailable = true;
         expect(request_error("{\"videos\": [\"" + VIDEO_URL + "\"], \"questions\": {\"t\": {\"type\": \"track\", \"instructions\": \"x\"}}}", cfg).find("video inputs are not available") == 0,
                "no decoder is a 422");
+        expect(request_error("{\"long_context\": true, \"questions\": {\"c\": {\"type\": \"noul\"}}}", cfg) ==
+                   "long_context is not supported by this build of d3:turbo (it answers choice, noul, score, box and track questions about text, images and video)",
+               "the refusal names what the build answers");
         // a build without video: videos are refused, a track is the plain refusal
         fake = Fake();
         flm::d3::ComposedConfig off = cfg;
