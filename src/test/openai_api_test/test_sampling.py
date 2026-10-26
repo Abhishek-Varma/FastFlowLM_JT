@@ -54,11 +54,9 @@ def content(api: Api, body: dict[str, Any]) -> str:
 def require_reproducible(api: Api) -> None:
     """Skip unless the model computes the same logits for identical requests.
 
-    Engines that leave an earlier request's KV cache rows behind don't (llama,
-    qwen2/qwen3, phi4 and others before FastFlowLM_IRON#98): their logits differ
-    by a rounding step from run to run, and wherever two tokens are close that
-    changes the pick.
-    Greedy text can still match over a short answer, so compare the logprobs.
+    Logits that differ by a rounding step from run to run change the pick
+    wherever two tokens are close, yet greedy text can still match over a short
+    answer, so compare the logprobs.
     """
     body = api.body(user(STORY), max_tokens=48, logprobs=True, **no_penalties())
     resp = api.post(body)

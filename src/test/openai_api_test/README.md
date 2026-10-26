@@ -45,7 +45,7 @@ Some cases skip by design:
 - **Thinking-on cases** skip on models that never reason.
 - **Multi-turn cases** skip on single-turn (flash) models.
 - **Stream/non-stream parity** compares greedy outputs. Greedy decoding on the NPU isn't always bit-reproducible between identical requests (mostly over long outputs), so the check retries and only fails if the non-streaming output reproduced itself while the stream never matched it. Otherwise it skips.
-- **Seed and penalty-window comparisons** in `test_sampling.py` retry the same way, and skip when two identical greedy requests report different logprobs. An engine that leaves an earlier request's KV cache rows behind (llama, qwen2/qwen3, phi4 and others before FastFlowLM_IRON#98) computes slightly different logits on every run, so no output of its is repeatable.
+- **Seed and penalty-window comparisons** in `test_sampling.py` retry the same way, and skip when two identical greedy requests report different logprobs, since then no output of the model's is repeatable.
 
 ## Notes
 
