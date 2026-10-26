@@ -36,6 +36,14 @@ on Windows: `avformat-60.dll`, ...). Without them the request is refused with 42
   `flm.exe`, or set `FLM_FFMPEG_DIR`.
 * `FLM_FFMPEG_DIR=<dir>` is searched first. CMake option `FLM_VIDEO_FFMPEG` (default ON) controls run-time loading; `-DFLM_VIDEO_FFMPEG=OFF` leaves the decoder out (the build then answers encoded videos with 422 and does not list `video` / `track`).
 
+**Licensing.** FLM does not contain, link against, bundle or redistribute FFmpeg: no FFmpeg code or header is compiled into `flm`,
+`libd3_npu.so` / `d3_npu.dll` or the xclbins (the binaries only carry the library names above and our own wrapper code, which
+talks to the public C ABI through `dlopen`). The FFmpeg libraries are the user's own installation and stay under their own
+licence (LGPL-2.1+, or GPL when the distribution built them with GPL options). Do not add FFmpeg binaries or headers to FLM's
+installers, packages or repository; if a package ever has to ship them, use an LGPL-only shared build and include its licence
+text and source offer. The only file that includes FFmpeg headers is the optional test `test_ffmpeg_layout.cpp`, which builds
+against the system headers and is not part of any shipped binary.
+
 Decoding follows OpenCV's FFmpeg capture (what upstream uses): first video stream, sequential decode, swscale
 `SWS_BICUBIC` to RGB24, frame count = `nb_frames` else duration x fps + 0.5, display-matrix rotation applied. Against OpenCV 5.0 (its
 bundled FFmpeg) the test clips (H.264 mp4 / mov / mkv, VP9 webm, GIF, rotated) decode bit-identically.
