@@ -2,7 +2,7 @@
 
     python gen_compose_fixtures.py --package <vllm-sr/d3-turbo dir> --out fixtures [--seed 11] [--units 4000] [--requests 400]
 
-Run it with a Python that has transformers, torch (CPU is enough), numpy and pillow (work/venv-turbo or venv-d3).
+Run it with a Python that has transformers, torch (CPU is enough), numpy and pillow (a venv with the upstream d3 requirements).
 It never loads the model: the request fixtures run the package's own ``D3._system_one_composed`` on an instance
 built without weights, whose encoder returns seeded random hidden rows, so the whole composed code path (parts,
 rendering, tokenization, processor, state split, readout, Box decode, confidence, calibration, usage, errors)
@@ -42,7 +42,7 @@ WORDS = ["the", "cat", "State", "x", "Question:", "0", "1", "true", "None", "A",
          "ไทย", "हिन्दी", "🙂", "🤖🚀", "𝔘𝔫𝔦", "tab\t", "nl\n", "quote\"", "back\\slash", "ctrl\x01", " ", " ",
          "<|im_start|>", "<|im_end|>", "</think>", "  ", "\n\n", "Options:", "A: ", "top:", "bottom:", "visible:"]
 # combining marks (Thai, Devanagari): transformers' Qwen2Tokenizer and tokenizer.json (FLM) split them differently
-# (pre-existing, see flm_log.md), so most request fixtures avoid them and FastFlowLM's real tokenizer can be checked
+# (pre-existing, as for the smaller d3 models), so most request fixtures avoid them and FastFlowLM's real tokenizer can be checked
 WORDS_PLAIN = [w for w in WORDS if w not in ("ไทย", "हिन्दी")]
 WORD_POOL = [WORDS]
 REFS = ["<a>", "<b>", "<ab>", "<a>b", "img", "[x]", "🙂", "é", "a", "ab", "中", "<c> d", "@@", "key:1", "x" * 40,

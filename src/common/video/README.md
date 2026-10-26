@@ -43,5 +43,5 @@ bundled FFmpeg) the test clips (H.264 mp4 / mov / mkv, VP9 webm, GIF, rotated) d
 ## Tests
 
 `src/test/d3_video` (`cmake -S src/test/d3_video -B build && cmake --build build && ctest --test-dir build`).
-Goldens come from running the real `Qwen3VLVideoProcessor` and upstream functions (`gen_fixtures.py`, venv-turbo, CPU).
+Goldens come from running the real `Qwen3VLVideoProcessor` and upstream functions (`gen_fixtures.py`, a Python with transformers, torchvision and OpenCV, CPU).
 The FFmpeg tests skip when the libraries are missing.

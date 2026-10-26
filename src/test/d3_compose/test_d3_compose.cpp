@@ -166,7 +166,7 @@ std::string outcome(F&& fn) {
 }
 
 /// Text with combining marks (Thai, Devanagari, U+0300 block): transformers' Qwen2Tokenizer rebuilds the pre-tokenizer
-/// without \p{M}, so its ids differ from tokenizer.json's there (pre-existing for lite / nano / mini, see flm_log.md).
+/// without \p{M}, so its ids differ from tokenizer.json's there (pre-existing for lite / nano / mini).
 bool has_combining(const std::string& s) {
     for (size_t i = 0; i < s.size();) {
         const unsigned char c = s[i];

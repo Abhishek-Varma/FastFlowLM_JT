@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Goldens for the d3 video input side, produced by the real upstream code.
 
-Run in venv-turbo (transformers 5.17, torchvision 0.24, opencv-python-headless), CPU only:
+Run with transformers 5.17, torchvision 0.24 and opencv-python-headless, CPU only (D3_UPSTREAM = the upstream
+d3-turbo package's python modules, D3_TURBO_ROOT = the package folder):
 
-    source /scratch/tawei/npu/d3-turbo/work/env_turbo.sh
     HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR --compact  # the committed set (small frame budget; resized
                                                                   # goldens above 210 kB dropped: md5 decides)
     HIP_VISIBLE_DEVICES= python gen_fixtures.py OUTDIR            # the full small set (all resized goldens, ~4 MB)
@@ -25,8 +25,8 @@ import argparse, hashlib, json, math, os, struct, subprocess, sys
 os.environ.setdefault("HIP_VISIBLE_DEVICES", "")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
-UP = os.environ.get("D3_UPSTREAM", "/scratch/tawei/npu/d3-turbo/work/upstream")
-ROOT = os.environ.get("D3_TURBO_ROOT", "/scratch/tawei/npu/hf/vllm-sr/d3-turbo")
+UP = os.environ.get("D3_UPSTREAM", ".")
+ROOT = os.environ.get("D3_TURBO_ROOT", "vllm-sr/d3-turbo")
 sys.path.insert(0, UP)
 
 import numpy as np
