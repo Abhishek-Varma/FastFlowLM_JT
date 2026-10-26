@@ -49,16 +49,23 @@ struct d3_image_payload {
 /// FastFlowLM compares D3_NPU_ABI_VERSION (its mirror of this header) with d3_npu_abi_version() (the library
 /// it loaded) and refuses a mismatch; a revision-1 library does not export the functions at all (resolve
 /// them weakly or with dlsym, a missing symbol means revision 1: per-row prefix_bidir only).
+///
+/// Minor revision inside ABI 2 (append-only behaviour, no layout change: every struct of revision 2 is unchanged):
+///   0: revision 2 as frozen (question_images / image_ids / video_token_id rejected)
+///   1: M3 / M4: images inside question blocks (D3_CAP_QUESTION_IMAGES), video pad runs (D3_CAP_VIDEO), the vision
+///      tower called in chunks of at most 65,536 patches; d3_npu_abi_minor() exists. A library without the symbol is minor 0.
 constexpr int D3_NPU_ABI_VERSION = 2;
+constexpr int D3_NPU_ABI_MINOR = 1;
 /// Capabilities of the loaded library (bit set: usable)
 enum d3_npu_capability : unsigned {
     D3_CAP_STATE_ONCE     = 1u << 0,   ///< encode_state_once()
     D3_CAP_READOUT_ROWS   = 1u << 1,   ///< d3_question_block::readout_from_end with several rows (M3)
-    D3_CAP_QUESTION_IMAGES = 1u << 2,  ///< d3_state_request::question_images / image_ids (M3, not in revision 2)
-    D3_CAP_VIDEO          = 1u << 3,   ///< d3_state_request::video_token_id (M4, not in revision 2)
+    D3_CAP_QUESTION_IMAGES = 1u << 2,  ///< d3_state_request::question_images / image_ids (M3, minor 1)
+    D3_CAP_VIDEO          = 1u << 3,   ///< d3_state_request::video_token_id (M4, minor 1)
 };
 extern "C" int d3_npu_abi_version();       ///< D3_NPU_ABI_VERSION of the library
 extern "C" unsigned d3_npu_capabilities(); ///< d3_npu_capability bits
+extern "C" int d3_npu_abi_minor();         ///< D3_NPU_ABI_MINOR of the library (absent in minor 0 libraries)
 
 /// One question of a shared state (encode_state_once).
 struct d3_question_block {
@@ -70,8 +77,11 @@ struct d3_question_block {
     /// (what a choice / noul / score question reads). M3: box edges read several rows of one block (4
     /// colon tokens at offsets 9, 6, 3, 0; track: 12, 9, 6, 3, 0). Every offset must be in [0, ids.size()).
     std::vector<int> readout_from_end;
-    /// M3 (rejected by revision 2 when non-empty): indices into d3_state_request::question_images of the
-    /// images whose pad runs appear in `ids`, in pad-run order
+    /// M3 (D3_CAP_QUESTION_IMAGES): indices into d3_state_request::question_images of the images whose pad runs
+    /// appear in `ids`, in pad-run order (the same table entry may be listed by many blocks, and twice in one
+    /// block). The pad ids are question_images.image_token_id and, when video_token_id >= 0, that id. The runs'
+    /// M-RoPE positions start at the block's first position (the state's next position); every run advances it by
+    /// max(grid_h, grid_w) / 2, as in the state. A pad token in a block without image_ids is an error.
     std::vector<int> image_ids;
 };
 
@@ -88,11 +98,14 @@ struct d3_state_request {
     const d3_image_payload* media = nullptr;
     std::vector<d3_question_block> questions;
 
-    // ---- extension points (append-only; revision 2 refuses a non-default value with std::invalid_argument)
-    /// M3: images that occur inside question blocks, deduplicated by the caller, same layout as a payload
-    /// (grid, pixels, image_token_id); referenced by d3_question_block::image_ids
+    // ---- M3 / M4 (library minor 1; a minor-0 library throws std::invalid_argument for a non-default value)
+    /// M3: images that occur inside question blocks (grid, pixels, image_token_id as a payload), referenced by
+    /// d3_question_block::image_ids. The caller may deduplicate; the engine also merges entries with equal grid and
+    /// pixels (one vision tower run, the rows are shared by every use). Large tables run as several tower calls.
     d3_image_payload question_images;
-    /// M4: id of <|video_pad|>; runs of it are visual runs just like image_token_id runs (-1: none)
+    /// M4: id of <|video_pad|>; its runs are visual runs just like image_token_id runs, in the state (a video's
+    /// temporal groups are entries of `media->images`, one {grid_h, grid_w} per group, in prompt order, pixels
+    /// [3][2][16][16] per patch) and in question blocks. -1: none.
     int video_token_id = -1;
 };
 
@@ -136,8 +149,13 @@ public:
     /// state, GDN conv tail and recurrent state) live on the host heap for the duration of the call only
     /// (d3-turbo: 64 KiB per state token plus 147 MiB, i.e. 268 MB at 4k tokens; in general
     /// 2 * attention layers * kv heads * head_dim * 2 bytes per token plus 3 MiB per GDN layer of the 48 value heads).
+    /// M3 / M4 (library minor 1, d3_npu_capabilities()): question blocks may hold images (question_images / image_ids:
+    /// one vision tower run per distinct image, positions started at the block's first position), and <|video_pad|>
+    /// runs are visual runs (video_token_id; a video's temporal groups are entries of media->images). A video clip's
+    /// windows are one call each (the state of a call is the window). The vision tower is called in chunks of at most
+    /// 65,536 patches.
     /// \throws std::invalid_argument bad request (empty state or block, readout offset out of range, an
-    ///         image run mismatch, a field this revision does not support), std::length_error state + block
+    ///         image run mismatch, a field this library does not support), std::length_error state + block
     ///         over max_length(), std::runtime_error load_weights() missing / vision tower
     /// Not thread-safe against other calls on the same engine (as encode_batch).
     std::vector<buffer<bf16>> encode_state_once(const d3_state_request& req);
