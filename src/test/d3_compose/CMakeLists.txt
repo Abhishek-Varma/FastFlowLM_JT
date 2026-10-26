@@ -62,6 +62,21 @@ if(FLM_D3_TEST_TOKENIZER)
     endif()
 endif()
 
+# -DFLM_D3_TEST_GOLDEN_ROWS=ON (with FLM_D3_TEST_TOKENIZER): test_d3_golden_rows, the M3/M4 goldens' composed requests (box_image, assets,
+# video, box_video, track) through prepare_composed with FastFlowLM's tokenizer and FFmpeg against the golden rows (text, n, S, offsets,
+# errors, usage). Needs the goldens and d3rig/requests on disk and libav* at run time: configure with -DCMAKE_CXX_COMPILER=/usr/bin/g++
+# (the pandora libstdc++ is too old to dlopen the system FFmpeg). Not a ctest: run it by hand (see the file header).
+option(FLM_D3_TEST_GOLDEN_ROWS "Build test_d3_golden_rows (needs the tokenizer option and the goldens)" OFF)
+if(FLM_D3_TEST_TOKENIZER AND FLM_D3_TEST_GOLDEN_ROWS)
+    add_executable(test_d3_golden_rows test_d3_golden_rows.cpp "${FLM_SOURCE_DIR}/common/tokenizer/tokenizer.cpp" ${D3_COMPOSE_SOURCES}
+        "${FLM_SOURCE_DIR}/common/video/video_decode.cpp" "${FLM_SOURCE_DIR}/common/video/video_input.cpp" "${FLM_SOURCE_DIR}/common/video/ffmpeg_dl.cpp")
+    target_include_directories(test_d3_golden_rows PRIVATE "${FLM_SOURCE_DIR}/include" "${FLM_SOURCE_DIR}/../third_party/tokenizers-cpp/include")
+    target_link_libraries(test_d3_golden_rows PRIVATE tokenizers_cpp ${CMAKE_DL_LIBS})
+    if(NOT MSVC)
+        target_compile_options(test_d3_golden_rows PRIVATE -ffp-contract=off)
+    endif()
+endif()
+
 if(FLM_D3_TEST_ADAPTER)
     add_executable(test_d3_adapter test_d3_adapter.cpp "${FLM_SOURCE_DIR}/common/AutoDecisionModel/d3_engine_adapter.cpp")
     target_include_directories(test_d3_adapter PRIVATE "${FLM_SOURCE_DIR}/include" "${FLM_SOURCE_DIR}/include/aiebu")
