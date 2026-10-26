@@ -235,10 +235,10 @@ def top_logprobs_needs_logprobs(api: Api) -> None:
 
 @case
 def bad_top_logprobs(api: Api) -> None:
-    """top_logprobs outside 0..20, or not an integer, is refused."""
-    expect_400(api, {"logprobs": True, "top_logprobs": 21}, "between 0 and 20")
-    expect_400(api, {"logprobs": True, "top_logprobs": -1}, "between 0 and 20")
-    expect_400(api, {"logprobs": True, "top_logprobs": 1.5}, "between 0 and 20")
+    """top_logprobs outside 0..100, or not an integer, is refused."""
+    expect_400(api, {"logprobs": True, "top_logprobs": 101}, "between 0 and 100")
+    expect_400(api, {"logprobs": True, "top_logprobs": -1}, "between 0 and 100")
+    expect_400(api, {"logprobs": True, "top_logprobs": 1.5}, "between 0 and 100")
 
 
 @case

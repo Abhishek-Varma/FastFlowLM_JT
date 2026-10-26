@@ -261,8 +261,8 @@ static bool logprobs_request_from_openai(const json& request, int& top_n, std::s
     }
     if (has_value(request, "top_logprobs")) {
         const json& n = request.at("top_logprobs");
-        if (!n.is_number_integer() || n.get<int64_t>() < 0 || n.get<int64_t>() > 20) {
-            error = "top_logprobs must be an integer between 0 and 20";
+        if (!n.is_number_integer() || n.get<int64_t>() < 0 || n.get<int64_t>() > 100) {
+            error = "top_logprobs must be an integer between 0 and 100";
             return false;
         }
         if (!enabled) {

@@ -327,7 +327,7 @@ gc.collect()
 
 ## 🎲 Example: Token Log Probabilities
 
-`/v1/chat/completions` returns per-token log probabilities as OpenAI does. Set `logprobs=True`, and `top_logprobs` (0–20) for the most likely alternatives at each position:
+`/v1/chat/completions` returns per-token log probabilities as OpenAI does. Set `logprobs=True`, and `top_logprobs` (0–100) for the most likely alternatives at each position:
 
 ```python
 from openai import OpenAI
@@ -352,7 +352,7 @@ Streaming works the same way: each content chunk carries `choices[0].logprobs.co
 - Only `content` has log probabilities. Tokens of `reasoning_content` and of tool calls are left out, and chunks that carry them have `logprobs: null`.
 - `bytes` is `null` for special tokens such as end-of-turn, which can appear among `top_logprobs`. A token that holds only part of a UTF-8 character is named by its bytes, for example `"bytes:\xe4\xbd"`.
 - `qwen3.8-mtp` does not support log probabilities. Its speculative decoding commits tokens the server never samples, and requests with `logprobs` get HTTP 400.
-- `top_logprobs` without `logprobs=True`, or outside 0–20, gets HTTP 400.
+- `top_logprobs` without `logprobs=True`, or outside 0–100, gets HTTP 400.
 
 ---
 
