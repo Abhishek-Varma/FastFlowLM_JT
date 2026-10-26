@@ -990,7 +990,7 @@
                     "decision"
                 ],
                 "scratch": 8600000000,
-                "footprint": 26.0
+                "footprint": 28.0
             }
         },
         "whisper-v3": {
