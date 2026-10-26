@@ -34,7 +34,7 @@ on Windows: `avformat-60.dll`, ...). Without them the request is refused with 42
   newer releases ship the 7.x / 8.x sonames. Fedora: `sudo dnf install ffmpeg-free-libs` (or the RPM Fusion `ffmpeg-libs`).
 * Windows: put an LGPL shared build (`avformat-6x.dll`, `avcodec-6x.dll`, `avutil-5x.dll`, `swscale-x.dll`) next to
   `flm.exe`, or set `FLM_FFMPEG_DIR`.
-* `FLM_FFMPEG_DIR=<dir>` is searched first. CMake `-DFLM_VIDEO_FFMPEG=ON` turns run-time loading on (it is OFF by default until the engine runs videos).
+* `FLM_FFMPEG_DIR=<dir>` is searched first. CMake option `FLM_VIDEO_FFMPEG` (default ON) controls run-time loading; `-DFLM_VIDEO_FFMPEG=OFF` leaves the decoder out (the build then answers encoded videos with 422 and does not list `video` / `track`).
 
 Decoding follows OpenCV's FFmpeg capture (what upstream uses): first video stream, sequential decode, swscale
 `SWS_BICUBIC` to RGB24, frame count = `nb_frames` else duration x fps + 0.5, display-matrix rotation applied. Against OpenCV 5.0 (its

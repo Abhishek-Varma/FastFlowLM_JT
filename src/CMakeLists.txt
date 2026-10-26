@@ -560,9 +560,9 @@ if(EXISTS "${_d3_npu_lib}")
 endif()
 
 # Video input for d3:turbo (src/common/video): FFmpeg's shared libraries are loaded at run time (no build-time
-# dependency); OFF (the default until the engine runs videos) leaves only the frame-list input and answers
-# encoded videos with a clear 422.
-option(FLM_VIDEO_FFMPEG "Load FFmpeg (libavformat/libavcodec/libswscale) at run time to decode video inputs" OFF)
+# dependency); ON by default (the engine runs videos). A machine without the FFmpeg libraries keeps the
+# frame-list input and answers encoded videos with a clear 422; -DFLM_VIDEO_FFMPEG=OFF leaves the decoder out.
+option(FLM_VIDEO_FFMPEG "Load FFmpeg (libavformat/libavcodec/libswscale) at run time to decode video inputs" ON)
 if(FLM_VIDEO_FFMPEG)
     target_link_libraries(flm PRIVATE ${CMAKE_DL_LIBS})
     # AutoDecisionModel installs the video loader (plain questions about videos in the state; D3_VIDEO=0 turns it off)
