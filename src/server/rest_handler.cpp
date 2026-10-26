@@ -418,7 +418,9 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
         this->prefill_chunk_len_arg = -1;
     }
     this->prefill_chunk_len = this->prefill_chunk_len_arg;
-    
+    this->prefix_cache_mb = args.prefix_cache_mb;
+    this->prefix_slots = args.prefix_slots;
+
     // Initialize chat bot with default model
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
     if (this->asr) {
@@ -437,6 +439,10 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
         header_print("Error", "Embedding models are not supported in this build");
     }
 #endif
+
+    if (!args.decision.empty()) {
+        ensure_decision_model_loaded(args.decision);
+    }
 
     if (default_model_tag != "model-faker") {
         if (!supported_models.is_model_supported(default_model_tag)) {
@@ -518,6 +524,8 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag,
             auto [new_ensure_tag, model_info] = supported_models.get_model_info(ensure_tag);
             engine->set_server_mode(true);
             engine->configure_parameter("img_pre_resize", this->img_pre_resize);
+            engine->configure_parameter("prefix_cache_mb", this->prefix_cache_mb);
+            engine->configure_parameter("prefix_slots", this->prefix_slots);
             const auto load_started = std::chrono::steady_clock::now();
             engine->load_model(supported_models.get_model_path(new_ensure_tag), model_info, ctx_length, preemption, requested_backend);
             report_load_time(load_started);
@@ -570,6 +578,78 @@ void RestHandler::ensure_asr_model_loaded(const std::string& model_tag) {
 #else
     throw std::runtime_error("ASR models are not supported in this build");
 #endif
+}
+
+///@brief Load the --decision model (download it first if needed); exits when it cannot load,
+///       like the other sidecars, so a server never runs without the model it was asked for
+void RestHandler::ensure_decision_model_loaded(const std::string& model_tag) {
+    if (!decisionModelTags.count(model_tag)) {
+        std::string supported;
+        for (const auto& tag : decisionModelTags) supported += (supported.empty() ? "" : ", ") + tag;
+        header_print("ERROR", "Unknown decision model '" << model_tag << "' (supported: " << supported << ")");
+        exit(EXIT_FAILURE);
+    }
+    std::string ensure_tag = model_tag;
+    switch (this->downloader.is_model_downloaded(ensure_tag, false, /*fast_check=*/true)) {
+        case ModelDownloader::ModelStatus::Ready:
+            break;
+        case ModelDownloader::ModelStatus::Outdated:
+        case ModelDownloader::ModelStatus::Missing:
+            this->downloader.pull_model(ensure_tag, this->modelscope);
+            break;
+        case ModelDownloader::ModelStatus::Incompatible:
+            header_print("ERROR", model_tag << " is incompatible with this version of FastFlowLM");
+            exit(EXIT_FAILURE);
+    }
+    auto [resolved_tag, model_info] = this->supported_models.get_model_info(ensure_tag);
+    std::string model_path = this->supported_models.get_model_path(resolved_tag);
+    try {
+        this->decision_engine = std::make_unique<AutoDecisionModel>(this->npu_device_inst, resolved_tag);
+        this->decision_engine->load_model(model_path, model_info, this->preemption);
+        this->decision_engine->warmup();
+    }
+    catch (const std::exception& e) {
+        header_print("ERROR", "Failed to load decision model: " + std::string(e.what()));
+        exit(EXIT_FAILURE);
+    }
+}
+
+///@brief GET /v1/systemone/models
+void RestHandler::handle_systemone_models(std::function<void(const json&)> send_response) {
+    json data = json::array();
+    if (this->decision_engine) {
+        // what upstream d3_server's /v1/models states: the input limit, the modalities and the image budget
+        data.push_back({{"id", this->decision_engine->model_tag()}, {"object", "model"}, {"api", "systemone"},
+                        {"max_input_tokens", this->decision_engine->max_input_tokens()},
+                        {"modalities", json::array({"text", "image"})},
+                        {"image_max_pixels", flm::d3::IMAGE_MAX_PIXELS}});
+    }
+    send_response({{"object", "list"}, {"data", data}});
+}
+
+///@brief POST /v1/systemone (and /v1/decisions)
+///@param raw_body the request body, parsed here with Python json semantics
+///@param send_response the response callback
+void RestHandler::handle_systemone(const std::string& raw_body,
+                                   std::function<void(const json&)> send_response) {
+    json reply;
+    if (!this->decision_engine) {
+        reply["__http_status"] = 404;
+        reply["__http_body"] = {{"detail", "no decision model is loaded; start the server with --decision d3:lite, d3:nano or d3:mini"}};
+        send_response(reply);
+        return;
+    }
+    try {
+        DecisionReply r = this->decision_engine->system_one(raw_body);
+        reply["__http_status"] = r.status;
+        reply["__http_body"] = std::move(r.body);
+    }
+    catch (const std::exception& e) {
+        header_print("ERROR", "System One request failed: " << e.what());
+        reply["__http_status"] = 500;
+        reply["__http_body"] = {{"detail", std::string("the server failed on this request (") + e.what() + ")"}};
+    }
+    send_response(reply);
 }
 
 ///@brief Ensure the embed model is loaded
@@ -644,6 +724,10 @@ void RestHandler::configure_chat_engine_parameters(const json& options, const js
     if (has_value(request, "reasoning_effort")) {
         std::string reasoning_effort = request["reasoning_effort"];
         auto_chat_engine->configure_parameter("reasoning_effort", reasoning_effort);
+    }
+    if (has_value(request, "conversational_mode")) {
+        bool conversational_mode = request["conversational_mode"];
+        auto_chat_engine->configure_parameter("conversational_mode", conversational_mode);
     }
 
     if (has_value(request, "image-max-tokens")) {
@@ -1294,8 +1378,21 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             // resets the cache whenever it replaces the engine, so the first
             // request on a new engine is a miss.
             cache_match_info_t cache_info;
-            can_use_prompt_cache = prompt_cache.can_use_cache(current_messages, auto_chat_engine->get_chat_template_type(), tools, cache_info);
-            if (can_use_prompt_cache) {
+            const bool engine_manages_cache = auto_chat_engine->manages_prefix_cache();
+            if (engine_manages_cache) {
+                // The model matches the rendered tokens against the prefixes it
+                // saved and prefills the rest; a message-level miss must not
+                // clear the context it would resume from. It logs what it reused.
+                can_use_prompt_cache = true;
+                meta_info.restore_allowed = true;
+            }
+            else {
+                can_use_prompt_cache = prompt_cache.can_use_cache(current_messages, auto_chat_engine->get_chat_template_type(), tools, cache_info);
+            }
+            if (engine_manages_cache) {
+                // nothing to clear
+            }
+            else if (can_use_prompt_cache) {
                 meta_info.restore_allowed = true;
                 header_print("FLM", "Use cached prompt!");
                 size_t matched_rounds = cache_info.matched_rounds + (auto_chat_engine->check_using_checkpint() ? 0 : 1);

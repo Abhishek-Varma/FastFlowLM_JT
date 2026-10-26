@@ -5,6 +5,7 @@
 /// \version 0.9.24
 /// \note This is a source file for the main entry point
 #pragma once
+#include "AutoDecisionModel/auto_decision_model.hpp"
 #include "runner.hpp"
 #include "server.hpp"
 #include "model_list.hpp"
@@ -770,6 +771,18 @@ int main(int argc, char* argv[]) {
             embedding_size = 300000000;
             header_print_g("FLM", "Embedding mode enabled: reserving additional 300MB of memory");
         }
+        if (!parsed_args.decision.empty()) {
+            // the decision model's own weights (d3:lite 0.56 GB, d3:nano 1.34 GB, d3:mini 3.43 GB in the catalog's size) plus
+            // 1 GB for scratch (a 4096-row pass; bigger prompts allocate per call) and the fp32 readout
+            uint64_t decision_size = 0;
+            auto [decision_tag, decision_info] = availble_models.get_model_info(parsed_args.decision);
+            if (decision_info.contains("size")) {
+                decision_size = decision_info["size"].get<uint64_t>();
+            }
+            embedding_size += decision_size + 1000000000;
+            header_print_g("FLM", "Decision model enabled: reserving additional "
+                                      << ((decision_size + 1000000000) / 1000000) << " MB of memory");
+        }
 
         // Add 512MB overhead for working memory beyond the model itself
         rlim_t required = model_size + asr_size + embedding_size + (512ULL * 1024 * 1024);
@@ -804,6 +817,13 @@ int main(int argc, char* argv[]) {
             std::filesystem::create_directories(models_dir);
         }
 
+        // A decision model answers System One requests over HTTP only; it is not a chat model.
+        if ((parsed_args.command == "run" || parsed_args.command == "serve" || parsed_args.command == "bench") &&
+            decisionModelTags.count(parsed_args.model_tag)) {
+            header_print("FLM", parsed_args.model_tag << " is a decision model: serve it with `flm serve --decision "
+                                << parsed_args.model_tag << "` (optionally next to a chat model) and POST /v1/systemone");
+            return 1;
+        }
         if (parsed_args.command == "bench") {
             benchmarking::BenchmarkResults_t results = benchmarking::run_benchmarks(parsed_args.model_tag, parsed_args.input_file_name, availble_models, parsed_args.iterations, npu_device, parsed_args.backend, parsed_args.ctx_length);
         }

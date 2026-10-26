@@ -27,6 +27,8 @@ has_children: true
 - [Nanbeige](nanbeige/)
 - [Whisper](whisper/)
 - [EmbeddingGemma](embeddinggemma/)
+- [Decision 3.0 (d3)](d3/)
 - [SmolVLA](smolvla/)
 - [Hy-MT2](hy-mt2/)
 - [MiniCPM](minicpm/)
+- [Nemotron Bolt](nemotron-bolt/)

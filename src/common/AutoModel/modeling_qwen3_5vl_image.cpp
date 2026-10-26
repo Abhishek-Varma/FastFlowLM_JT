@@ -159,8 +159,8 @@ void Qwen3_5VL::smart_resize(
             std::to_string(aspect_ratio);
     }
 
-    h_bar = static_cast<int>(std::round(static_cast<double>(height) / factor)) * factor;
-    w_bar = static_cast<int>(std::round(static_cast<double>(width) / factor)) * factor;
+    h_bar = static_cast<int>(std::nearbyint(static_cast<double>(height) / factor)) * factor;
+    w_bar = static_cast<int>(std::nearbyint(static_cast<double>(width) / factor)) * factor;
 
     long long total_pixels = static_cast<long long>(h_bar) * w_bar;
 

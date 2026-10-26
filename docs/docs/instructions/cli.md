@@ -348,6 +348,23 @@ flm serve llama3.2:1b --prefill-chunk-len 8192
 
 ---
 
+### 🗃️ Prefix Cache (Server Mode)
+
+In **Server mode**, Qwen3.5 (`0.8b`, `2b`, `4b`, `9b`) and `qwen3.6-moe:35b-a3b` remember the system prompt, tools and earlier turns they have already read, so an agent that sends the same long prompt again only waits for what is new. It is on by default.
+
+```shell
+flm serve qwen3.5:4b --prefix-cache-mb 8192 --prefix-slots 16
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--prefix-cache-mb N` | `4096` | Most host memory (MiB) the saved prompts may use; a limit, not a reservation |
+| `--prefix-slots N` | `8` (at most `32`) | How many saved prompts to keep; `0` turns the prefix cache off |
+
+`flm run` (CLI mode) does not use it. See [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/) for memory per model, how to check that it works, and its limits.
+
+---
+
 ### 🎙️ ASR (Automatic Speech Recognition)
 
 **Requirement:** The ASR model (e.g., `whisper-large-v3-turbo`) must run **with an LLM loaded concurrently**. Enabling `--asr 1` starts Whisper in the background **while** your chosen LLM loads.
@@ -365,6 +382,21 @@ flm serve gemma3:4b --asr 1  # Background-load Whisper and initialize the LLM (g
 > **Note:** ASR alone isn’t supported—an LLM must be present for end-to-end voice→text→LLM workflows.
 
 See the ASR guide [here](https://fastflowlm.com/docs/models/whisper/)
+
+---
+
+### 🧭 Decision Model (System One)
+
+`--decision <tag>` loads a decision model (`d3:lite`) next to the chat model, or alone, and serves `POST /v1/systemone`
+(text and images, up to 32,768 input tokens per question; FastFlowLM 1.0.11 or later).
+Decision models run in **Server Mode only** (`flm run d3:lite` prints how to serve it).
+
+```shell
+flm serve --decision d3:lite                 # decision model only
+flm serve qwen3.5:4b --decision d3:lite      # next to a chat model
+```
+
+See the d3 guide [here](https://fastflowlm.com/docs/models/d3/)
 
 ---
 

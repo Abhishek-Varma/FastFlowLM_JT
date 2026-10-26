@@ -18,11 +18,13 @@ Browse detailed NPU benchmark results for each major model family supported by F
 - [Qwen3.6](qwen3.6_results/)
 - [Qwen3.8](qwen3.8_results/)
 - [gpt-oss](gpt-oss_results/)
+- [Decision 3.0 (d3)](d3_results/)
 - [LiquidAI/LFM2](lfm2_results/)
 - [Microsoft/Phi4](phi4_results/)
 - [Nanbeige4.1](nanbeige4.1_results/)
 - [SmolVLA](smolvla_results/)
 - [Hy-MT2](hy-mt2_results/)
 - [MiniCPM-V 4.7](minicpm-v-4.7_results/)
+- [Nemotron Bolt](nemotron-bolt_results/)
 
 Each page includes decoding and prefill speed metrics (tokens per second) and notes about the test setup and hardware. 

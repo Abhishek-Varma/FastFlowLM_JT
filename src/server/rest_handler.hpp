@@ -14,6 +14,7 @@
 #include "whisper/modeling_whisper.hpp"
 #include "AutoEmbeddingModel/all_embedding_model.hpp"
 #endif
+#include "AutoDecisionModel/auto_decision_model.hpp"
 #include "model_list.hpp"
 #include "chat/chat_parser.hpp"
 #include "chat/chat_stream.hpp"
@@ -107,6 +108,14 @@ public:
                                       std::function<void(const json&)> send_response,
                                       StreamResponseCallback send_streaming_response,
                                       std::shared_ptr<CancellationToken> cancellation_token = nullptr);
+    /// GET /v1/systemone/models: the served decision model, in vLLM Semantic Router's
+    /// System One list format ({"object": "list", "data": [{"id", "object", "api"}]})
+    void handle_systemone_models(std::function<void(const json&)> send_response);
+
+    /// POST /v1/systemone: a System One request for the --decision model
+    void handle_systemone(const std::string& raw_body,
+                          std::function<void(const json&)> send_response);
+
     void handle_openai_completion(const json& request,
         std::function<void(const json&)> send_response,
         StreamResponseCallback send_streaming_response,
@@ -117,6 +126,7 @@ private:
                              const std::string& request_backend = "");
     void ensure_asr_model_loaded(const std::string& model_tag);
     void ensure_embed_model_loaded(const std::string& model_tag);
+    void ensure_decision_model_loaded(const std::string& model_tag);
     void configure_chat_engine_parameters(const json& options, const json& request);
     json build_nstream_response(const std::string& response_text, chat_meta_info_t& meta_info,
                                 const chat_parse_options& parse_options,
@@ -124,6 +134,7 @@ private:
 
 
     std::unique_ptr<AutoModel> auto_chat_engine;
+    std::unique_ptr<AutoDecisionModel> decision_engine;
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
     std::unique_ptr<Whisper> whisper_engine;
     std::unique_ptr<AutoEmbeddingModel> auto_embedding_engine;
@@ -147,6 +158,9 @@ private:
     int chat_context_id;
     int ctx_length;
     int img_pre_resize;
+    /// \brief the --prefix-cache-mb / --prefix-slots values, -1 when each model's own default is used
+    int prefix_cache_mb = -1;
+    int prefix_slots = -1;
     std::string last_question;
     bool preemption;
     /// \brief the --backend value, empty when the flag was not given

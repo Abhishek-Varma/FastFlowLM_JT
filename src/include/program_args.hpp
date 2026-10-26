@@ -17,10 +17,13 @@ struct program_args_t {
     bool preemption = false;
     bool asr = false;
     bool embed = false;
+    std::string decision = ""; // --decision <tag>: serve a decision model (POST /v1/systemone)
     bool json_output = false;
     int ctx_length = -1; // let model decide
     std::string backend = ""; // let the catalog decide; see AutoModel/model_backend.hpp
     int prefill_chunk_len = -1; // let model decide
+    int prefix_cache_mb = -1;   // host memory (MiB) for saved prompt snapshots; -1 = the model's default
+    int prefix_slots = -1;      // how many prompt snapshots to keep; -1 = the model's default, 0 = off
 
     // handling input file
     std::string input_file_name = "";
