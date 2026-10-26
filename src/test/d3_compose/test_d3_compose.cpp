@@ -638,6 +638,13 @@ int main(int argc, char** argv) {
         const PyValue boxkind = PyValue::string("box");
         const ojson r2 = flm::d3::refusal(&boxkind, q, {}, bare);
         if (r2.dump() != "{\"type\":\"box\",\"error\":\"invalid_question\",\"reason\":\"box_unsupported\",\"message\":\"d3-turbo does not answer box questions\"}") fail("refusal", "box", r2.dump());
+        // an engine without question-image support refuses a box whose own text holds an image (instead of failing the request)
+        count("refusal");
+        flm::d3::ComposedConfig noqi = cfg;
+        noqi.box_question_images = false;
+        const ojson r3 = flm::d3::refusal(&boxkind, q, {"<a>"}, noqi);
+        if (r3.dump() != "{\"type\":\"box\",\"error\":\"invalid_question\",\"reason\":\"question_images_unsupported\",\"message\":\"d3-turbo reads images in the state only, not in a box question's text\"}")
+            fail("refusal", "box with question images", r3.dump());
     }
 
     // ---- composed requests through the engine interface: duplicates, own images, flags, limits ----------------
