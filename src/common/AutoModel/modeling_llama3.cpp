@@ -25,6 +25,7 @@ void Llama3::load_model(std::string model_path, json model_info, int default_con
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    this->_prefix_attach(this->lm_engine, llama_npu_state_api(this->lm_engine));
 }
 
 void Llama3::setup_tokenizer(std::string model_path) {
@@ -62,6 +63,12 @@ bool Llama3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
 
+    // The template's generation prompt ("<|start_header_id|>assistant<|end_header_id|>\n\n") is how the next turn
+    // renders this reply's header, so the whole prompt can be saved: nothing is left out of the prefill (trim 0).
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<|start_header_id|>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
     return this->_shared_insert(meta_info, tokens, is_cancelled);
 }
 
