@@ -567,8 +567,7 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag,
             auto [new_ensure_tag, model_info] = supported_models.get_model_info(ensure_tag);
             engine->set_server_mode(true);
             engine->configure_parameter("img_pre_resize", this->img_pre_resize);
-            engine->configure_parameter("prefix_cache_mb", this->prefix_cache_mb);
-            engine->configure_parameter("prefix_slots", this->prefix_slots);
+            engine->set_prefix_limits(this->prefix_cache_mb, this->prefix_slots);
             const auto load_started = std::chrono::steady_clock::now();
             engine->load_model(supported_models.get_model_path(new_ensure_tag), model_info, ctx_length, preemption, requested_backend);
             report_load_time(load_started);
@@ -1653,6 +1652,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                 }},
                 {"service_tier", "default"}
             };
+            if (meta_info.prefix_cache.valid) response["usage"]["flm_prefix_cache"] = prefix_cache_usage_json(meta_info.prefix_cache);
             if (meta_info.stop_reason == CANCEL_DETECTED) {
                 header_print("❌ ", "Generation Cancelled!");
                 this->prompt_cache.reset();
@@ -1958,6 +1958,7 @@ void RestHandler::handle_openai_completion(const json& request,
                     {"total_tokens", meta_info.prompt_tokens + meta_info.generated_tokens}
                 }}
             };
+            if (meta_info.prefix_cache.valid) response["usage"]["flm_prefix_cache"] = prefix_cache_usage_json(meta_info.prefix_cache);
             send_response(response);
         }
     }

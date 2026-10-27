@@ -97,6 +97,7 @@ struct chat_meta_info_t {
 	int max_prefill_len;
     int prompt_tokens;        // whole prompt, cached prefix included
     int cached_prompt_tokens; // subset of prompt_tokens served from the KV cache
+    prefix_cache_report_t prefix_cache; // what the slot cache did (valid only for models that have one)
     int generated_tokens;
     uint64_t total_duration; // in nanoseconds
     uint64_t load_duration; // in nanoseconds
@@ -310,7 +311,35 @@ protected:
 	/// \param last_image_token_index as _shared_insert's first_len_run
 	bool _prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
 	                    const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
-	                    void* payload, int last_image_token_index, std::function<bool()> is_cancelled);
+	                    void* payload, int last_image_token_index, std::function<bool()> is_cancelled,
+	                    std::optional<int> requested_max_new_tokens = std::nullopt);
+
+	/// \brief the cache that holds this model's saved prompt snapshots; disabled until _prefix_attach() gives it an engine
+	PrefixSlotCache prefix_cache_;
+	int prefix_cache_mb_arg_ = -1;   // --prefix-cache-mb, -1 = default
+	int prefix_slots_arg_ = -1;      // --prefix-slots, -1 = default, 0 = off
+
+	/// \brief hand the loaded engine and the state table its library exports to the cache (call at the end of load_model)
+	/// \param api the library's `<engine>_state_api(engine)`, nullptr if the engine cannot save its context
+	/// \param image_token_id placeholder id of images, -1 for a text-only model
+	/// \note FLM_DISABLE_PREFIX_SLOTS=1 keeps the cache off (single-checkpoint path), to get a reference to compare against
+	void _prefix_attach(void* engine, const flm_state_api* api, int image_token_id = -1);
+
+	/// \brief whether a text-only prompt of `n_tokens` tokens goes through the slots
+	/// \param trim how many generation-prompt tokens the model leaves out of the prefill (it decodes them itself)
+	bool _prefix_slot_mode(const chat_meta_info_t& meta_info, size_t n_tokens, size_t trim) const;
+
+	/// \brief a request that does not use the slots moves the engine on without telling the cache: drop its copies of the live state
+	void _prefix_legacy_path();
+
+	/// \brief insert a text-only prompt through the slots (use when _prefix_slot_mode() said yes)
+	/// \param tokens the whole rendered prompt; its last `trim` tokens are left out of the prefill
+	/// \param boundary_marker the text that opens the first user turn (see _prefix_insert)
+	bool _prefix_text_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, size_t trim, const std::string& boundary_marker,
+	                         std::function<bool()> is_cancelled, std::optional<int> requested_max_new_tokens = std::nullopt);
+
+	/// \brief empty the engine and the token history (not the slots)
+	void _clear_live_context();
 
 	/// \brief Reject a request that cannot fit in the backend's decode limit
 	/// \param rendered_tokens the length of the rendered prompt
@@ -562,7 +591,14 @@ public:
 	///       rendered prompt against its saved prefixes and falls back to a full
 	///       prefill by itself.
 	virtual bool manages_prefix_cache() const {
-		return false;
+		return this->prefix_cache_.enabled();
+	}
+
+	/// \brief --prefix-cache-mb / --prefix-slots (-1 = the default, 0 slots = off); call before load_model
+	void set_prefix_limits(int cache_mb, int slots) {
+		this->prefix_cache_mb_arg_ = cache_mb;
+		this->prefix_slots_arg_ = slots;
+		this->prefix_cache_.configure(cache_mb, slots);
 	}
 	/// \brief Whether the chat template is rendered with thinking on
 	/// \note Only models with a thinking switch override this; the rest reason or

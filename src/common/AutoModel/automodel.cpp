@@ -377,10 +377,11 @@ std::string AutoModel::generate_with_prompt(
 
 size_t AutoModel::_prefix_resume(PrefixSlotCache& cache, const std::vector<int>& full_tokens, const std::vector<uint64_t>& image_hashes) {
     std::vector<int> matched;
+    cache.begin_report();
     const PrefixSlotCache::resume_t resumed = cache.resume(full_tokens, image_hashes, matched);
     if (!resumed.resumed) {
         this->_prefix_cold_start(cache);
-        header_print("FLM", "No saved prefix matches, prefilling " << full_tokens.size() << " tokens");
+        header_print("FLM", "No saved prefix matches: " << resumed.miss_reason << "; prefilling " << full_tokens.size() << " tokens");
         return 0;
     }
     this->total_tokens = resumed.match_len;
@@ -392,13 +393,45 @@ size_t AutoModel::_prefix_resume(PrefixSlotCache& cache, const std::vector<int>&
 }
 
 void AutoModel::_prefix_cold_start(PrefixSlotCache& cache) {
-    this->AutoModel::clear_context(); // zeroes the engine and the token history, not the slots
-    cache.clear_live();               // the engine's rows hold nothing now
+    this->_clear_live_context(); // zeroes the engine and the token history, not the slots
+    cache.clear_live();          // the engine's rows hold nothing now
+}
+
+void AutoModel::_prefix_attach(void* engine, const flm_state_api* api, int image_token_id) {
+    static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
+    this->prefix_cache_.image_token_id = image_token_id;
+    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
+    if (disabled || engine == nullptr || api == nullptr) {
+        this->prefix_cache_.attach(nullptr, nullptr);
+        return;
+    }
+    this->prefix_cache_.attach(engine, api);
+}
+
+bool AutoModel::_prefix_slot_mode(const chat_meta_info_t& meta_info, size_t n_tokens, size_t trim) const {
+    return this->prefix_cache_.enabled() && meta_info.restore_allowed && n_tokens > trim;
+}
+
+void AutoModel::_prefix_legacy_path() {
+    if (this->prefix_cache_.enabled()) {
+        this->prefix_cache_.forget_all();
+    }
+}
+
+bool AutoModel::_prefix_text_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, size_t trim, const std::string& boundary_marker,
+                                    std::function<bool()> is_cancelled, std::optional<int> requested_max_new_tokens) {
+    // _shared_insert erases the part the engine already holds from `tokens`; the cache needs the whole prompt
+    const std::vector<int> full_tokens(tokens.begin(), tokens.end() - trim);
+    const size_t match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, {});
+    tokens.resize(tokens.size() - trim);
+    return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, {}, match_len, boundary_marker, nullptr, 0, std::move(is_cancelled),
+                                requested_max_new_tokens);
 }
 
 bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
                                const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
-                               void* payload, int last_image_token_index, std::function<bool()> is_cancelled) {
+                               void* payload, int last_image_token_index, std::function<bool()> is_cancelled,
+                               std::optional<int> requested_max_new_tokens) {
     bool success = true;
     uint64_t head_prefill_ns = 0;
     // Save the end of system + tools while prefilling, so a prompt that shares only that part
@@ -430,8 +463,8 @@ bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_in
     }
     if (success) {
         success = payload != nullptr
-            ? this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index)
-            : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+            ? this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index, requested_max_new_tokens)
+            : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr, 0, requested_max_new_tokens);
     }
     if (!success) {
         this->_prefix_cold_start(cache); // cancelled or failed half way: the engine holds part of a prompt; the slots are intact
@@ -443,6 +476,7 @@ bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_in
     cache.set_live(full_tokens);
     // the end of this prompt keeps only what follows the shared head, when a slot holds that head
     cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    meta_info.prefix_cache = cache.report();
     return true;
 }
 
@@ -841,6 +875,11 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
 /// \note The function will clear the context
 /// \note The function will reset the total tokens
 void AutoModel::clear_context() {
+    this->prefix_cache_.clear_live(true); // the saved snapshots belong to other conversations too: keep them
+    this->_clear_live_context();
+}
+
+void AutoModel::_clear_live_context() {
     this->total_tokens = 0;
     this->last_token = -1;
     this->token_history.clear();
