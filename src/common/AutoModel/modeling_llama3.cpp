@@ -105,6 +105,7 @@ void DeepSeek_r1_8b::load_model(std::string model_path, json model_info, int def
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    this->_prefix_attach(this->lm_engine, llama_npu_state_api(this->lm_engine));
 }
 
 void DeepSeek_r1_8b::setup_tokenizer(std::string model_path) {
@@ -144,6 +145,12 @@ bool DeepSeek_r1_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& inp
     // hardware
     int restore_idx = -1;
     llama_npu *llama_engine = dynamic_cast<llama_npu*>(this->lm_engine);
+
+    // The generation prompt ("<｜Assistant｜>\n") is how the next turn renders this reply's header: save the whole prompt (trim 0).
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<｜User｜>", is_cancelled);
+    }
+    this->_prefix_legacy_path();
     if (meta_info.restore_allowed) {
         restore_idx = llama_engine->restore();
         this->total_tokens = restore_idx;

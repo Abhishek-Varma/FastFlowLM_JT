@@ -547,6 +547,7 @@ void DeepSeek_r1_0528_8b::load_model(std::string model_path, json model_info, in
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    this->_prefix_attach(this->lm_engine, qwen3_npu_state_api(this->lm_engine));
 }
 
 void DeepSeek_r1_0528_8b::setup_tokenizer(std::string model_path) {
@@ -586,6 +587,12 @@ bool DeepSeek_r1_0528_8b::insert(chat_meta_info_t& meta_info, lm_uniform_input_t
     // hardware
     int restore_idx = -1;
     qwen3_npu *qwen3_engine = dynamic_cast<qwen3_npu*>(this->lm_engine);
+
+    // A user turn ends with "<｜Assistant｜>" and the next turn continues with the reply, so the whole prompt can be saved (trim 0).
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<｜User｜>", is_cancelled);
+    }
+    this->_prefix_legacy_path();
     if (meta_info.restore_allowed) {
         restore_idx = qwen3_engine->restore();
         this->total_tokens = restore_idx;
