@@ -1139,7 +1139,22 @@ void AutoModel::set_frequency_penalty_window(int frequency_penalty_window) {
 /// \note The function will set the penalty window
 /// \note The function will check if the penalty window is valid
 void AutoModel::set_penalty_window(int penalty_window) {
-    this->sampler->repeat_last_n = penalty_window;
+    if (penalty_window < -1) {
+        header_print("WARNING", "Penalty window must be -1 (the whole reply), 0 (off) or more");
+        return;
+    }
+    this->sampler->set_repeat_last_n(penalty_window == -1
+        ? std::numeric_limits<size_t>::max()
+        : static_cast<size_t>(penalty_window));
+}
+
+/// \brief Restart sampling from a seed
+/// \param seed the seed
+/// \note The penalty window is emptied too: it can still hold the previous
+///       reply, and then the same request and seed would sample differently.
+void AutoModel::set_seed(uint64_t seed) {
+    this->sampler->set_seed(seed);
+    this->sampler->reset_penalties();
 }
 
 /// \brief Start the ttft timer
