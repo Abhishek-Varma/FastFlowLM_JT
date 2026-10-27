@@ -10,6 +10,7 @@
 
 #if defined(FLM_ENABLE_CORE)
 #include "models/gemma4/core/dev04/gemma4_core_backend.hpp"
+#include "models/llama/core/dev04/llama_core_backend.hpp"
 #include "models/phi4/core/dev04/phi4_core_backend.hpp"
 #include "models/qwen3/core/dev04/qwen3_core_backend.hpp"
 #include "models/qwen35/core/dev04/qwen35_core_backend.hpp"
@@ -74,6 +75,9 @@ void register_builtin_backends(BackendRegistry& registry) {
     registry.register_backend("qwen3.6-moe", flm::backend::kCoreBackendId,
                               flm::qwen36::core_factory(),
                               flm::qwen36::core_traits());
+    registry.register_backend("llama3", flm::backend::kCoreBackendId,
+                              flm::llama::core_factory(),
+                              flm::llama::core_traits());
 #endif
 }
 

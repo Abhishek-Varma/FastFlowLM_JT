@@ -811,6 +811,50 @@ void TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn() {
     }
 }
 
+void TestATokenCutOffBeforeItRanIsPrefilledWithTheNextTurn() {
+    // A turn stopped by its budget or a cancel never forwards the token it
+    // sampled last, so the next turn has to carry it: here 12, 3. The flm
+    // engines only hold what they were forwarded too, so the same applies.
+    for (const bool core : {true, false}) {
+        for (const bool cancel : {false, true}) {
+            TempPackage package; FactoryScope scope;
+            auto model = core ? ReadyCore(package) : Load(package, ModelInfo());
+            TEST_REQUIRE(OnCore(*model) == core);
+            g_encoded_tokens = {1, 2}; g_samples = {11, 12}; g_sample_index = 0;
+            auto meta = Meta(); auto input = Input(); std::ostringstream output;
+            TEST_REQUIRE(model->insert(meta, input));
+            if (cancel) {
+                (void)model->generate(meta, 10, output,
+                                      [&] { return g_factory.engine->forward_calls >= 1; });
+            } else {
+                (void)model->generate(meta, 1, output);
+            }
+            TEST_REQUIRE(meta.stop_reason == (cancel ? CANCEL_DETECTED : MAX_LENGTH_REACHED));
+            TEST_REQUIRE((g_factory.engine->forwarded == std::vector<int>{11}));
+            g_encoded_tokens = {1, 2, 11, 12, 3};
+            g_factory.engine->prefill_sizes.clear();
+            auto next = Meta();
+            TEST_REQUIRE(model->insert(next, input));
+            TEST_REQUIRE((g_factory.engine->prefill_sizes == std::vector<int>{2}));
+        }
+    }
+}
+
+void TestATokenCutOffByTheDecodeWindowIsLeftOutOfTheHistory() {
+    // A turn that fills the window has no next turn to prefill, so check the
+    // history itself: it ends at 12, the last token the engine ran, not at 13.
+    TempPackage package; FactoryScope scope; auto model = ReadyCore(package);
+    g_encoded_tokens.assign(4093, 1); g_samples = {11, 12, 13}; g_sample_index = 0;
+    auto meta = Meta(); auto input = Input(); std::ostringstream output;
+    TEST_REQUIRE(model->insert(meta, input));
+    (void)model->generate(meta, 4096, output);
+    TEST_REQUIRE(meta.stop_reason == MAX_LENGTH_REACHED);
+    TEST_REQUIRE((g_factory.engine->forwarded == std::vector<int>{11, 12}));
+    const auto history = model->get_history().second;
+    TEST_REQUIRE(history.size() == 4095);
+    TEST_REQUIRE(history.back() == 12);
+}
+
 void TestCoreDecodeTimeAndSpeedAreMeasured() {
     // The core path used to have a decode loop of its own that recorded nothing, so
     // profile reported "0 us" and a nan speed. It now shares _shared_generate;
@@ -971,6 +1015,8 @@ int main() {
     RunTest(TestPoisonedModelReturns500UntilReload, "TestPoisonedModelReturns500UntilReload");
     RunTest(TestEosSelfTerminatesWithoutAnExtraDecode, "TestEosSelfTerminatesWithoutAnExtraDecode");
     RunTest(TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn, "TestAnEosTheEngineNeverRanIsPrefilledWithTheNextTurn");
+    RunTest(TestATokenCutOffBeforeItRanIsPrefilledWithTheNextTurn, "TestATokenCutOffBeforeItRanIsPrefilledWithTheNextTurn");
+    RunTest(TestATokenCutOffByTheDecodeWindowIsLeftOutOfTheHistory, "TestATokenCutOffByTheDecodeWindowIsLeftOutOfTheHistory");
     RunTest(TestCoreDecodeTimeAndSpeedAreMeasured, "TestCoreDecodeTimeAndSpeedAreMeasured");
     RunTest(TestCliAndAllFourGenerationEndpointsPassTheSameBudgetSemantics, "TestCliAndAllFourGenerationEndpointsPassTheSameBudgetSemantics");
     RunTest(TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint, "TestQueueCompletionIsExactlyOnceAndIncludesCompletionsEndpoint");

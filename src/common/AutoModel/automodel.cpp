@@ -808,6 +808,8 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
         header_print("WARNING", "Max length reached, stopping generation...");
         reason = MAX_LENGTH_REACHED;
         meta_info.stop_reason = reason;
+        // Sampled from the prefill, so no engine has run it.
+        this->token_history.pop_back();
         return result;
     }
     while (true){
@@ -861,6 +863,11 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
             reason = MAX_LENGTH_REACHED;
             break;
         }
+    }
+    if (reason != EOT_DETECTED) {
+        // Stopped on the budget, the window or a cancel before the token
+        // sampled last was run, so the next prompt has to carry it.
+        this->token_history.pop_back();
     }
     meta_info.decoding_duration = (uint64_t)(time_utils::cast_to_us(this->profiler_list[DECODING_TIME].get_total_time()).first) * 1e3;
     meta_info.stop_reason = reason;

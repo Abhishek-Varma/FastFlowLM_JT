@@ -4778,5 +4778,83 @@
             "xetHash": "56a94fd74fdd847a3069ba83ddea8801feea984490eda49d15e9e3c529266bb6",
             "path": "vision_weight.q4nx"
         }
+    ],
+    "llama3.2-core:1b": [
+        {
+            "type": "file",
+            "path": "Llama-3.2-1B-Instruct-Q8_0.gguf",
+            "size": 1321083008,
+            "sha256": "432f310a77f4650a88d0fd59ecdd7cebed8d684bafea53cbff0473542964f0c3"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer.json",
+            "size": 9085657,
+            "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer_config.json",
+            "size": 4331,
+            "sha256": "01b0d6dd3c391ffc2facc01592ac07f25e8c4212d3450b8103042e8a5fcbafa8"
+        },
+        {
+            "type": "file",
+            "path": "config.json",
+            "size": 1019,
+            "sha256": "a53d38c545333679d523863f60a45f04166e52d15793864da3464712810f8bd9"
+        }
+    ],
+    "llama3.2-core:3b": [
+        {
+            "type": "file",
+            "path": "Llama-3.2-3B-Instruct-Q8_0.gguf",
+            "size": 3421899296,
+            "sha256": "b5607b5090a8280063fff2d706bb3408ca6542341b06aab39c3eca0a28575921"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer.json",
+            "size": 9085657,
+            "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer_config.json",
+            "size": 4331,
+            "sha256": "01b0d6dd3c391ffc2facc01592ac07f25e8c4212d3450b8103042e8a5fcbafa8"
+        },
+        {
+            "type": "file",
+            "path": "config.json",
+            "size": 1019,
+            "sha256": "f83c8c4bfd00c7e04c6a4b8d9ed471193bed0aa0304c32dff847a36586f8291e"
+        }
+    ],
+    "llama3.1-core:8b": [
+        {
+            "type": "file",
+            "path": "Meta-Llama-3.1-8B-Instruct-Q8_0.gguf",
+            "size": 8540775840,
+            "sha256": "9da71c45c90a821809821244d4971e5e5dfad7eb091f0b8ff0546392393b6283"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer.json",
+            "size": 9085657,
+            "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4"
+        },
+        {
+            "type": "file",
+            "path": "tokenizer_config.json",
+            "size": 4331,
+            "sha256": "01b0d6dd3c391ffc2facc01592ac07f25e8c4212d3450b8103042e8a5fcbafa8"
+        },
+        {
+            "type": "file",
+            "path": "config.json",
+            "size": 1020,
+            "sha256": "82ff79502694a38eacd424763c5f3cc8a95843dd233d830b74dee5b3a14dde9b"
+        }
     ]
 }
