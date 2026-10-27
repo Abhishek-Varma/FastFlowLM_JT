@@ -53,6 +53,19 @@ Sampler::Sampler(int in_features, sampler_config& config) {
 
 void Sampler::set_seed(uint64_t seed) {
     rng_.seed(seed);
+    uniform_dist_.reset();
+}
+
+void Sampler::set_repeat_last_n(size_t n) {
+    this->repeat_last_n = n;
+    while (this->token_history.size() > n) {
+        int oldest = this->token_history.front();
+        this->token_history.pop_front();
+        this->counters[oldest]--;
+        if (--this->token_counts_sparse[oldest] <= 0) {
+            this->token_counts_sparse.erase(oldest);
+        }
+    }
 }
 
 /// \brief Reset the penalties
