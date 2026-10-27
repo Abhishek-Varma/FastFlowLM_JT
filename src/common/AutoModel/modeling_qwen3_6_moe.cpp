@@ -25,10 +25,10 @@ void Qwen3_6_MOE::_attach_prefix_cache() {
     this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
     auto* engine = dynamic_cast<qwen3_6_moe_npu*>(this->lm_engine);
     if (disabled || engine == nullptr) {
-        this->prefix_cache_.attach(nullptr);
+        this->prefix_cache_.attach(nullptr, nullptr);
         return;
     }
-    this->prefix_cache_.attach(std::make_unique<prefix_engine_adapter<qwen3_6_moe_npu>>(engine));
+    this->prefix_cache_.attach(engine, qwen3_6_moe_state_api(engine));
 }
 
 void Qwen3_6_MOE::clear_context() {
