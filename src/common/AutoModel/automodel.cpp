@@ -419,17 +419,19 @@ void AutoModel::_prefix_legacy_path() {
 }
 
 bool AutoModel::_prefix_text_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, size_t trim, const std::string& boundary_marker,
-                                    std::function<bool()> is_cancelled) {
+                                    std::function<bool()> is_cancelled, std::optional<int> requested_max_new_tokens) {
     // _shared_insert erases the part the engine already holds from `tokens`; the cache needs the whole prompt
     const std::vector<int> full_tokens(tokens.begin(), tokens.end() - trim);
     const size_t match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, {});
     tokens.resize(tokens.size() - trim);
-    return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, {}, match_len, boundary_marker, nullptr, 0, std::move(is_cancelled));
+    return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, {}, match_len, boundary_marker, nullptr, 0, std::move(is_cancelled),
+                                requested_max_new_tokens);
 }
 
 bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
                                const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
-                               void* payload, int last_image_token_index, std::function<bool()> is_cancelled) {
+                               void* payload, int last_image_token_index, std::function<bool()> is_cancelled,
+                               std::optional<int> requested_max_new_tokens) {
     bool success = true;
     uint64_t head_prefill_ns = 0;
     // Save the end of system + tools while prefilling, so a prompt that shares only that part
@@ -461,8 +463,8 @@ bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_in
     }
     if (success) {
         success = payload != nullptr
-            ? this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index)
-            : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
+            ? this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index, requested_max_new_tokens)
+            : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr, 0, requested_max_new_tokens);
     }
     if (!success) {
         this->_prefix_cold_start(cache); // cancelled or failed half way: the engine holds part of a prompt; the slots are intact

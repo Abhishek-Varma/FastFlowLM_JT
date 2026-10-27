@@ -311,7 +311,8 @@ protected:
 	/// \param last_image_token_index as _shared_insert's first_len_run
 	bool _prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_info, std::vector<int>& tokens, const std::vector<int>& full_tokens,
 	                    const std::vector<uint64_t>& image_hashes, size_t match_len, const std::string& boundary_marker,
-	                    void* payload, int last_image_token_index, std::function<bool()> is_cancelled);
+	                    void* payload, int last_image_token_index, std::function<bool()> is_cancelled,
+	                    std::optional<int> requested_max_new_tokens = std::nullopt);
 
 	/// \brief the cache that holds this model's saved prompt snapshots; disabled until _prefix_attach() gives it an engine
 	PrefixSlotCache prefix_cache_;
@@ -335,7 +336,7 @@ protected:
 	/// \param tokens the whole rendered prompt; its last `trim` tokens are left out of the prefill
 	/// \param boundary_marker the text that opens the first user turn (see _prefix_insert)
 	bool _prefix_text_insert(chat_meta_info_t& meta_info, std::vector<int>& tokens, size_t trim, const std::string& boundary_marker,
-	                         std::function<bool()> is_cancelled);
+	                         std::function<bool()> is_cancelled, std::optional<int> requested_max_new_tokens = std::nullopt);
 
 	/// \brief empty the engine and the token history (not the slots)
 	void _clear_live_context();
