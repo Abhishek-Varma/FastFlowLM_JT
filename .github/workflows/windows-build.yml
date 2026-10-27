@@ -12,18 +12,23 @@ on:
       - main
   workflow_dispatch:
 
-# The portable-labelled jobs share one self-hosted runner, so a build for a commit
-# that has since been superseded on the same PR only delays the next one, and
-# with it that commit's model sweep. Only pull_request runs share a group;
-# every other run gets its own, so branch and tag builds are never cancelled.
+# The HRX build runs on a self-hosted runner, so a build for a commit that has
+# since been superseded on the same PR only delays the next one, and with it
+# that commit's model sweep. Only pull_request runs share a group; every other
+# run gets its own, so branch and tag builds are never cancelled.
 concurrency:
   group: windows-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
+# The XRT builds run on GitHub-hosted runners, outside the corporate proxy that
+# intermittently blocks third-party downloads on the self-hosted ones.
+# windows-2025-vs2026 carries Visual Studio 2026 for the windows-vs18 preset;
+# setup_windows_deps.ps1 lays out the C:\dev dependencies the self-hosted
+# runner has, cached between runs.
 jobs:
   build-windows-portable:
-    runs-on: [self-hosted, windows, x64, portable]
-    
+    runs-on: windows-2025-vs2026
+
     defaults:
       run:
         working-directory: src
@@ -49,6 +54,17 @@ jobs:
             Start-Sleep -Seconds 15
           }
           exit 1
+
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure CMake
         shell: powershell
@@ -96,7 +112,7 @@ jobs:
   # instead of using the prebuilt DLLs in lib\xrt. Its own job so the portable
   # build (and the MSI, which packages it) does not wait on it.
   build-windows-models-from-source:
-    runs-on: [self-hosted, windows, x64, portable]
+    runs-on: windows-2025-vs2026
 
     defaults:
       run:
@@ -123,6 +139,17 @@ jobs:
             Start-Sleep -Seconds 15
           }
           exit 1
+
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure models-from-source build
         shell: powershell
@@ -180,7 +207,7 @@ jobs:
   # else the installer stages (DLLs, xclbins, model lists) comes from the
   # checkout, so no submodules or history are needed here.
   build-windows-msi:
-    runs-on: [self-hosted, windows, x64, msi]
+    runs-on: windows-2025
     needs: build-windows-portable
 
     defaults:
@@ -213,14 +240,17 @@ jobs:
           .\get_files.bat
 
 
-      - name: Add WiX to PATH
+      # The image only has WiX 3; flm.wxs is WiX 5. Same version as the
+      # self-hosted runner had.
+      - name: Install WiX
         shell: powershell
         run: |
-          $wixToolsPath = "C:\Users\zani\.dotnet\tools"
-
-          if (-not (Test-Path "$wixToolsPath\wix.exe")) {
-            throw "WiX was not found at $wixToolsPath\wix.exe"
-          }
+          $ErrorActionPreference = "Stop"
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix failed" }
+          $wixToolsPath = Join-Path $env:USERPROFILE ".dotnet\tools"
+          & "$wixToolsPath\wix.exe" extension add --global WixToolset.UI.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "wix extension add failed" }
 
           $wixToolsPath | Out-File `
             -FilePath $env:GITHUB_PATH `
@@ -230,9 +260,6 @@ jobs:
       - name: Verify WiX
         shell: powershell
         run: |
-          Write-Host "Runner identity: $(whoami)"
-          Write-Host "Runner profile: $env:USERPROFILE"
-
           $wix = Get-Command wix -ErrorAction Stop
           Write-Host "Using WiX: $($wix.Source)"
           wix --version
