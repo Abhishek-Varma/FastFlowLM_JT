@@ -12,7 +12,7 @@ on:
       - main
   workflow_dispatch:
 
-# Both portable jobs share one self-hosted runner, so a build for a commit
+# The portable-labelled jobs share one self-hosted runner, so a build for a commit
 # that has since been superseded on the same PR only delays the next one, and
 # with it that commit's model sweep. Only pull_request runs share a group;
 # every other run gets its own, so branch and tag builds are never cancelled.
@@ -92,6 +92,38 @@ jobs:
           path: src/dist/
           if-no-files-found: error
 
+  # A second, independent configure that builds the model engines from source
+  # instead of using the prebuilt DLLs in lib\xrt. Its own job so the portable
+  # build (and the MSI, which packages it) does not wait on it.
+  build-windows-models-from-source:
+    runs-on: [self-hosted, windows, x64, portable]
+
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # checkout's fetch-depth: 0 also applies to submodules, which pulls the
+      # full msgpack-c history (~95 MB) and keeps getting reset mid-transfer on
+      # the runner network. The pinned commits alone are under 1 MB.
+      - name: Checkout submodules
+        shell: powershell
+        working-directory: .
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            git submodule update --init --recursive --depth 1 --jobs 4
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "Submodule fetch failed (attempt $i), retrying..."
+            Start-Sleep -Seconds 15
+          }
+          exit 1
+
       - name: Configure models-from-source build
         shell: powershell
         run: |
@@ -143,8 +175,13 @@ jobs:
           path: src/dist-models-from-source/
           if-no-files-found: error
 
+  # Packages the flm.exe built by build-windows-portable instead of building it
+  # again, so the MSI and the portable zip ship the same binary. Everything
+  # else the installer stages (DLLs, xclbins, model lists) comes from the
+  # checkout, so no submodules or history are needed here.
   build-windows-msi:
     runs-on: [self-hosted, windows, x64, msi]
+    needs: build-windows-portable
 
     defaults:
       run:
@@ -153,34 +190,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download portable build artifact
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          name: fastflowlm-windows-${{ github.sha }}
+          path: src/portable-dist
 
-      # checkout's fetch-depth: 0 also applies to submodules, which pulls the
-      # full msgpack-c history (~95 MB) and keeps getting reset mid-transfer on
-      # the runner network. The pinned commits alone are under 1 MB.
-      - name: Checkout submodules
-        shell: powershell
-        working-directory: .
-        run: |
-          for ($i = 1; $i -le 3; $i++) {
-            git submodule update --init --recursive --depth 1 --jobs 4
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Write-Host "Submodule fetch failed (attempt $i), retrying..."
-            Start-Sleep -Seconds 15
-          }
-          exit 1
-
-      - name: Configure CMake
+      # get_files.bat (inno and wix) stage flm.exe from build\, where a local
+      # build puts it.
+      - name: Place flm.exe from portable build
         shell: powershell
         run: |
-          cmake --preset windows-vs18
-
-      - name: Build
-        shell: powershell
-        run: |
-          cmake --build --preset windows-default --config Release --parallel
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force build | Out-Null
+          Copy-Item -Path .\portable-dist\flm.exe -Destination .\build\flm.exe -Force
 
       - name: Stage installer package files
         shell: powershell
