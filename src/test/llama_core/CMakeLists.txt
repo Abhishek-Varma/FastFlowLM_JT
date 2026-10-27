@@ -22,15 +22,21 @@ set(FLM_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../..")
 # builtin_backends.cpp is left out because it names every prebuilt engine
 # library; test_llama_frontend.cpp supplies its own empty
 # register_builtin_backends and registers a stub instead.
+# automodel.cpp parses output and constrains decoding with the chat library,
+# so the target also links flm_xgrammar.
+include("${FLM_SOURCE_DIR}/common/chat/chat_sources.cmake")
 add_executable(test_llama_frontend
     test_llama_frontend.cpp
     "${FLM_SOURCE_DIR}/common/AutoModel/automodel.cpp"
     "${FLM_SOURCE_DIR}/common/AutoModel/model_backend.cpp"
-    "${FLM_SOURCE_DIR}/common/AutoModel/modeling_llama3.cpp")
+    "${FLM_SOURCE_DIR}/common/AutoModel/modeling_llama3.cpp"
+    "${FLM_SOURCE_DIR}/common/prefix_slot_cache.cpp"
+    ${FLM_CHAT_SOURCES})
 target_include_directories(test_llama_frontend PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}"
     "${FLM_SOURCE_DIR}/include"
     "${FLM_SOURCE_DIR}/test/phi4_core"
+    "${FLM_SOURCE_DIR}/../third_party/tokenizers-cpp/include"
     "${BOOST_INCLUDE_DIR}"
     "${XRT_INCLUDE_DIR}")
 target_compile_definitions(test_llama_frontend PRIVATE
@@ -39,7 +45,7 @@ target_compile_definitions(test_llama_frontend PRIVATE
 target_compile_options(test_llama_frontend PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/wd4005 /wd4244>)
 target_link_directories(test_llama_frontend PRIVATE "${XRT_INCLUDE_DIR}/../lib")
-target_link_libraries(test_llama_frontend PRIVATE xrt_coreutil)
+target_link_libraries(test_llama_frontend PRIVATE xrt_coreutil flm_xgrammar)
 
 include(CTest)
 add_test(NAME test_llama_frontend COMMAND test_llama_frontend)
