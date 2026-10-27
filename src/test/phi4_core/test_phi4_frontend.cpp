@@ -314,6 +314,9 @@ int Sampler::sample(buffer<bf16>& logits, const std::vector<uint32_t>*, sample_l
     return 7;
 }
 
+// No engine library is linked; a null table leaves the prefix cache off.
+extern "C" const flm_state_api* phi4_npu_state_api(void*) { return nullptr; }
+
 namespace utils {
 std::string get_executable_directory() { return std::filesystem::current_path().string(); }
 }
