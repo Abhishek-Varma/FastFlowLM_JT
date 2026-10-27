@@ -98,11 +98,13 @@ chat_format_spec chat_format_detect(const std::string& template_src,
     if (known("<|tool_call>") && known("<|channel>")) {
         return chat_format_make(chat_format_kind::GEMMA4, false);
     }
-    if (known("<|tool_call_start|>")) {
-        return chat_format_make(chat_format_kind::LFM2_PYTHONIC, with_reasoning);
-    }
+    // a template that renders <function=...><parameter=...> is Qwen-style XML even when its vocabulary also carries
+    // LFM2's <|tool_call_start|> (LFM3 does: the token is inherited, the model calls tools with <tool_call>)
     if (in_template("<function=") && in_template("<parameter=")) {
         return chat_format_make(chat_format_kind::QWEN_XML, with_reasoning);
+    }
+    if (known("<|tool_call_start|>")) {
+        return chat_format_make(chat_format_kind::LFM2_PYTHONIC, with_reasoning);
     }
     // only trust <tool_call> when the template renders it: some vocabularies carry
     // the token without the model ever being trained to call tools with it
