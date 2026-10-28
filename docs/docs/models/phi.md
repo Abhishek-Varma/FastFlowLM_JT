@@ -30,7 +30,7 @@ flm run phi4-mini-it:4b
 - **Backend:** `core` — the backend names the kernel provider; FastFlowLM reaches these kernels through AMD's `ryzenai_corelib`
 - **Source format:** GGUF, read directly by corelib's own `phi4mini` model, the way Qwen3, Qwen3.5, Qwen3.6 and Gemma 4 run. No ONNX model, no tensor manifest, and no converted or packed weight file is produced or shipped.
 - **Quantization:** whichever GGUF `flm pull` fetched. AMD's **`Q4_G128`** file, from Phi-4-mini's ONNX export, is packed exactly as it is, apart from its FP16 scales narrowing to BF16. The fallback, unsloth's **`Q8_0`**, is requantized to **group 64** on every load, which is a **lossy** second quantization step, so its output differs from the Q8_0 source.
-- **Usable generation window:** 4095 tokens — the rendered prompt plus the requested output together, so the largest admissible prompt is 4094. An over-capacity request is rejected with HTTP 400 *before* any work is submitted to the device. Note this is far below the model's 128k context; see below for why.
+- **Context:** up to 131072 tokens, and 131072 by default, the most corelib runs Phi-4-mini at. The usable generation window is one less than the context: the rendered prompt plus the requested output together. An over-capacity request is rejected with HTTP 400 *before* any work is submitted to the device.
 - **Availability:** Windows and Linux, and this is a **developer build**. The core runtime is not packaged by the MSI, Inno or snap installer; you build against corelib yourself.
 
 On core this tag pulls from pinned repositories, because the GGUF publishers do not ship the tokenizer files FastFlowLM's tokenizer frontend consumes. The GGUF comes from AMD's repository when `flm pull` can reach it: it is private for now, so that takes a Hugging Face token with access to it (`HF_TOKEN`, or `hf auth login`). Otherwise the pull falls back to unsloth's:
@@ -84,14 +84,11 @@ flm pull phi4-mini-it-core:4b
 flm run  phi4-mini-it-core:4b
 ```
 
-### Why the context is 4096, and why the usable window is one less
+### Context, and why the usable window is one less
 
-Phi-4-mini itself supports 128k, and the existing `phi4-mini-it:4b` tag defaults to 32k. This backend gives you 4095. That is a real functional regression and it has two separate causes, which are worth keeping apart.
-
-**The 4096 ceiling is a correctness boundary, not a buffer size.** 4096 is exactly Phi-4-mini's `rope.scaling.original_context_length`. LongRoPE selects its factors by *sequence length*, not per position: at or below the original length the short factors apply, above it the long ones do. corelib's `phi4mini` reads only the short factors, so 4096 is the point past which the rope tables would silently be wrong. It is enforced rather than assumed — corelib refuses a GGUF whose `phi3.rope.scaling.original_context_length` is not exactly 4096. Raising this ceiling means deriving the long factors, not enlarging an array.
+corelib runs Phi-4-mini to its own 131072 tokens on paged attention, growing the KV cache a page at a time. LongRoPE selects its factors by *sequence length*, not per position: corelib ropes every position with the short factors at a capacity of one 4096-token page and with the long factors past it, as llama.cpp does, so a context set to 4096 or less takes the short ones and anything larger the long ones. A GGUF without `rope_factors_long` runs 4096 only.
 
 **The extra −1 is the core backend's.** It decodes at most one token fewer than its context, so that any request the server admits has room to finish rather than failing partway. It costs exactly one token.
-
 ### No fallback
 
 Backend selection follows the tag, never a filename or a quantization level. The `-core` suffix *is* the request for corelib's kernels, and the entry's `supported_platforms` decides whether this machine is offered it at all. There is nothing to fall back to and nothing to resolve between: `phi4-mini-it:4b` and `phi4-mini-it-core:4b` are separate tags, so asking for one never gets you the other. Once this tag is selected, there is no fallback: if corelib is missing, unloadable, or the wrong version, the tag **fails to load with a diagnostic** rather than quietly running on CPU or on the NPU2/Q4NX backend.
