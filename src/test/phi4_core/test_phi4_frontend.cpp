@@ -168,7 +168,7 @@ std::unique_ptr<flm::backend::ModelBackend> MakeCoreStub(
 
     auto backend = std::make_unique<StubBackend>(
         std::string(flm::backend::kCoreBackendId), context.context_length);
-    backend->decode_limit_ = flm::phi4::kCoreDecodeLimit;
+    backend->decode_limit_ = context.context_length - 1;
     backend->supports_preemption_ = false;
     backend->forwards_past_eos_ = false;
     backend->forced_eos_ids_ = std::vector<int>({200020, 199999});

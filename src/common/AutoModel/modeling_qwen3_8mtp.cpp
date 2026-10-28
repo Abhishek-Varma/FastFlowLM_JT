@@ -330,7 +330,7 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     int restore_idx = -1;
 
     if (meta_info.restore_allowed) {
-        restore_idx = qwen3_8mtp_engine->restore();
+        restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
     }
@@ -360,7 +360,7 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
         : this->_shared_insert(meta_info, tokens, is_cancelled, nullptr);
 
     checkpoint_his = token_history;
-    int checkpoint_idx = qwen3_8mtp_engine->checkpoint();
+    int checkpoint_idx = this->lm_engine->checkpoint();
     return success;
 }
 
@@ -433,7 +433,7 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
     // FLM_DISABLE_SPECULATION=1 turns it off too, for comparing against plain
     // decoding (output, logprobs) on the same build.
     const char* no_spec = std::getenv("FLM_DISABLE_SPECULATION");
-    const bool spec_enabled = !meta_info.constraint &&
+    const bool spec_enabled = this->lm_engine->supports_speculation() && !meta_info.constraint &&
         !(no_spec != nullptr && no_spec[0] != '\0' && std::strcmp(no_spec, "0") != 0);
     // Draft depth; also the hit-rate denominator (see report_speculation_stats).
     const int SPEC_MAX_DRAFT = 7;

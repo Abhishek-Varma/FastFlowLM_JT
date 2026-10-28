@@ -10,7 +10,8 @@
 namespace flm::llama {
 
 /// \brief the largest context this backend can hold
-inline constexpr std::uint32_t kCoreContextLimit = 4096;
+/// \note The most corelib pages Llama to, and the context of every size here.
+inline constexpr std::uint32_t kCoreContextLimit = 131072;
 
 /// \brief what the frontend must know before building this backend
 /// \note Inline so the registry can reject a request before the engine exists.

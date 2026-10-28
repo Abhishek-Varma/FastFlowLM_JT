@@ -9,9 +9,11 @@
 
 namespace flm::qwen36 {
 
-/// \note corelib takes up to the model's own 262144; this stays at 131072,
-///       the most FastFlowLM has run on the NPU.
-inline constexpr std::uint32_t kCoreContextLimit = 131072;
+/// \note The model's own context, the most corelib pages it to. Past 32768
+///       its NPU decode loses what lies far back (PAGED_DECODE_PAGE_DRIFT in
+///       corelib's docs/known-problems.md), so the catalog defaults to 32768
+///       and a longer context has to be asked for.
+inline constexpr std::uint32_t kCoreContextLimit = 262144;
 
 inline flm::backend::BackendTraits core_traits() {
     flm::backend::BackendTraits traits;

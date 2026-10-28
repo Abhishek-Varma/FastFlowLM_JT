@@ -92,7 +92,7 @@ void test_a_corelib_build_offers_the_corelib_phi4() {
     TEST_REQUIRE(tag == kCoreTag);
     TEST_REQUIRE(corelib.rectify_model_tag("phi4-mini-it-core") == kCoreTag);
     TEST_REQUIRE(info.at("name") == "phi4-mini-it-core");
-    TEST_REQUIRE(info.at("default_context_length") == 4096);
+    TEST_REQUIRE(info.at("default_context_length") == 131072);
     TEST_REQUIRE(info.at("flm_min_version") == "1.0.3");
     TEST_REQUIRE(info.at("files").size() == 4);
     TEST_REQUIRE(info.at("file_sources").size() == 3);

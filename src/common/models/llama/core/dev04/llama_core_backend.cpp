@@ -4,15 +4,18 @@
 
 #include "core/corelib_model_backend.hpp"
 
+#include <string>
+
 namespace flm::llama {
 
-/// \note A multi-row pass starts only at position 0, so a later prompt re-runs
-///       the conversation with it.
+/// \note corelib steps a pass that starts off a page boundary one row at a
+///       time up to it, so a later prompt re-runs its own page's earlier tokens
+///       with it and runs as whole pages.
 flm::backend::BackendFactory core_factory() {
     return core::Factory({
-        .model = {"llama", "Llama", kCoreContextLimit, core::Continuation::kFromStart,
+        .model = {"llama", "Llama", kCoreContextLimit, core::Continuation::kFromPage,
                   core::Rewind::kSeek},
-        .context_rule = "1..4096",
+        .context_rule = "1.." + std::to_string(kCoreContextLimit),
         // <|eot_id|>, <|eom_id|>, <|end_of_text|>: eos_token_id in the
         // catalog's config.json
         .eos_ids = {128009, 128008, 128001},
