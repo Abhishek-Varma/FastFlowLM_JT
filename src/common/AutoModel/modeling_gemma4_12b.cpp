@@ -552,14 +552,23 @@ std::string Gemma4_12B::generate(chat_meta_info_t& meta_info, int length_limit, 
         token_str = this->tokenizer->run_time_decoder(eoc_token_id);
         sampled_token = this->_sample(y, meta_info);
 
-        this->total_tokens++;
+        // all four went through the engine, so all four occupy the context
+        this->total_tokens += 4;
         meta_info.generated_tokens++;
         last_sampled_token = sampled_token;
         // the reply's first token: the loop below forwards it, so the history holds it
         this->token_history.push_back(last_sampled_token);
-        token_str = this->tokenizer->run_time_decoder(last_sampled_token);
-        result += token_str;
-        os << token_str << std::flush;
+        if (this->is_normal_token(last_sampled_token)) {
+            token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+            result += token_str;
+            os << token_str << std::flush;
+        }
+        if (this->is_eos(last_sampled_token)) {
+            // the reply ended before it started; no engine has run the eos
+            this->token_history.pop_back();
+            meta_info.stop_reason = reason;
+            return result;
+        }
     }
     else {
         last_sampled_token = this->last_token;

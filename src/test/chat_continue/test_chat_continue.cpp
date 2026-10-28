@@ -98,6 +98,56 @@ const std::string QWEN2VL =
     "{%- endfor %}{%- endif %}{{- '<|im_end|>\\n' }}{%- endfor %}"
     "{%- if add_generation_prompt %}{{- '<|im_start|>assistant\\n' }}{%- endif %}";
 
+// Qwen3.5: a reply opens with an empty think block, a finished message has none
+const std::string QWEN35 =
+    "{%- for m in messages %}{{- '<|im_start|>' + m['role'] + '\\n' + m['content'] | trim + '<|im_end|>\\n' }}{%- endfor %}"
+    "{%- if add_generation_prompt %}{{- '<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n' }}{%- endif %}";
+
+// LFM2.5-Thinking: a reply opens inside a think block, a finished message is the answer alone
+const std::string THINKING =
+    "{%- for m in messages %}{{- '<|im_start|>' + m['role'] + '\\n' + m['content'] + '<|im_end|>\\n' }}{%- endfor %}"
+    "{%- if add_generation_prompt %}{{- '<|im_start|>assistant\\n<think>\\n' }}{%- endif %}";
+
+/// \brief What AutoModel::_render_chat_template does when continuing
+chat_continued continued_prompt(const std::string& source, const json& messages) {
+    minja::chat_template tmpl(source, "", "");
+    return chat_continue_prompt(
+        [&tmpl](const json& chat, bool add_generation_prompt) {
+            minja::chat_template_inputs inputs;
+            inputs.messages = chat;
+            inputs.add_generation_prompt = add_generation_prompt;
+            return tmpl.apply(inputs);
+        },
+        messages);
+}
+
+void test_prompt() {
+    std::printf("prompt\n");
+    const std::string q = "Mind the <think> tag. Is Paris the capital of France?";
+    const std::string user_turn = "<|im_start|>user\n" + q + "<|im_end|>\n";
+
+    // where the template opens a reply the way it renders a finished message, the cut is transformers'
+    chat_continued chatml = continued_prompt(CHATML, chat(q, "The answer is:"));
+    CHECK_EQ(chatml.prompt, continued(CHATML, chat(q, "The answer is:")));
+    CHECK_EQ(chatml.turn, "<|im_start|>assistant\nThe answer is:");
+    chat_continued qwen3 = continued_prompt(QWEN3, chat(q, "The answer is:"));
+    CHECK_EQ(qwen3.prompt, continued(QWEN3, chat(q, "The answer is:")));
+    CHECK_EQ(qwen3.turn, "<|im_start|>assistant\n<think>\n\n</think>\n\nThe answer is:");
+
+    // where it does not, the message's text follows the reply's opening, as the model writes a reply
+    chat_continued qwen35 = continued_prompt(QWEN35, chat(q, "The answer is: "));
+    CHECK_EQ(qwen35.prompt, user_turn + "<|im_start|>assistant\n<think>\n\n</think>\n\nThe answer is:");
+    CHECK_EQ(qwen35.turn, "<|im_start|>assistant\n<think>\n\n</think>\n\nThe answer is:");
+    chat_continued thinking = continued_prompt(THINKING, chat(q, "The answer is:"));
+    CHECK_EQ(thinking.prompt, user_turn + "<|im_start|>assistant\n<think>\nThe answer is:");
+
+    // the turn is what the output parser reads: the user's <think> is not in it, the template's are
+    const chat_format_spec spec = chat_format_make(chat_format_kind::HERMES_JSON, true);
+    CHECK_EQ(chat_format_prefill(spec, chatml.turn, true), "");
+    CHECK_EQ(chat_format_prefill(spec, qwen35.turn, true), "");
+    CHECK_EQ(chat_format_prefill(spec, thinking.turn, true), "<think>");
+}
+
 void test_template_shapes() {
     std::printf("template shapes\n");
     const std::string q = "Is Paris the capital of France? Answer yes or no.";
@@ -249,12 +299,35 @@ void test_parse() {
         CHECK_EQ(streamed, whole);
         CHECK_EQ(streamed, chat_parse(qwen, whole, false, keep).content);
     }
+    // text after a tool call or a think block settles the whitespace before it, so a partial
+    // parse is still a prefix of the final one and no delta gets dropped
+    for (const std::vector<std::string>& pieces : std::vector<std::vector<std::string>>{
+             {" Paris. ", "<tool_call>{\"name\": \"f\", \"arguments\": {}}", "</tool_call>", "\nDo", "ne"},
+             {"foo ", "<think>x</think>", " b", "ar"}}) {
+        chat_stream stream(qwen, "", keep);
+        std::string streamed, whole;
+        for (const std::string& piece : pieces) {
+            whole += piece;
+            for (const chat_msg_delta& d : stream.update(piece, false)) {
+                streamed += d.content;
+            }
+        }
+        for (const chat_msg_delta& d : stream.update("", true)) {
+            streamed += d.content;
+        }
+        CHECK_EQ(streamed, chat_parse(qwen, whole, false, keep).content);
+    }
+    // an empty block the model closes is layout: the answer after it is the content
+    chat_msg empty_block = chat_parse(qwen, "\n</think>\n\nParis.", false, closes);
+    CHECK_EQ(empty_block.reasoning, "");
+    CHECK_EQ(empty_block.content, "Paris.");
 }
 
 } // namespace
 
 int main() {
     test_template_shapes();
+    test_prompt();
     test_cut();
     test_prefill();
     test_parse();

@@ -100,8 +100,12 @@ struct text_parts {
         const bool others = std::any_of(parts.begin(), parts.end(),
                                         [](const part_t& p) { return !p.exact && !trim(p.raw).empty(); });
         std::string out;
-        for (const auto& [raw, exact] : parts) {
-            std::string part = !exact ? trim(raw) : is_final ? raw : trim_end(raw);
+        for (size_t i = 0; i < parts.size(); i++) {
+            const auto& [raw, exact] = parts[i];
+            // text after it settles its trailing whitespace as surely as the end does
+            const bool followed = std::any_of(parts.begin() + i + 1, parts.end(),
+                                              [](const part_t& p) { return !trim(p.raw).empty(); });
+            std::string part = !exact ? trim(raw) : (is_final || followed) ? raw : trim_end(raw);
             // whitespace alone is the answer only when nothing else is
             if (part.empty() || (exact && others && trim(part).empty())) {
                 continue;
@@ -524,7 +528,9 @@ chat_msg parse_tagged(const chat_format_spec& spec, const std::string& full_text
                 break;
             }
             const std::string part = text.substr(pos, end - pos);
-            reasoning.add(part, lead(part));
+            // closed with nothing but whitespace in it, the block was layout, not an answer
+            const bool exact = lead(part);
+            reasoning.add(part, exact && !trim(part).empty());
             pos = end + spec.reasoning_end.size();
             in_reasoning = false;
             continue;

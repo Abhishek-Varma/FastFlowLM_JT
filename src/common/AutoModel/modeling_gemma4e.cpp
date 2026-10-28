@@ -821,16 +821,15 @@ std::string Gemma4e::generate(chat_meta_info_t& meta_info, int length_limit, std
     std::cout << std::endl;
     header_print("FLM", "Model RAW Output: \n" + result);
     
-    if (!this->enable_think) {
-        int checkpoint_idx = this->lm_engine->checkpoint();
-        // copy the token history at the checkpoint except the last one token, which is the start token for generation and should not be included in the checkpoint history
-        checkpoint_his = token_history;
-        checkpoint_his.pop_back();
-    }
     if (reason != EOT_DETECTED) {
         // Cut short after sampling its last token: no engine has run that one,
         // so the next prompt has to carry it.
         this->token_history.pop_back();
+    }
+    if (!this->enable_think) {
+        // the history the checkpoint holds: an eos ending the turn was run, a cut-off token was not
+        int checkpoint_idx = this->lm_engine->checkpoint();
+        checkpoint_his = token_history;
     }
 
     return result;

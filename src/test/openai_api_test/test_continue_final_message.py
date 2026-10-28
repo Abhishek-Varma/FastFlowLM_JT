@@ -115,7 +115,7 @@ def score_next_token(api: Api) -> None:
     choice = api.ok(body)
     msg = flm_api.check_message_contract(choice)
     entries = choice["logprobs"]["content"]
-    if not entries and msg.get("reasoning_content"):
+    if api.always_thinks and (not entries or not entries[0]["token"].strip()):
         raise Skip("the model reasons before answering, so its first token is not the answer")
     expect(len(entries) == 1, f"max_tokens 1 should give one entry, got {len(entries)}: {entries!r}")
     check_entry(entries[0], 5, "content[0]")

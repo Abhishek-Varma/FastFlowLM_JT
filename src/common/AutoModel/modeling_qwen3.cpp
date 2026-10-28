@@ -191,9 +191,17 @@ std::string Qwen3::decode(chat_meta_info_t& meta_info, int length_limit, std::os
         last_sampled_token = sampled_token;
         // the loop forwards it like insert()'s sample, so history carries it too
         this->token_history.push_back(last_sampled_token);
-        token_str = this->tokenizer->run_time_decoder(last_sampled_token);
-        result += token_str;
-        os << token_str << std::flush;
+        if (this->is_normal_token(last_sampled_token)) {
+            token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+            result += token_str;
+            os << token_str << std::flush;
+        }
+        if (this->is_eos(last_sampled_token)) {
+            // the reply ended before it started; no engine has run the eos
+            this->token_history.pop_back();
+            meta_info.stop_reason = reason;
+            return result;
+        }
     }
     else {
         last_sampled_token = this->last_token;
@@ -487,14 +495,23 @@ std::string Qwen3_TK::generate(chat_meta_info_t& meta_info, int length_limit, st
         sampled_token = this->_sample(y, meta_info);
         os << token_str << std::flush;
 
-        this->total_tokens++;
+        // both went through the engine, so both occupy the context
+        this->total_tokens += 2;
         meta_info.generated_tokens++;
         last_sampled_token = sampled_token;
         // the loop forwards it like insert()'s sample, so history carries it too
         this->token_history.push_back(last_sampled_token);
-        token_str = this->tokenizer->run_time_decoder(last_sampled_token);
-        result += token_str;
-        os << token_str << std::flush;
+        if (this->is_normal_token(last_sampled_token)) {
+            token_str = this->tokenizer->run_time_decoder(last_sampled_token);
+            result += token_str;
+            os << token_str << std::flush;
+        }
+        if (this->is_eos(last_sampled_token)) {
+            // the reply ended before it started; no engine has run the eos
+            this->token_history.pop_back();
+            meta_info.stop_reason = reason;
+            return result;
+        }
     }
     else {
         // A continued message trimmed nothing, so it starts from insert()'s sample.

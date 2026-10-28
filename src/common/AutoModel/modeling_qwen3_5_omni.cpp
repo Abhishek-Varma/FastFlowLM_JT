@@ -489,7 +489,8 @@ bool Qwen3_5_Omni::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input
             break;
         }
     }
-    if (skip_count != idx) {
+    // the whole prompt cached leaves no last token to sample from: read it in again (see _shared_insert)
+    if (skip_count != idx || (skip_count >= tokens.size() && !tokens.empty())) {
         clear_context();
         skip_count = 0;
     }

@@ -539,6 +539,13 @@ bool AutoModel::_shared_insert(chat_meta_info_t& meta_info, std::vector<int>& to
         clear_context();
         skip_count = 0;
     }
+    else if (skip_count >= tokens.size() && !tokens.empty()) {
+        // The engine holds the whole prompt already (the same request again), but
+        // sampling needs the logits of its last token, and the cache cannot step
+        // back one: read it in again from the start.
+        clear_context();
+        skip_count = 0;
+    }
     tokens.erase(tokens.begin(), tokens.begin() + skip_count);
 
     if (this->total_tokens + tokens.size() >= this->MAX_L){
@@ -634,38 +641,28 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
 
 std::string AutoModel::_render_chat_template(minja::chat_template_inputs& inputs, bool continue_final_message,
                                              const minja::chat_template_options& options) {
-    inputs.add_generation_prompt = !continue_final_message;
-    std::string rendered = this->chat_tmpl->apply(inputs, options);
     if (!continue_final_message) {
-        return rendered;
+        inputs.add_generation_prompt = true;
+        return this->chat_tmpl->apply(inputs, options);
     }
     if (inputs.messages.empty() || inputs.messages.back().value("role", "") != "assistant") {
         throw ModelRequestError(400, false, "continue_final_message requires the last message to have role \"assistant\"",
                                 "invalid_request_error");
     }
-    std::string prompt;
+    const auto render = [&](const nlohmann::ordered_json& messages, bool add_generation_prompt) {
+        minja::chat_template_inputs chat = inputs;
+        chat.messages = messages;
+        chat.add_generation_prompt = add_generation_prompt;
+        return this->chat_tmpl->apply(chat, options);
+    };
     try {
-        prompt = chat_continue_final_message(rendered, inputs.messages.back());
+        chat_continued continued = chat_continue_prompt(render, inputs.messages);
+        // the output parser looks for an open reasoning block in this turn only, not in what the user wrote earlier
+        this->continued_turn_ = std::move(continued.turn);
+        return continued.prompt;
     } catch (const std::invalid_argument& e) {
         throw ModelRequestError(400, false, e.what(), "invalid_request_error");
     }
-    // The continued turn starts where the same chat with a generation prompt in place of the
-    // final message stops matching: the output parser looks for an open reasoning block from
-    // there, not in what the user wrote earlier.
-    size_t turn = 0;
-    try {
-        minja::chat_template_inputs opened = inputs;
-        opened.messages.erase(opened.messages.size() - 1);
-        opened.add_generation_prompt = true;
-        const std::string head = this->chat_tmpl->apply(opened, options);
-        while (turn < head.size() && turn < prompt.size() && head[turn] == prompt[turn]) {
-            turn++;
-        }
-    } catch (const std::exception&) {
-        turn = 0; // a template that cannot end on a generation prompt: look at the whole prompt
-    }
-    this->continued_turn_ = prompt.substr(turn);
-    return prompt;
 }
 
 void AutoModel::_begin_turn(chat_meta_info_t& meta_info, const std::vector<int>& prompt_tokens) {
