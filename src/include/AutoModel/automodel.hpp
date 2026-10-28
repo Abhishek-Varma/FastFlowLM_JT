@@ -319,6 +319,7 @@ protected:
 	PrefixSlotCache prefix_cache_;
 	int prefix_cache_mb_arg_ = -1;   // --prefix-cache-mb, -1 = default
 	int prefix_slots_arg_ = -1;      // --prefix-slots, -1 = default, 0 = off
+	int prefix_min_gain_arg_ = -1;   // --prefix-min-gain, -1 = default (128), 0 = no minimum
 
 	/// \brief hand the loaded engine and the state table its library exports to the cache (call at the end of load_model)
 	/// \param api the library's `<engine>_state_api(engine)`, nullptr if the engine cannot save its context
@@ -604,11 +605,12 @@ public:
 		return this->prefix_cache_.enabled();
 	}
 
-	/// \brief --prefix-cache-mb / --prefix-slots (-1 = the default, 0 slots = off); call before load_model
-	void set_prefix_limits(int cache_mb, int slots) {
+	/// \brief --prefix-cache-mb / --prefix-slots / --prefix-min-gain (-1 = the default, 0 slots = off); call before load_model
+	void set_prefix_limits(int cache_mb, int slots, int min_gain = -1) {
 		this->prefix_cache_mb_arg_ = cache_mb;
 		this->prefix_slots_arg_ = slots;
-		this->prefix_cache_.configure(cache_mb, slots);
+		this->prefix_min_gain_arg_ = min_gain;
+		this->prefix_cache_.configure(cache_mb, slots, min_gain);
 	}
 	/// \brief Whether the chat template is rendered with thinking on
 	/// \note Only models with a thinking switch override this; the rest reason or

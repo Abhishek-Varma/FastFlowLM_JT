@@ -463,6 +463,7 @@ RestHandler::RestHandler(model_list& models, ModelDownloader& downloader, progra
     this->prefill_chunk_len = this->prefill_chunk_len_arg;
     this->prefix_cache_mb = args.prefix_cache_mb;
     this->prefix_slots = args.prefix_slots;
+    this->prefix_min_gain = args.prefix_min_gain;
 
     // Initialize chat bot with default model
 #ifndef FASTFLOWLM_LINUX_LIMITED_MODELS
@@ -567,7 +568,7 @@ bool RestHandler::ensure_model_loaded(const std::string& model_tag,
             auto [new_ensure_tag, model_info] = supported_models.get_model_info(ensure_tag);
             engine->set_server_mode(true);
             engine->configure_parameter("img_pre_resize", this->img_pre_resize);
-            engine->set_prefix_limits(this->prefix_cache_mb, this->prefix_slots);
+            engine->set_prefix_limits(this->prefix_cache_mb, this->prefix_slots, this->prefix_min_gain);
             const auto load_started = std::chrono::steady_clock::now();
             engine->load_model(supported_models.get_model_path(new_ensure_tag), model_info, ctx_length, preemption, requested_backend);
             report_load_time(load_started);

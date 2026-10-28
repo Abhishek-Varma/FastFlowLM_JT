@@ -57,6 +57,7 @@ flm serve qwen3.5:4b --prefix-cache-mb 8192 --prefix-slots 16
 |---|---|---|
 | `--prefix-cache-mb N` | `4096` | The most host (CPU) memory, in MiB, that saved prompts may use. It is a limit, not a reservation: memory is taken only when a prompt is saved, and given back when it is dropped. |
 | `--prefix-slots N` | `8` (at most `32`) | How many saved prompts to keep. `0` turns the prefix cache off. |
+| `--prefix-min-gain N` | `128` | After a request, its prompt is saved only if it is at least `N` tokens longer than a saved prompt that already covers it; otherwise the next request resumes from the older one and re-reads the difference. `0` saves every prompt. See [Tuning `--prefix-min-gain`](#tuning---prefix-min-gain). |
 | `FLM_DISABLE_PREFIX_SLOTS=1` | off | Environment variable that also turns it off (useful to compare against a cold run). |
 
 When the first prompt is saved, the server logs what a prompt costs and the limits in force:
@@ -64,6 +65,37 @@ When the first prompt is saved, the server logs what a prompt costs and the limi
 ```text
 [FLM]  Prefix cache: up to 8 snapshots in 4096 MiB (a saved row costs 32 KiB, a snapshot's state 49 MiB)
 ```
+
+### Tuning `--prefix-min-gain`
+
+Every saved prompt costs a copy of the model's state out of the NPU and host memory, and when memory or slots run out it pushes an older prompt out. When a conversation grows by only a few tokens per turn, saving every turn would fill the cache with near-copies of each other. `--prefix-min-gain N` skips a save unless the new prompt adds at least `N` tokens over a saved prompt that already covers it. The server logs it when it skips:
+
+```text
+[FLM]  Prefix cache: not saved, only 70 tokens past slot 3 (needs 128, --prefix-min-gain)
+```
+
+The price of a skip is that the next request resumes from the older saved prompt and has to read the difference again, which is always **less than `N` tokens** (about a second at most for `N = 512` on a 2B model reading about 700 tokens/s).
+
+| `N` | Effect | Use it when |
+|---|---|---|
+| `0` | Every prompt is saved: least to re-read per turn, most copying and evictions (83 saves in the test below, as fast as `64`) | A few conversations, plenty of memory and slots |
+| `64` | As fast as `0` with a few fewer saves | Same as `0` |
+| **`128` (default)** | About 20% fewer saves than `64` for about 0.5% more turn time | Most setups |
+| `256` | About 30% fewer saves, about 2% more turn time | Many agents or large prompts, memory or `--prefix-slots` is tight |
+| `512` and above | About 45% fewer saves but 7% or more turn time | Rarely worth it: only when copying the state is slower than re-reading `N` tokens (very large models, very slow memory) |
+
+Measured with 6 interleaved agents (own 2.5k-token system prompt, 10 turns each, tool results of 30 to 1500 tokens, plus title-style side calls) on `qwen3.5:2b`, 16 slots, two runs averaged. Turn time is relative to `N = 64`:
+
+| `N` | Saves | Evictions | Cache hit | Turn time |
+|---|---|---|---|---|
+| 0 (one run) | 83 | 67 | 86.0% | 1.00 |
+| 64 | 78 | 62 | 84.3% | 1.00 |
+| 128 | 64 | 48 | 83.5% | 1.006 |
+| 256 | 56 | 40 | 82.6% | 1.02 |
+| 512 | 44 | 28 | 79.8% | 1.07 |
+| 1024 | 37 | 21 | 75.3% | 1.15 |
+
+With fewer slots than conversations (8 slots for 6 agents here) the cache thrashes and `N` made no difference to the time. A synthetic workload on one model: measure your own agents (`usage.prompt_tokens_details.cached_tokens` and the time to first token, see below) before moving far from the default.
 
 ### How much memory does it need?
 

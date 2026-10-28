@@ -205,7 +205,7 @@ void PrefixSlotCache::save(const std::vector<int>& tokens, const std::vector<uin
                 slot.image_hashes.size() <= image_hashes.size() &&
                 std::equal(slot.image_hashes.begin(), slot.image_hashes.end(), image_hashes.begin())) {
                 header_print("FLM", "Prefix cache: not saved, only " << tokens.size() - slot.tokens.size() << " tokens past slot " << slot.id
-                             << " (needs " << min_end_gain << ")");
+                             << " (needs " << min_end_gain << ", --prefix-min-gain)");
                 return;
             }
         }
