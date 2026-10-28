@@ -38,6 +38,7 @@ void MiniCPM_V::load_model(std::string model_path, json model_info, int default_
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    this->_prefix_attach(this->lm_engine, minicpm_v_4_7_state_api(this->lm_engine), 248056); // 248056 = <|image_pad|>
 }
 
 void MiniCPM_V::setup_tokenizer(std::string model_path) {
@@ -175,7 +176,28 @@ bool MiniCPM_V::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
 
-    if (meta_info.restore_allowed) {
+    // ---- prefix slots: resume from the longest saved prefix of this prompt ----
+    // The generation prompt ends in "<think>\n" (2 tokens) or, with thinking off, "<think>\n\n</think>\n\n" (4): decode() feeds them,
+    // the next turn does not render them, so they are left out of what is saved.
+    const size_t think_trim = this->enable_think ? 2 : 4;
+    const bool slot_mode = this->_prefix_slot_mode(meta_info, tokens.size(), think_trim);
+    size_t match_len = 0;
+    std::vector<int> full_tokens;          // what this prompt leaves in the engine
+    std::vector<uint64_t> image_hashes;    // content of each view of its pictures
+    if (slot_mode) {
+        minicpm_v_4_7_npu* slot_eng = dynamic_cast<minicpm_v_4_7_npu*>(this->lm_engine);
+        full_tokens.assign(tokens.begin(), tokens.end() - think_trim);
+        image_hashes = prefix_image_hashes(image_payload, slot_eng->MINICPM_V_PATCH_SIZE, slot_eng->MINICPM_V_TEMPORAL_PATCH_SIZE);
+        match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, image_hashes);
+        // The single checkpoint keeps only the recurrent state and relies on the attention rows staying as they were: a slot request
+        // overwrites them, so drop its token history; the path below then has nothing to restore.
+        checkpoint_his.clear();
+    }
+    else {
+        this->_prefix_legacy_path(); // the single-checkpoint path below moves the engine on without telling the cache
+    }
+
+    if (!slot_mode && meta_info.restore_allowed && !checkpoint_his.empty()) {
         const int restore_idx = this->lm_engine->restore();
         if (restore_idx >= 0) {
             this->total_tokens = restore_idx;
@@ -187,7 +209,7 @@ bool MiniCPM_V::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
     // off, "<think>\n\n</think>\n\n" (4 tokens). Leave them out of the prompt so
     // the checkpoint lands right after "<|im_start|>assistant\n"; decode()
     // feeds them back.
-    tokens.resize(tokens.size() - (this->enable_think ? 2 : 4));
+    tokens.resize(tokens.size() - think_trim);
 
     // ----------------------------------------------------------------------
     // Prompt-cache aware image alignment. _shared_insert erases the prefix of
@@ -267,6 +289,18 @@ bool MiniCPM_V::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
         std::ofstream tf(dir + "/tokens.txt");
         for (int t : tokens) tf << t << "\n";
         header_print("FLM", "dumped the image payload and prompt to " << dir);
+    }
+
+    if (slot_mode) {
+        try {
+            return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, image_hashes, match_len, "<|im_start|>user",
+                                        has_images ? static_cast<void*>(&image_payload) : nullptr, first_len_run, is_cancelled,
+                                        input.requested_max_new_tokens);
+        } catch (const ModelRequestError&) {
+            throw;
+        } catch (...) {
+            this->fail_inference();
+        }
     }
 
     bool success = false;
