@@ -146,6 +146,9 @@
       <Component Id="Comp_lfm2_npu.dll" Guid="*">
         <File Id="File_lfm2_npu.dll" Source="$(SourceDir)\lfm2_npu.dll" KeyPath="yes" />
       </Component>
+      <Component Id="Comp_lfm3_npu.dll" Guid="*">
+        <File Id="File_lfm3_npu.dll" Source="$(SourceDir)\lfm3_npu.dll" KeyPath="yes" />
+      </Component>
       <Component Id="Comp_phi4_npu.dll" Guid="*">
         <File Id="File_phi4_npu.dll" Source="$(SourceDir)\phi4_npu.dll" KeyPath="yes" />
       </Component>

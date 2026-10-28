@@ -12,6 +12,7 @@
 #include "modeling_qwen3.hpp"
 #include "modeling_gpt_oss.hpp"
 #include "modeling_lfm2.hpp"
+#include "modeling_lfm3.hpp"
 #include "modeling_phi4.hpp"
 #include "modeling_qwen2.hpp"
 #include "modeling_qwen3.hpp"
@@ -53,6 +54,7 @@ typedef enum {
     gpt_oss,
     lfm2,
     lfm2_5_tk,
+    lfm3,
     phi4,
     nanbeige,
     hunyuan,
@@ -86,6 +88,7 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
         {"gpt-oss", SupportedModelFamily::gpt_oss},
         {"lfm2", SupportedModelFamily::lfm2},
         {"lfm2.5-tk", SupportedModelFamily::lfm2_5_tk},
+        {"lfm3", SupportedModelFamily::lfm3},
         {"qwen2vl", SupportedModelFamily::qwen2vl},
         {"phi4", SupportedModelFamily::phi4},
         {"nanbeige", SupportedModelFamily::nanbeige},
@@ -175,6 +178,9 @@ inline std::pair<std::string, std::unique_ptr<AutoModel>> get_auto_model(const s
             break;
         case SupportedModelFamily::lfm2_5_tk:
             auto_chat_engine = std::make_unique<LFM2_5_TK>(npu_device_inst);
+            break;
+        case SupportedModelFamily::lfm3:
+            auto_chat_engine = std::make_unique<LFM3>(npu_device_inst);
             break;
         case SupportedModelFamily::nanbeige:
             auto_chat_engine = std::make_unique<Nanbeige>(npu_device_inst);
