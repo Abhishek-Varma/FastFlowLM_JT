@@ -20,6 +20,7 @@ Browse detailed NPU benchmark results for each major model family supported by F
 - [gpt-oss](gpt-oss_results/)
 - [Decision 3.0 (d3)](d3_results/)
 - [LiquidAI/LFM2](lfm2_results/)
+- [LiquidAI/LFM3](lfm3_results/)
 - [Microsoft/Phi4](phi4_results/)
 - [Nanbeige4.1](nanbeige4.1_results/)
 - [SmolVLA](smolvla_results/)
