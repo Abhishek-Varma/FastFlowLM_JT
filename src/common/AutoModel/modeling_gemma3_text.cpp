@@ -29,6 +29,7 @@ void Gemma3_Text_Only::load_model(std::string model_path, json model_info, int d
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, gemma_text_npu_state_api(lm_engine));
 }
 
 void Gemma3_Text_Only::setup_tokenizer(std::string model_path) {
@@ -65,6 +66,14 @@ bool Gemma3_Text_Only::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& i
     
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
+
+    // Prefix slots. The generation prompt ("<start_of_turn>model\n") is how the next turn renders this reply's header: save the whole
+    // prompt. The template folds the system prompt into the first user turn, so the shared head before "<start_of_turn>user" is a
+    // BOS token only: no boundary slot, the end slots carry the reuse.
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<start_of_turn>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
 
     return this->_shared_insert(meta_info, tokens, is_cancelled);
 }

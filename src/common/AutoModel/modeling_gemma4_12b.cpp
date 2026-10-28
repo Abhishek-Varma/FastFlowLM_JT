@@ -42,6 +42,8 @@ void Gemma4_12B::load_model(std::string model_path, json model_info, int default
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    // Text-only prompts only (see insert), so no image placeholder id is given.
+    _prefix_attach(lm_engine, gemma4_12b_npu_state_api(lm_engine));
 }
 
 void Gemma4_12B::setup_tokenizer(std::string model_path) {
@@ -464,7 +466,23 @@ bool Gemma4_12B::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     int restore_idx = -1;
     gemma4_12b_npu *gemma4_12b_engine = dynamic_cast<gemma4_12b_npu*>(this->lm_engine);
 
-    if (meta_info.restore_allowed) {
+    // Prefix slots, text-only prompts. A prompt that carries pictures or audio, or a text turn whose history still holds their
+    // soft tokens (the payload is gone by then), takes the in-place path below. With thinking off the last 4 tokens of the prompt
+    // (the empty thought channel) are fed by generate(); the next turn does not render them.
+    const bool modal_tokens = std::any_of(tokens.begin(), tokens.end(), [this](int t) {
+        return t == image_token_id || t == audio_token_id || t == boi_token_id || t == boa_token_id;
+    });
+    const size_t slot_trim = this->enable_think ? 0 : 4;
+    if (image_payload.num_images == 0 && audio_payload.num_audios == 0 && !modal_tokens &&
+        this->_prefix_slot_mode(meta_info, tokens.size(), slot_trim)) {
+        checkpoint_his.clear();
+        return this->_prefix_text_insert(meta_info, tokens, slot_trim, "<|turn>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
+
+    // The legacy checkpoint keeps only the rings: it relies on the global rows still being the ones it was taken with. A slot request
+    // overwrites them, so it drops the checkpoint's token history, and the in-place path below then has nothing to restore.
+    if (meta_info.restore_allowed && !checkpoint_his.empty()) {
         restore_idx = gemma4_12b_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
