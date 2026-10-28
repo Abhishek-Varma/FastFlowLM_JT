@@ -27,6 +27,7 @@ void LFM3::load_model(std::string model_path, json model_info, int default_conte
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, lfm3_npu_state_api(lm_engine));
 }
 
 void LFM3::setup_tokenizer(std::string model_path) {
@@ -65,6 +66,13 @@ bool LFM3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std::f
 
     std::vector<int> tokens = this->tokenizer->encode(templated_text);
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
+
+    // Prefix slots. The generation prompt ("<|im_start|>assistant\n<think>" or "...<think></think>") is how the next turn
+    // renders this reply's header (a token prefix of it either way): save the whole prompt. Boundary marker "<|im_start|>user".
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<|im_start|>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
 
     return this->_shared_insert(meta_info, tokens, is_cancelled);
 }
