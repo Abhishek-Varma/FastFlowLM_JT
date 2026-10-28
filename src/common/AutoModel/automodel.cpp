@@ -475,7 +475,9 @@ bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_in
     meta_info.prefill_duration += head_prefill_ns;
     cache.set_live(full_tokens);
     // the end of this prompt keeps only what follows the shared head, when a slot holds that head
-    cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    if (!cache.boundary_only) {
+        cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    }
     meta_info.prefix_cache = cache.report();
     return true;
 }

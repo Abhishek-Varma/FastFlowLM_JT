@@ -39,7 +39,7 @@ uint64_t prefix_hash_bytes(const void* data, size_t bytes, uint64_t h) {
 }
 
 size_t PrefixSlotCache::budget_bytes() const {
-    const size_t mib = cache_mb_ > 0 ? static_cast<size_t>(cache_mb_) : kDefaultPrefixCacheMiB;
+    const size_t mib = cache_mb_ > 0 ? static_cast<size_t>(cache_mb_) : (default_mib > 0 ? default_mib : kDefaultPrefixCacheMiB);
     return mib << 20;
 }
 
@@ -67,7 +67,7 @@ void PrefixSlotCache::clear_live(bool announce) {
 
 size_t PrefixSlotCache::slot_limit() const {
     if (slots_ == 0) return 0; // --prefix-slots 0: off
-    const size_t requested = slots_ > 0 ? static_cast<size_t>(slots_) : kDefaultPrefixSlots;
+    const size_t requested = slots_ > 0 ? static_cast<size_t>(slots_) : (default_slots > 0 ? default_slots : kDefaultPrefixSlots);
     return std::min(requested, static_cast<size_t>(kMaxSlots));
 }
 
