@@ -294,3 +294,88 @@ clip: 29 s, a plain question about it: 28 s.
 Limits, as measured: a 61 second clip is refused (`422`), a request may take at most 256 video moments and 16,384 video input
 tokens (`422`; `D3_MOMENT_ROWS` changes the first), `long_context: true` is refused. Videos need the FFmpeg shared libraries of the
 machine (loaded at run time); without them an encoded video is refused with `422` and frame lists still work.
+
+## ⚡ d3-ultra on the NPU
+
+Accuracy and latency of `d3:ultra` (vllm-sr/d3-ultra, a newer fine-tune of the d3-turbo architecture: Qwen3.5-27B backbone,
+prefix-bidirectional attention, package D3-Ultra-NPU2, Q4_K with GPTQ), same machine and settings as above. `d3:ultra` runs on
+the same engine library and the same four kernels as `d3:turbo`; its package adds the header prompt layout (`header-v1`, see
+[the model page](/docs/models/d3/#d3-ultra)) and a temperature table.
+
+> **Note:**
+> - Latency in the table below is end to end over HTTP (`flm serve --decision d3:ultra`, the release libraries and
+>   xclbins of the pull request build) on an otherwise idle machine: median and range of 5 requests after one warm-up request
+>   (one request for 32,768 tokens). The tokens are `usage.input_tokens`, the header block included: the header lists the
+>   questions of a request once in the shared state, so the same request is longer than with `d3:turbo`.
+> - Memory: 16.6 GB of weights; the server process is at 15.9 GiB after the load (17.2 GiB peak while loading), 18.0 GiB after
+>   a request of 4,201 tokens and 27.0 GiB after one request of 32,750 tokens. A soak run of 100 mixed requests (text, image and
+>   long-prompt requests, several questions per request, empty and malformed bodies), first one after the other and then the same
+>   schedule from 4 concurrent clients next to a streaming chat model, had 0 status and 0 answer mismatches between the two runs
+>   (91 answered, 9 refused with 422 as expected) and no crash or hang; the server process went from 18.1 GB after the load to a
+>   transient peak of 26.1 GB and settled at 19.6 GB.
+
+### Accuracy against the upstream BF16 model
+
+| Set | Questions | NPU (FLM) |
+|---|---:|---:|
+| Hand-built request set (up to 4,096 tokens), top-1 agreement with BF16 | 736 | 95.1% |
+| Same set, final hidden state cosine to BF16 (median) | 736 | 0.9985 |
+| Same set with the plain Q4_K package (no GPTQ), top-1 agreement | 733 | 91.5% |
+| Long prompts, 6,144 to 24,576 tokens, top-1 agreement with BF16 | 5 | 100% (5 of 5) |
+| Long prompts, final hidden state cosine to BF16 (min over lengths) | 5 | 0.998 |
+| Context limit: 32,767 and 32,768 tokens answered (top-1 agreement), a prompt of 32,769 tokens refused | 2 | 100% (2 of 2) |
+| Image requests (31 hand-built requests, 64 × 64 to 2000 × 1500 images), top-1 agreement with BF16 | 60 | 91.7% (HTTP: 93.3% of 60 answers) |
+| Box questions on images (29 requests): median edge difference to BF16 / median IoU with BF16's box | 99 boxes | 0.015 / 0.86 |
+| Decision Index public suite, first 100 rows of the seeded round-robin sample: top-1 agreement with BF16 (choice answers) | 716 | 99.0% (95% CI 98.0 to 99.5) |
+| Same rows, accuracy against the expected labels: NPU / BF16 | 593 | 95.1% / 94.8% (paired difference BF16 minus NPU -0.3 pt, 95% CI -1.3 to +0.5) |
+| Decision Index public vision suite, 60 seeded questions from each of 10 benchmarks: accuracy | 600 | 77.8% (BF16: 80.7%; paired difference +2.8 pt, 95% CI +0.0 to +5.7) |
+| Same image questions, top-1 agreement with BF16 | 600 | 85.7% |
+
+The reference is the upstream runtime on a GPU in BF16 (goldens frozen before the NPU runs; 5 golden answers that had hit a
+transient GPU error were re-run and replaced). Prompts, token ids and answer objects follow the upstream runtime (error
+answers, `usage.input_tokens`, the header block, the temperature and the shape of every answer are identical on all request
+sets, except one token on 3 text requests with combining marks, where `tokenizer.json` and upstream's tokenizer differ);
+probabilities differ by the quantization and the bf16 kernels. The text set was measured through `flm serve` (212 requests,
+735 answered questions: top-1 95.1%, mean largest probability difference 0.030); the cosine row is the engine-level measurement
+of the same set. This set is deliberately hard; 5 of its 36 misses are in the 20 multilingual requests (Japanese politeness and
+similar items), where the plain Q4_K package disagrees on the same ones, so the weakness is in the model's 4-bit weights, not in
+GPTQ. On the Decision Index rows the NPU agrees with BF16 on 99% of the choice answers. The Decision Index text subset is
+only 100 rows (about 2 per benchmark; one row that needs 88 GiB in BF16 is left out), so it is a regression check, not a score:
+the paired difference is within ±1.3 pt. The vision subset is the 600-question sample used for `d3:turbo` (+2.0 pt there, mini
++2.5 pt); the NPU's vision tower noise dominates, and Hateful Memes moderation, which is near chance for both models, flips
+between them (42% agreement).
+
+### Latency
+
+| Request | Tokens | Median (s) | Range (s) |
+|---|---:|---:|---|
+| 1 question, short state | 241 | 3.10 | 2.96 to 3.10 |
+| 1 question | 441 | 3.43 | 3.42 to 3.44 |
+| 1 question | 1,131 | 9.50 | 9.43 to 9.51 |
+| 1 question | 4,201 | 30.6 | 30.5 to 30.6 |
+| 1 question | 32,750 | 314 | |
+| 4 questions, one 330-token state | 717 | 6.33 | 6.30 to 6.36 |
+| 16 questions, one 330-token state | 1,688 | 12.8 | 12.7 to 12.9 |
+
+A pass over the weights costs about 3 s on the idle machine, then 5 to 10 ms per token. Over HTTP the 736 text questions of the
+accuracy set (212 requests) took 3.3 s per request at the median. `state-once` and one-pass-per-question answers are
+bit-identical (checked on 55 requests, 389 answers).
+
+### Images, video, box and track
+
+Measured through `flm serve --decision d3:ultra` (HTTP, GPTQ package) against the frozen BF16 goldens of the same requests, one
+pass over each request set on the idle machine.
+
+| Set | Requests | Answers / boxes compared | Result against BF16 | Seconds per request |
+|---|---:|---:|---|---|
+| Questions with images | 31 | 60 | top-1 93.3%, mean max difference 0.056 | 1 to 16 (median 4.1) |
+| Plain questions about a video (2 fps, up to 32 frames) | 11 | 45 | top-1 97.8%, mean max difference 0.016 | 4 to 27 (median 18) |
+| Box at a video moment | 11 | 22 boxes | edge difference median 0.024, IoU 0.77 | 7 to 41 (median 10) |
+| Track | 13 | 120 moments | edge difference median 0.017, IoU 0.83, `visible` decision agrees on 100 % | 7 to 103 (median 11) |
+| Box on images | 29 | 99 boxes | edge difference median 0.015, IoU 0.86 | 3 to 20 (median 11) |
+| `assets` (state, options, instructions) | 15 | 26 answers, 7 boxes | top-1 100 %, box IoU median 0.95 | 11 to 113 (median 28) |
+
+A box differs from the BF16 box by the vision tower's noise (a few hundredths of the image size); a few boxes miss the reference
+object. The limits are those of `d3:turbo` (61 second clip refused, at most 256 video moments, `long_context: true` refused). A
+prompt of 32,768 tokens is answered, one of 32,769 tokens is refused with `max_length_exceeded` before any work (the header block
+counts against the limit).
