@@ -379,6 +379,14 @@ bool Gemma4_12B::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
         if (prefix_skip_count != idx) {
             prefix_skip_count = 0;
         }
+        // A repeated prompt is cached whole: _shared_insert would erase every token and have nothing to
+        // prefill or sample from. Start over instead, with the payload intact.
+        const size_t insert_len = tokens.size() - (this->enable_think ? 0 : 4);
+        if (idx > 0 && prefix_skip_count == idx && insert_len <= idx) {
+            header_print("FLM", "Prompt fully cached, prefilling it again");
+            this->clear_context();
+            prefix_skip_count = 0;
+        }
 
         if (prefix_skip_count > 0 && (image_payload.num_images > 0 || audio_payload.num_audios > 0)) {
             // Count modal soft-tokens that landed inside the cached prefix.
