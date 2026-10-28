@@ -6,6 +6,7 @@
 /// \note This is a source file for the auto_model class
 
 #include "AutoModel/automodel.hpp"
+#include "chat/chat_continue.hpp"
 #include "utils/npu_platform.hpp"
 
 #include <filesystem>
@@ -40,12 +41,13 @@ int resolve_context_length(const nlohmann::ordered_json& model_info,
 
 
 ModelRequestError::ModelRequestError(
-    int http_code, bool session_cleared, std::string message)
+    int http_code, bool session_cleared, std::string message, std::string type)
     : std::runtime_error(std::move(message)),
-      http_code_(http_code), session_cleared_(session_cleared) {}
+      http_code_(http_code), session_cleared_(session_cleared), type_(std::move(type)) {}
 
 int ModelRequestError::http_code() const noexcept { return http_code_; }
 bool ModelRequestError::session_cleared() const noexcept { return session_cleared_; }
+const std::string& ModelRequestError::type() const noexcept { return type_; }
 
 AutoModel::AutoModel(flm_rt::device* npu_device_inst, std::string current_model) {
     this->npu_device_inst = npu_device_inst;
@@ -630,17 +632,61 @@ buffer<bf16> AutoModel::_chunked_insert(chat_meta_info_t& meta_info, std::vector
     return y;
 }
 
+std::string AutoModel::_render_chat_template(minja::chat_template_inputs& inputs, bool continue_final_message,
+                                             const minja::chat_template_options& options) {
+    inputs.add_generation_prompt = !continue_final_message;
+    std::string rendered = this->chat_tmpl->apply(inputs, options);
+    if (!continue_final_message) {
+        return rendered;
+    }
+    if (inputs.messages.empty() || inputs.messages.back().value("role", "") != "assistant") {
+        throw ModelRequestError(400, false, "continue_final_message requires the last message to have role \"assistant\"",
+                                "invalid_request_error");
+    }
+    std::string prompt;
+    try {
+        prompt = chat_continue_final_message(rendered, inputs.messages.back());
+    } catch (const std::invalid_argument& e) {
+        throw ModelRequestError(400, false, e.what(), "invalid_request_error");
+    }
+    // The continued turn starts where the same chat with a generation prompt in place of the
+    // final message stops matching: the output parser looks for an open reasoning block from
+    // there, not in what the user wrote earlier.
+    size_t turn = 0;
+    try {
+        minja::chat_template_inputs opened = inputs;
+        opened.messages.erase(opened.messages.size() - 1);
+        opened.add_generation_prompt = true;
+        const std::string head = this->chat_tmpl->apply(opened, options);
+        while (turn < head.size() && turn < prompt.size() && head[turn] == prompt[turn]) {
+            turn++;
+        }
+    } catch (const std::exception&) {
+        turn = 0; // a template that cannot end on a generation prompt: look at the whole prompt
+    }
+    this->continued_turn_ = prompt.substr(turn);
+    return prompt;
+}
+
 void AutoModel::_begin_turn(chat_meta_info_t& meta_info, const std::vector<int>& prompt_tokens) {
     // keep the end of the prompt as the model sees it: generation continues from
-    // there, so it tells the output parser whether a reasoning block is already open
+    // there, so it tells the output parser whether a reasoning block is already open.
+    // A continued message may have opened one anywhere in its text, so then it is
+    // the whole continued turn.
     constexpr size_t PROMPT_TAIL_TOKENS = 32;
     meta_info.prompt_tail.clear();
-    for (size_t i = prompt_tokens.size() > PROMPT_TAIL_TOKENS ? prompt_tokens.size() - PROMPT_TAIL_TOKENS : 0;
-         i < prompt_tokens.size(); i++) {
-        meta_info.prompt_tail += this->token_text(prompt_tokens[i]);
+    if (meta_info.continue_final_message) {
+        meta_info.prompt_tail = this->continued_turn_;
+    }
+    else {
+        for (size_t i = prompt_tokens.size() > PROMPT_TAIL_TOKENS ? prompt_tokens.size() - PROMPT_TAIL_TOKENS : 0;
+             i < prompt_tokens.size(); i++) {
+            meta_info.prompt_tail += this->token_text(prompt_tokens[i]);
+        }
     }
     if (meta_info.constraint) {
-        meta_info.constraint->start(chat_format_prefill(this->chat_format, meta_info.prompt_tail));
+        meta_info.constraint->start(chat_format_prefill(this->chat_format, meta_info.prompt_tail,
+                                                        meta_info.continue_final_message));
     }
 }
 
@@ -788,6 +834,8 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
     stop_reason_t reason = EOT_DETECTED;
     int last_sampled_token = this->last_token;
     this->token_history.push_back(this->last_token);
+    // the sample insert() took is the reply's first token, and counts toward the limit
+    meta_info.generated_tokens++;
     if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
         std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
         result += token_str;
@@ -807,10 +855,11 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
     if (this->total_tokens >= decode_cap){
         header_print("WARNING", "Max length reached, stopping generation...");
         reason = MAX_LENGTH_REACHED;
-        meta_info.stop_reason = reason;
-        return result;
     }
-    while (true){
+    else if ((length_limit > 0) && (meta_info.generated_tokens >= length_limit)){
+        reason = MAX_LENGTH_REACHED;
+    }
+    else while (true){
         // Running out of window is a truncation, not the model choosing to
         // stop, and the caller has to be able to tell those apart: this is
         // what becomes `done_reason` over the API. Testing the cap here rather
@@ -864,6 +913,11 @@ std::string AutoModel::_shared_generate(chat_meta_info_t& meta_info, int length_
     }
     meta_info.decoding_duration = (uint64_t)(time_utils::cast_to_us(this->profiler_list[DECODING_TIME].get_total_time()).first) * 1e3;
     meta_info.stop_reason = reason;
+    if (reason != EOT_DETECTED) {
+        // Cut short after sampling its last token: no engine has run that one,
+        // so the next prompt has to carry it.
+        this->token_history.pop_back();
+    }
     if (this->total_tokens >= decode_cap){
         header_print("WARNING", "Max length reached, stopping generation...");
     }
