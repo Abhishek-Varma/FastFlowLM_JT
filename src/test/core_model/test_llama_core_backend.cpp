@@ -73,7 +73,7 @@ void TestTheCatalogsGgufRunsAsCorelibsLlama() {
     auto backend = flm::llama::core_factory()(Context(p, flm::llama::kCoreContextLimit));
     const auto& state = fake_corelib::GetState();
     TEST_REQUIRE(state.model_names.front() == "llama");
-    TEST_REQUIRE(state.model_weights_path == (p.root / kGguf).string());
+    TEST_REQUIRE(state.model_path == (p.root / kGguf).string());
     TEST_REQUIRE(state.model_max_sequence_length == 4096);
     TEST_REQUIRE(backend->id() == flm::backend::kCoreBackendId);
     TEST_REQUIRE(backend->max_decode_length() == 4095);
@@ -90,7 +90,7 @@ void TestAContextPast4096IsRefusedBeforeTheWeightsAreOpened() {
     RequireContains(RequireThrows<std::out_of_range>(
                         [&] { (void)flm::llama::core_factory()(Context(p, 4097)); }),
                     "1..4096");
-    TEST_REQUIRE(fake_corelib::GetState().call_counts["ryzenai_corelib_model_weights_create_path"] == 0);
+    TEST_REQUIRE(fake_corelib::GetState().call_counts["ryzenai_corelib_create_model_from_path"] == 0);
 }
 
 }  // namespace

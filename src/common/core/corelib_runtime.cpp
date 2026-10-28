@@ -27,10 +27,10 @@ std::shared_ptr<CorelibRuntime> CorelibRuntime::CreateReady(
     if (!api) throw std::invalid_argument("corelib API is null");
     api->Check(api->functions().selftest_dependencies(),
                "ryzenai_corelib_selftest_dependencies");
-    // NULL means this process has no NPU hardware context to dispatch on.
-    // The bound symbol is ryzenai_corelib_get_hardware_context.
-    if (api->functions().get_device() == nullptr) {
-        throw std::runtime_error("corelib has no device context");
+    // Without one corelib still runs a session, on the GPU or the host, which
+    // is the silent slowness the core backend is meant to rule out.
+    if (!api->functions().npu_usable()) {
+        throw std::runtime_error("corelib has no usable NPU");
     }
     return std::shared_ptr<CorelibRuntime>(new CorelibRuntime(std::move(api)));
 }

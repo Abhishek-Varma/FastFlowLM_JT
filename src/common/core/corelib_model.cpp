@@ -19,8 +19,8 @@ namespace flm::core {
 using corelib::CorelibApi;
 using corelib::CorelibRuntime;
 using corelib::UniqueModel;
+using corelib::UniqueModelSession;
 using corelib::UniqueModelSnapshot;
-using corelib::UniqueModelWeights;
 
 struct CorelibModel::Impl {
     Impl(ModelSpec model_spec, const std::filesystem::path& file,
@@ -43,10 +43,10 @@ struct CorelibModel::Impl {
         auto lease = runtime->AcquireExecution();
         const auto path = file.string();
         void* raw = nullptr;
-        api->Check(api->functions().model_weights_create_path(spec.corelib_name.c_str(),
-                                                              path.c_str(), &raw),
-                   "ryzenai_corelib_model_weights_create_path");
-        weights = UniqueModelWeights(api, raw);
+        api->Check(api->functions().create_model_from_path(spec.corelib_name.c_str(),
+                                                           path.c_str(), &raw),
+                   "ryzenai_corelib_create_model_from_path");
+        model = UniqueModel(api, raw);
         Recreate(maximum);
     }
 
@@ -59,8 +59,8 @@ struct CorelibModel::Impl {
     ModelSpec spec;
     std::shared_ptr<CorelibRuntime> runtime;
     std::shared_ptr<const CorelibApi> api;
-    UniqueModelWeights weights;
     UniqueModel model;
+    UniqueModelSession session;
     std::uint32_t capacity = 0;
     std::uint32_t max_length = 0;
     std::size_t vocab = 0;
@@ -192,7 +192,7 @@ private:
         float* out_logits = want_logits ? logits.data() : nullptr;
         const std::size_t logits_capacity = want_logits ? logits.size() : 0;
         try {
-            api->Check(api->functions().model_forward(model.get(), rows.data(), nullptr,
+            api->Check(api->functions().model_forward(session.get(), rows.data(), nullptr,
                                                       rows.size(), nullptr, 0, &options,
                                                       nullptr, out_logits, logits_capacity),
                        "ryzenai_corelib_model_forward");
@@ -219,8 +219,8 @@ private:
         if (!target.empty()) Advance(target, false);
     }
 
-    /// \note The capacity is fixed for a model's life, so a larger one is a
-    ///       new model over the same packed weights.
+    /// \note The capacity is fixed for a session's life, so a larger one is a
+    ///       new session of the same model.
     void Grow(std::uint32_t n) {
         auto lease = runtime->AcquireExecution();
         UniqueModelSnapshot current;
@@ -236,24 +236,23 @@ private:
     }
 
     void Recreate(std::uint32_t n) {
-        ryzenai_corelib_model_create_options options{};
+        ryzenai_corelib_model_session_options options{};
         options.size = sizeof(options);
         options.max_sequence_length = static_cast<std::int64_t>(n);
         void* raw = nullptr;
-        api->Check(api->functions().model_create(spec.corelib_name.c_str(), weights.get(),
-                                                 &options, &raw),
-                   "ryzenai_corelib_model_create");
-        UniqueModel created(api, raw);
+        api->Check(api->functions().model_create_session(model.get(), &options, &raw),
+                   "ryzenai_corelib_model_create_session");
+        UniqueModelSession created(api, raw);
         ryzenai_corelib_model_info info{};
-        api->Check(api->functions().model_info_get(created.get(), &info),
-                   "ryzenai_corelib_model_info_get");
+        api->Check(api->functions().model_get_info(created.get(), &info),
+                   "ryzenai_corelib_model_get_info");
         if (info.vocab_size <= 0 || info.context_length < static_cast<std::int64_t>(n))
             throw std::runtime_error(spec.display_name + " model_info is vocab " +
                                      std::to_string(info.vocab_size) + " context " +
                                      std::to_string(info.context_length) +
                                      "; this engine needs vocab > 0 and context >= " +
                                      std::to_string(n));
-        model = std::move(created);
+        session = std::move(created);
         capacity = static_cast<std::uint32_t>(info.context_length);
         vocab = static_cast<std::size_t>(info.vocab_size);
         logits.resize(vocab);
@@ -261,16 +260,16 @@ private:
 
     UniqueModelSnapshot Save() {
         void* raw = nullptr;
-        api->Check(api->functions().model_state_save(model.get(), &raw),
+        api->Check(api->functions().model_state_save(session.get(), &raw),
                    "ryzenai_corelib_model_state_save");
         return UniqueModelSnapshot(api, raw);
     }
 
-    /// \note corelib leaves the model reset when a restore fails partway, which
+    /// \note corelib leaves the session reset when a restore fails partway, which
     ///       no history here describes.
     void Load(const UniqueModelSnapshot& snapshot) {
         try {
-            api->Check(api->functions().model_state_restore(model.get(), snapshot.get()),
+            api->Check(api->functions().model_state_restore(session.get(), snapshot.get()),
                        "ryzenai_corelib_model_state_restore");
         } catch (...) {
             Poison();
@@ -280,7 +279,7 @@ private:
 
     void ResetModel() {
         try {
-            api->Check(api->functions().model_reset(model.get()), "ryzenai_corelib_model_reset");
+            api->Check(api->functions().model_reset(session.get()), "ryzenai_corelib_model_reset");
         } catch (...) {
             Poison();
             throw;

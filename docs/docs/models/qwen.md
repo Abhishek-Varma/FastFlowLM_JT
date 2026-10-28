@@ -107,7 +107,7 @@ flm run qwen3:8b
 - **Backend:** `core` — one engine for all four sizes. The GGUF's own metadata selects the size and is cross-checked against it.
 - **Source format:** GGUF `Q8_0`, read directly. Every weight is requantized to **group 64** while it is packed, except the 0.6B lm_head, which packs at **group 32**.
 - **Usable generation window:** 4095 tokens, prompt plus output. Over-capacity requests are rejected with HTTP 400 before any work reaches the device.
-- **Availability:** developer build against corelib 0.33.1 — see [Phi-4 on the core backend](phi.md).
+- **Availability:** developer build against corelib 0.53.0 — see [Phi-4 on the core backend](phi.md).
 
 The same corelib path also runs `gemma4-it-core:e2b` and `gemma4-it-core:e4b` (text only), `qwen3.5-core:9b` and `qwen3.6-moe-core:35b-a3b` (text only). Qwen3 stays at 4096; the other three go further.
 

@@ -82,7 +82,7 @@ BackendContext Context(const Package& package, std::uint32_t length,
 }
 
 int WeightLoads() {
-    return fake_corelib::GetState().call_counts["ryzenai_corelib_model_weights_create_path"];
+    return fake_corelib::GetState().call_counts["ryzenai_corelib_create_model_from_path"];
 }
 
 void TestPreemptionIsRefusedBeforeTheWeightsAreOpened() {
@@ -123,7 +123,7 @@ void TestTheCatalogsGgufIsTheOneLoaded() {
     Package p({"a.gguf", "b.gguf"});
     auto backend = flm::core::Factory(Spec())(
         Context(p, 4096, nlohmann::ordered_json::array({"b.gguf", "config.json"})));
-    TEST_REQUIRE(fake_corelib::GetState().model_weights_path == (p.root / "b.gguf").string());
+    TEST_REQUIRE(fake_corelib::GetState().model_path == (p.root / "b.gguf").string());
 }
 
 void TestACatalogGgufThatIsMissingIsNamed() {
@@ -152,7 +152,7 @@ void TestWithoutACatalogGgufTheDirectorysOnlyOneIsLoaded() {
     Package p({"only.gguf", "config.json"});
     auto backend = flm::core::Factory(Spec())(
         Context(p, 4096, nlohmann::ordered_json::array({"config.json"})));
-    TEST_REQUIRE(fake_corelib::GetState().model_weights_path == (p.root / "only.gguf").string());
+    TEST_REQUIRE(fake_corelib::GetState().model_path == (p.root / "only.gguf").string());
 }
 
 void TestWithoutACatalogGgufTwoInTheDirectoryAreRefused() {

@@ -9,8 +9,8 @@
 
 namespace flm::qwen36 {
 
-/// \note corelib refuses a capacity past 131072 at model_create, below the
-///       model's own 262144: the most it has verified on the NPU.
+/// \note corelib takes up to the model's own 262144; this stays at 131072,
+///       the most FastFlowLM has run on the NPU.
 inline constexpr std::uint32_t kCoreContextLimit = 131072;
 
 inline flm::backend::BackendTraits core_traits() {

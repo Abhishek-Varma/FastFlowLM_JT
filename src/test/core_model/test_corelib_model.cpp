@@ -62,10 +62,11 @@ int Resets() { return S().call_counts["ryzenai_corelib_model_reset"]; }
 
 // --- construction -----------------------------------------------------------
 
-void TestTheWeightsAndTheModelAreCorelibsOwnByName() {
+void TestTheModelIsCorelibsOwnByNameWithOneSession() {
     Harness h(kFromStart, 4096);
-    TEST_REQUIRE((S().model_names == std::vector<std::string>{"qwen3", "qwen3"}));
-    TEST_REQUIRE(S().model_weights_path == "C:/fake/model.gguf");
+    TEST_REQUIRE((S().model_names == std::vector<std::string>{"qwen3"}));
+    TEST_REQUIRE(S().model_path == "C:/fake/model.gguf");
+    TEST_REQUIRE(S().session_creates == 1);
 }
 
 void TestTheModelIsCreatedAtTheConfiguredCapacity() {
@@ -249,21 +250,21 @@ void TestShrinkingBelowTheCheckpointDropsIt() {
     TEST_REQUIRE(S().state_restores == 0);
 }
 
-void TestGrowingASnapshotModelSavesAndRestoresAcrossTheNewModel() {
+void TestGrowingASnapshotModelSavesAndRestoresAcrossTheNewSession() {
     Harness h(kSnapshot, 4096);
     auto ids = Ids(10);
     (void)h.engine->prefill(ids);
     h.engine->update_max_length(16384);
-    TEST_REQUIRE(S().model_creates == 2);
+    TEST_REQUIRE(S().session_creates == 2 && S().model_names.size() == 1);
     TEST_REQUIRE(S().model_max_sequence_length == 16384);
     TEST_REQUIRE(S().state_saves == 1 && S().state_restores == 1);
     TEST_REQUIRE(h.engine->get_current_context_length() == 10);
 }
 
-void TestShrinkingWithinTheCapacityKeepsTheModel() {
+void TestShrinkingWithinTheCapacityKeepsTheSession() {
     Harness h(kSnapshot, 16384);
     h.engine->update_max_length(8192);
-    TEST_REQUIRE(S().model_creates == 1);
+    TEST_REQUIRE(S().session_creates == 1);
 }
 
 // --- Rewind::kSeek -------------------------------------------------------------
@@ -363,12 +364,13 @@ void TestAPagedContinuationOnABoundaryRunsOnlyTheNewRows() {
     TEST_REQUIRE(Last().position == 4096 && Last().rows == 2);
 }
 
-void TestGrowingASeekModelReplaysIntoTheNewModel() {
+void TestGrowingASeekModelReplaysIntoTheNewSession() {
     Harness h(kFromPage, 4096);
     auto ids = Ids(10);
     (void)h.engine->prefill(ids);
     h.engine->update_max_length(16384);
-    TEST_REQUIRE(S().model_creates == 2 && S().state_saves == 0);
+    TEST_REQUIRE(S().session_creates == 2 && S().model_names.size() == 1 &&
+                 S().state_saves == 0);
     TEST_REQUIRE(Last().rows == 10 && Last().position == 0 && !Last().logits);
     TEST_REQUIRE(h.engine->get_current_context_length() == 10);
 }
@@ -440,7 +442,7 @@ void TestClearingAReplayModelResets() {
 
 int main() {
 #define RUN(name) RunTest(&name, #name)
-    RUN(TestTheWeightsAndTheModelAreCorelibsOwnByName);
+    RUN(TestTheModelIsCorelibsOwnByNameWithOneSession);
     RUN(TestTheModelIsCreatedAtTheConfiguredCapacity);
     RUN(TestTheSpecsLimitIsAccepted);
     RUN(TestAMaximumOutsideTheSpecIsRefused);
@@ -459,8 +461,8 @@ int main() {
     RUN(TestCheckpointingTheSameStateTwiceSavesOnce);
     RUN(TestRestoringRightAfterACheckpointLoadsNothing);
     RUN(TestShrinkingBelowTheCheckpointDropsIt);
-    RUN(TestGrowingASnapshotModelSavesAndRestoresAcrossTheNewModel);
-    RUN(TestShrinkingWithinTheCapacityKeepsTheModel);
+    RUN(TestGrowingASnapshotModelSavesAndRestoresAcrossTheNewSession);
+    RUN(TestShrinkingWithinTheCapacityKeepsTheSession);
     RUN(TestASeekModelStatesWhereEveryPassStarts);
     RUN(TestAFromStartContinuationRerunsTheWholeSequence);
     RUN(TestASeekRewindMovesOnlyThePosition);
@@ -470,7 +472,7 @@ int main() {
     RUN(TestAnUnpagedFromPageContinuationRerunsFromZero);
     RUN(TestAPagedContinuationRerunsOnlyItsPage);
     RUN(TestAPagedContinuationOnABoundaryRunsOnlyTheNewRows);
-    RUN(TestGrowingASeekModelReplaysIntoTheNewModel);
+    RUN(TestGrowingASeekModelReplaysIntoTheNewSession);
     RUN(TestAReplayCheckpointKeepsNoSnapshot);
     RUN(TestAReplayRestoreResetsAndReplays);
     RUN(TestAReplayRewindResetsAndReplays);

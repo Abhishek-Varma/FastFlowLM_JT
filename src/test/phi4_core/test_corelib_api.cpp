@@ -214,7 +214,7 @@ void TestEveryUniqueObjectReleasesExactlyOnceAfterMoves() {
     TEST_REQUIRE(api->live_object_count() == 0);
 }
 
-void TestRuntimeRunsDependencySelftestAndRequiresDeviceContext() {
+void TestRuntimeRunsDependencySelftestAndRequiresAUsableNpu() {
     fake_corelib::Reset();
     fake_corelib::GetState().selftest_status = ryzenai_corelib_status_failure;
     RequireContains(RequireThrows([] {
@@ -223,11 +223,11 @@ void TestRuntimeRunsDependencySelftestAndRequiresDeviceContext() {
                     "selftest_dependencies");
 
     fake_corelib::Reset();
-    fake_corelib::GetState().has_device_context = false;
+    fake_corelib::GetState().npu_usable = false;
     RequireContains(RequireThrows([] {
                         CorelibRuntime::CreateForTest(ValidApi());
                     }),
-                    "device context");
+                    "no usable NPU");
 
     fake_corelib::Reset();
     const auto runtime = CorelibRuntime::CreateForTest(ValidApi());
@@ -314,7 +314,7 @@ int main() {
     RUN_TEST(TestEnvironmentPathWinsOverExecutableRelativePath);
     RUN_TEST(TestFallbackIsExeDirectoryCoreDllNotCurrentDirectory);
     RUN_TEST(TestEveryUniqueObjectReleasesExactlyOnceAfterMoves);
-    RUN_TEST(TestRuntimeRunsDependencySelftestAndRequiresDeviceContext);
+    RUN_TEST(TestRuntimeRunsDependencySelftestAndRequiresAUsableNpu);
     RUN_TEST(TestExecutionLeaseSerializesTwoThreads);
     RUN_TEST(TestShutdownReleasesExecutionLockBeforeDestroyingRuntimeOwner);
     RUN_TEST(TestCleanupRunsAfterTheLastObjectAndOnlyOnce);

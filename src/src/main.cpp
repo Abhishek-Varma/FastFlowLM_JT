@@ -38,8 +38,10 @@
 #include <boost/program_options.hpp>
 #include "benchmarking.hpp"
 #ifdef FLM_ENABLE_CORE
+#if defined(FLM_USE_HRX)
+#error "FLM_ENABLE_CORE requires the XRT backend (FLM_USE_HRX=OFF): corelib opens the NPU through XRT"
+#endif
 #include "core/corelib_runtime.hpp"
-#include "core/corelib_device.hpp"
 #endif
 
 #ifndef _WIN32
@@ -598,8 +600,6 @@ int main(int argc, char* argv[]) {
 
     // One NPU runtime for the whole process, brought up before the catalog so
     // the catalog can be filtered to what this NPU generation can actually run.
-    // Which runtime that is follows from the build, not from a decision here:
-    // the flm backend opens its own device, core gets one from corelib.
 #ifdef FLM_ENABLE_CORE
     // Declared before anything that can return so the destructor covers the
     // early exits and the catch-all below.
@@ -612,51 +612,25 @@ int main(int argc, char* argv[]) {
     // is left with "NPU device instance is nullptr" -- raised much later, by
     // whichever model reaches for the device first -- and nothing to act on.
     std::string npu_open_error;
-    // Set when corelib failed but a direct device was opened anyway: the core
-    // backend is gone, the rest of the build is not.
+    // Set when corelib failed: the core backend is gone, the rest of the build
+    // is not.
     std::string corelib_note;
 
     try {
-        const auto runtime =
-            flm::corelib::CorelibRuntime::GetOrCreate(std::filesystem::path(exe_dir));
-        // corelib opens the NPU for this process, so take its device rather
-        // than opening a second one: a buffer object created against a
-        // different xrt::device for the same NPU binds without error and then
-        // never completes. GetOrCreate holds the runtime process-wide, so the
-        // device stays valid until CoreProcessGuard tears it down at exit.
-        npu_device = flm::corelib::SharedDevice(*runtime);
-        if (npu_device == nullptr)
-            npu_open_error =
-                "corelib started but reports no NPU device on this machine";
+        // corelib serves the core models alone and keeps its device to itself,
+        // opening a hardware context per stream on it, so the engines here get
+        // the device opened below. A core model shares no buffer with them.
+        (void)flm::corelib::CorelibRuntime::GetOrCreate(std::filesystem::path(exe_dir));
     } catch (const std::exception& e) {
-        // A box with no NPU must still run `flm list`/`pull`/`version`, so this
-        // stays a null device rather than an error, as in the non-core path.
-        npu_open_error = std::string("corelib unavailable: ") + e.what();
-        header_print("FLM", "corelib unavailable: " << e.what());
+        corelib_note = std::string("corelib unavailable: ") + e.what();
     }
+    // A box with no NPU must still run `flm list`/`pull`/`version`, so this
+    // stays a null device rather than an error, as in the non-core path.
+    std::string raw_error;
+    npu_device = open_npu_device(&raw_error);
     if (npu_device == nullptr) {
-        // corelib having no device is a reason for the core backend to be
-        // unavailable, not for the process to have no NPU at all. Every other
-        // family is served by the flm backend, which opens its own device and
-        // never touches corelib -- so opening one directly keeps those models
-        // working instead of failing the whole process over a backend they do
-        // not use. On a box whose NPU has no creatable DEV04 hw_context this is
-        // the difference between "core is unavailable" and "flm has no NPU".
-        //
-        // This does not bring back the two-device bug, where a buffer created
-        // against a second xrt::device for the same NPU bound without error and
-        // then never completed. That needed corelib to be live and holding a
-        // device of its own; here it has none, so the process still ends up
-        // with exactly one.
-        corelib_note = npu_open_error;
-        std::string raw_error;
-        npu_device = open_npu_device(&raw_error);
-        if (npu_device != nullptr) {
-            npu_open_error.clear();
-        } else {
-            npu_open_error += "; opening the NPU directly also failed: " + raw_error;
-            corelib_note.clear();
-        }
+        npu_open_error = corelib_note.empty() ? raw_error : corelib_note + "; " + raw_error;
+        corelib_note.clear();
     }
 #else
     // validate probes /dev/accel/* itself, and amdxdna refuses a second open of
@@ -693,9 +667,7 @@ int main(int argc, char* argv[]) {
     // rather than the cause: it is raised from whichever model first reaches
     // for the device, long after the runtime that failed to come up.
     if (print_status && needs_npu && !corelib_note.empty()) {
-        header_print("FLM", "core backend unavailable ("
-                                << corelib_note
-                                << "); opened the NPU directly");
+        header_print("FLM", "core backend unavailable (" << corelib_note << ")");
     }
     // Only print early error for RAI builds where the device is opened eagerly.
 #ifdef FLM_ENABLE_RAI
