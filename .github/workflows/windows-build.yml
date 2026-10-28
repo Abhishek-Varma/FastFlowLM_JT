@@ -12,15 +12,15 @@ on:
       - main
   workflow_dispatch:
 
-# The HRX build runs on a self-hosted runner, so a build for a commit that has
-# since been superseded on the same PR only delays the next one, and with it
-# that commit's model sweep. Only pull_request runs share a group; every other
-# run gets its own, so branch and tag builds are never cancelled.
+# A build for a commit that has since been superseded on the same PR only
+# delays that PR's model sweep, which waits for this whole run. Only
+# pull_request runs share a group; every other run gets its own, so branch and
+# tag builds are never cancelled.
 concurrency:
   group: windows-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
-# The XRT builds run on GitHub-hosted runners, outside the corporate proxy that
+# The builds run on GitHub-hosted runners, outside the corporate proxy that
 # intermittently blocks third-party downloads on the self-hosted ones.
 # windows-2025-vs2026 carries Visual Studio 2026 for the windows-vs18 preset;
 # setup_windows_deps.ps1 lays out the C:\dev dependencies the self-hosted
@@ -278,7 +278,7 @@ jobs:
           if-no-files-found: error
 
   build-windows-portable-hrx:
-    runs-on: [self-hosted, windows, x64, portable]
+    runs-on: windows-2025-vs2026
 
     defaults:
       run:
@@ -305,6 +305,19 @@ jobs:
             Start-Sleep -Seconds 15
           }
           exit 1
+
+      # HRX needs the same Boost and curl as the XRT build; the XRT parts of
+      # the tree go unused here.
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure CMake (HRX)
         shell: powershell
