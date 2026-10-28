@@ -29,6 +29,7 @@ void GPT_OSS::load_model(std::string model_path, json model_info, int default_co
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, gpt_oss_npu_state_api(lm_engine));
 }
 
 void GPT_OSS::setup_tokenizer(std::string model_path){
@@ -75,6 +76,13 @@ bool GPT_OSS::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std
     // hardware
     int restore_idx = -1;
     gpt_oss_npu *gpt_oss_engine = dynamic_cast<gpt_oss_npu*>(this->lm_engine);
+
+    // Prefix slots. The generation prompt ("<|start|>assistant") is how the next turn renders this reply's header: save the whole prompt.
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<|start|>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
+
     if (meta_info.restore_allowed) {
         restore_idx = gpt_oss_engine->restore();
         this->total_tokens = restore_idx;

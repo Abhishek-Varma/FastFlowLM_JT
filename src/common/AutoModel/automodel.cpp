@@ -695,16 +695,22 @@ int AutoModel::_sample(buffer<bf16>& logits, chat_meta_info_t& meta_info) {
     if (constraint != nullptr) {
         constraint->accept(token);
     }
-    // Special tokens never reach the output, so they have no place in its logprobs.
     // The chosen token's logprob is read here rather than in the sampler: the
     // fallback above may have replaced what the sampler picked.
-    meta_info.last_sample_logged = meta_info.logprobs_top_n >= 0 && this->is_normal_token(token);
-    if (meta_info.last_sample_logged) {
-        meta_info.logprobs.push_back(chat_token_logprob{
-            token, static_cast<float>(logits[token]) - raw.log_norm, std::move(raw.top)});
-    }
+    meta_info.last_sample_logged = meta_info.logprobs_top_n >= 0 &&
+        this->_record_logprob(meta_info, token, static_cast<float>(logits[token]), raw);
     meta_info.insert_sample_pending = false;
     return token;
+}
+
+bool AutoModel::_record_logprob(chat_meta_info_t& meta_info, int token, float token_logit,
+                                sample_logprobs_t& raw) {
+    // Special tokens never reach the output, so they have no place in its logprobs.
+    if (!this->is_normal_token(token)) {
+        return false;
+    }
+    meta_info.logprobs.push_back(chat_token_logprob{token, token_logit - raw.log_norm, std::move(raw.top)});
+    return true;
 }
 
 void AutoModel::_force_token(chat_meta_info_t& meta_info, int token) {

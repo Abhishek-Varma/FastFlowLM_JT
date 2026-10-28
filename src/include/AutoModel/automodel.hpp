@@ -364,6 +364,15 @@ protected:
 	/// \return the sampled token, already reported to the constraint
 	int _sample(buffer<bf16>& logits, chat_meta_info_t& meta_info);
 
+	/// \brief Add a token's entry to meta_info.logprobs
+	/// \param token_logit the token's raw logit
+	/// \param raw its distribution's normaliser and top tokens; the top tokens are moved out
+	/// \return false, adding nothing, for a special token, which never reaches the output
+	/// \note Callers check meta_info.logprobs_top_n first. For tokens an engine
+	///       commits without _sample(), such as speculated ones.
+	bool _record_logprob(chat_meta_info_t& meta_info, int token, float token_logit,
+	                     sample_logprobs_t& raw);
+
 	/// \brief Report a token the model is made to emit rather than samples
 	/// \note For the think preamble some generate()s feed after insert(); the
 	///       constraint has to see it like any generated text. The first forced

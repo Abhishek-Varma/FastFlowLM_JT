@@ -27,6 +27,7 @@ void Gemma3::load_model(std::string model_path, json model_info, int default_con
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, gemma_npu_state_api(lm_engine), 262144); // 262144 = the image placeholder id (IMAGE_TOKEN_ID in insert)
 }
 
 void Gemma3::setup_tokenizer(std::string model_path) {
@@ -186,6 +187,26 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     // with the surviving image tokens after _shared_insert performs its own
     // erase.
     // ----------------------------------------------------------------------
+    // ---- prefix slots: resume from the longest saved prefix of this prompt ----
+    // The generation prompt ("<start_of_turn>model\n") is how the next turn renders this reply's header: the whole prompt is saved
+    // (trim 0). The template folds the system prompt into the first user turn, so the shared head before "<start_of_turn>user" is a
+    // BOS token only: no boundary slot, the end slots carry the reuse. After a resume token_history is the slot's tokens, so the
+    // skip count below is the match length.
+    const bool slot_mode = this->_prefix_slot_mode(meta_info, tokens.size(), 0);
+    size_t match_len = 0;
+    std::vector<int> full_tokens;          // what this prompt leaves in the engine
+    std::vector<uint64_t> image_hashes;    // content of each of its images (a fixed 3*896*896 bf16 block each)
+    if (slot_mode) {
+        full_tokens = tokens;
+        const size_t block_bytes = static_cast<size_t>(3) * 896 * 896 * sizeof(bf16);
+        for (size_t off = 0; off + block_bytes <= pixel_values.size(); off += block_bytes) {
+            image_hashes.push_back(prefix_hash_bytes(pixel_values.data() + off, block_bytes, 0xcbf29ce484222325ull));
+        }
+        match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, image_hashes);
+    } else {
+        this->_prefix_legacy_path(); // the in-place path below moves the engine on without telling the cache
+    }
+
     size_t prefix_skip_count = 0;
     {
         const size_t idx = this->token_history.size();
@@ -258,6 +279,10 @@ bool Gemma3::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std:
     }
     last_image_token_index++; // plus the end of image tokens
 
+    if (slot_mode) {
+        return this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, image_hashes, match_len, "<start_of_turn>user",
+                                    payload, last_image_token_index, is_cancelled);
+    }
     return this->_shared_insert(meta_info, tokens, is_cancelled, payload, last_image_token_index);
 }
 
