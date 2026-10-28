@@ -400,7 +400,7 @@ void AutoModel::_prefix_cold_start(PrefixSlotCache& cache) {
 void AutoModel::_prefix_attach(void* engine, const flm_state_api* api, int image_token_id) {
     static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
     this->prefix_cache_.image_token_id = image_token_id;
-    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
+    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_, this->prefix_min_gain_arg_);
     if (disabled || engine == nullptr || api == nullptr) {
         this->prefix_cache_.attach(nullptr, nullptr);
         return;
