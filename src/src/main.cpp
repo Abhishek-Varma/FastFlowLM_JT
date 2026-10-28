@@ -665,8 +665,10 @@ int main(int argc, char* argv[]) {
     // Say once, here, why there is no device. The commands below cannot run
     // without one, and the message they eventually produce names the symptom
     // rather than the cause: it is raised from whichever model first reaches
-    // for the device, long after the runtime that failed to come up.
-    if (print_status && needs_npu && !corelib_note.empty()) {
+    // for the device, long after the runtime that failed to come up. Only on
+    // dev04: elsewhere corelib has nothing to run and its absence is expected.
+    if (print_status && needs_npu && !corelib_note.empty() &&
+        platform == utils::npu_platform::dev04) {
         header_print("FLM", "core backend unavailable (" << corelib_note << ")");
     }
     // Only print early error for RAI builds where the device is opened eagerly.

@@ -235,6 +235,23 @@ void TestRuntimeRunsDependencySelftestAndRequiresAUsableNpu() {
     CorelibRuntime::ShutdownProcess();
 }
 
+void TestNpuArchIsCorelibsAnswerAndEmptyWhenItCannotLoad() {
+    fake_corelib::Reset();
+    {
+        const auto runtime = CorelibRuntime::CreateForTest(ValidApi());
+        fake_corelib::GetState().npu_arch = "AIE2P";
+        TEST_REQUIRE(CorelibRuntime::NpuArch({}) == "AIE2P");
+        fake_corelib::GetState().npu_arch = "AIEM";
+        TEST_REQUIRE(CorelibRuntime::NpuArch({}) == "AIEM");
+    }
+    CorelibRuntime::ShutdownProcess();
+
+    const auto empty = std::filesystem::temp_directory_path() / "flm-no-corelib-here";
+    std::filesystem::create_directories(empty);
+    TEST_REQUIRE(CorelibRuntime::NpuArch(empty).empty());
+    std::filesystem::remove_all(empty);
+}
+
 void TestExecutionLeaseSerializesTwoThreads() {
     fake_corelib::Reset();
     const auto runtime = CorelibRuntime::CreateForTest(ValidApi());
@@ -315,6 +332,7 @@ int main() {
     RUN_TEST(TestFallbackIsExeDirectoryCoreDllNotCurrentDirectory);
     RUN_TEST(TestEveryUniqueObjectReleasesExactlyOnceAfterMoves);
     RUN_TEST(TestRuntimeRunsDependencySelftestAndRequiresAUsableNpu);
+    RUN_TEST(TestNpuArchIsCorelibsAnswerAndEmptyWhenItCannotLoad);
     RUN_TEST(TestExecutionLeaseSerializesTwoThreads);
     RUN_TEST(TestShutdownReleasesExecutionLockBeforeDestroyingRuntimeOwner);
     RUN_TEST(TestCleanupRunsAfterTheLastObjectAndOnlyOnce);

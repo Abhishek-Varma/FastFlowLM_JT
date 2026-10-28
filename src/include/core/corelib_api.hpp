@@ -7,6 +7,10 @@
 #error "FastFlowLM requires ryzenai-corelib headers exactly 0.53.0"
 #endif
 
+// ryzenai_corelib_testing_npu_arch, until corelib's public header names the
+// NPU's architecture. After the pin: a testing hook may change in any release.
+#include <ryzenai/corelib/testing.h>
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +27,7 @@
     X(get_last_error_message, ryzenai_corelib_get_last_error_message)              \
     X(selftest_dependencies, ryzenai_corelib_selftest_dependencies)                \
     X(npu_usable, ryzenai_corelib_npu_usable)                                      \
+    X(npu_arch, ryzenai_corelib_testing_npu_arch)                                  \
     X(object_release, ryzenai_corelib_object_release)                              \
     X(create_stream, ryzenai_corelib_create_stream)                                \
     X(stream_synchronize, ryzenai_corelib_stream_synchronize)                      \

@@ -176,6 +176,8 @@ struct TypedFake<Tag, Result (*)(Args...)> {
             return state.selftest_status;
         } else if constexpr (std::is_same_v<Tag, npu_usable_tag>) {
             return state.npu_usable;
+        } else if constexpr (std::is_same_v<Tag, npu_arch_tag>) {
+            return state.npu_arch.c_str();
         } else if constexpr (std::is_same_v<Tag, object_release_tag>) {
             void* object = std::get<0>(arguments);
             if (object) {
@@ -643,6 +645,7 @@ void Reset() {
     state.selftest_status = ryzenai_corelib_status_success;
     state.default_status = ryzenai_corelib_status_success;
     state.npu_usable = true;
+    state.npu_arch = "AIEM";
     state.stream_prefill_pdis.clear();
     state.stream_token_pdis.clear();
     state.detail.clear();

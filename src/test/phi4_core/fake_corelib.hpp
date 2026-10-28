@@ -100,6 +100,8 @@ struct State {
     ryzenai_corelib_status default_status{ryzenai_corelib_status_success};
     /// \brief what npu_usable() answers
     bool npu_usable{true};
+    /// \brief what testing_npu_arch() answers
+    std::string npu_arch{"AIEM"};
     /// \brief the PDI lists the engine opened its stream with
     /// \note Required from 0.5.0 and deliberately undefaulted by corelib, so
     ///       it is worth being able to assert on.

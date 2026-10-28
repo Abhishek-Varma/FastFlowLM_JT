@@ -23,16 +23,14 @@ flow it was configured with, and several flows can serve one generation. Keying
 either axis off the other is how adding corelib once took the FastFlowLM models
 away.
 
-`get_device()` is a **stand-in** until the real probe lands, and it consults
-nothing: it returns `default_npu_platform()`. Not the environment, and *not*
-whether corelib was linked — linking corelib says what kernels this binary has,
-never what silicon it is running on, and an install that lists a model it
-cannot run is worse than one that lists nothing. So the constant *is* the
-answer, for every build: change it and rebuild to move a whole install to the
-other generation, and the probe replaces the one function.
-
-It is **`dev04`** today, while the corelib path is being brought up. Read
-the next paragraph before being surprised by what `flm list` shows.
+`get_device()` asks the machine, once per process. A build that links corelib
+asks corelib what NPU it has (`CorelibRuntime::NpuArch`, corelib's
+`ryzenai_corelib_testing_npu_arch` until its public header names one): `AIEM`
+is `dev04`, and `AIE2P`, no NPU, or a corelib that cannot be loaded is
+`default_npu_platform()`, `aie2p`. corelib reads the device itself, so
+FastFlowLM holds no table of devices and names none. A build without corelib
+answers `aie2p`: every `dev04` model is a corelib one. Linking corelib still
+says nothing about the silicon — it is what lets the build ask.
 
 This is a contributor document. For *using* a backend once it exists — `--backend`,
 `FLM_BACKEND`, precedence — see [`docs/docs/instructions/cli.md`](../../../docs/docs/instructions/cli.md).
@@ -379,13 +377,9 @@ Points that are easy to get wrong:
   outside a pull, the entry resolves to the preferred source exactly when every
   file only it has is on disk.
 - The two keys are checked independently, and **the platform is checked first
-  and for everyone**. On today's `dev04` default that means a corelib build
-  offers the `-core` tags and nothing else, and a build *without* corelib
-  offers **nothing at all** — the FastFlowLM entries are pruned by the
-  generation, and the `-core` entries by the kernels they would need. That is the
-  cost of bringing up the next generation before its probe exists, and it is
-  reversed by setting `default_npu_platform()` back to `aie2p`, which gives
-  both builds the same FastFlowLM tags and none of the `-core` ones.
+  and for everyone**. On a `dev04` NPU a corelib build offers the `-core` tags
+  and nothing else; on an `aie2p` one, or none, every build offers the
+  FastFlowLM tags and none of the `-core` ones.
 - An empty catalog is therefore an ordinary state, not a crash: `model_list`
   prints one line naming the generation and the linked kernels, `flm list` says
   it found nothing, `flm run` says the tag is not found, and `flm --help` still
