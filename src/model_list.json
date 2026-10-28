@@ -732,7 +732,7 @@
                     "parameter_size": "1.7B",
                     "quantization_level": "Q4_0"
                 },
-                "flm_min_version": "1.0.12",
+                "flm_min_version": "1.0.11",
                 "vlm": false,
                 "files": [
                     "config.json",

@@ -10,7 +10,7 @@ nav_order: 22
 This section reports the performance on NPU with FastFlowLM (FLM).
 
 > **Note:** 
-> - Results are based on the FastFlowLM release that adds LFM3-1.7B (v1.0.12).
+> - Results are based on the FastFlowLM release that adds LFM3-1.7B (v1.0.11).
 > - Under FLM's default NPU power mode (Performance)  
 > - Prefill and every decoder layer (conv, sliding-window attention, full attention) and the LM head run on the NPU.
 > - Newer versions may deliver improved performance.
