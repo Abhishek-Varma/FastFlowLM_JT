@@ -12,18 +12,23 @@ on:
       - main
   workflow_dispatch:
 
-# Both portable jobs share one self-hosted runner, so a build for a commit
-# that has since been superseded on the same PR only delays the next one, and
-# with it that commit's model sweep. Only pull_request runs share a group;
-# every other run gets its own, so branch and tag builds are never cancelled.
+# A build for a commit that has since been superseded on the same PR only
+# delays that PR's model sweep, which waits for this whole run. Only
+# pull_request runs share a group; every other run gets its own, so branch and
+# tag builds are never cancelled.
 concurrency:
   group: windows-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
+# The builds run on GitHub-hosted runners, outside the corporate proxy that
+# intermittently blocks third-party downloads on the self-hosted ones.
+# windows-2025-vs2026 carries Visual Studio 2026 for the windows-vs18 preset;
+# setup_windows_deps.ps1 lays out the C:\dev dependencies the self-hosted
+# runner has, cached between runs.
 jobs:
   build-windows-portable:
-    runs-on: [self-hosted, windows, x64, portable]
-    
+    runs-on: windows-2025-vs2026
+
     defaults:
       run:
         working-directory: src
@@ -49,6 +54,17 @@ jobs:
             Start-Sleep -Seconds 15
           }
           exit 1
+
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure CMake
         shell: powershell
@@ -91,6 +107,49 @@ jobs:
           name: fastflowlm-windows-${{ github.sha }}
           path: src/dist/
           if-no-files-found: error
+
+  # A second, independent configure that builds the model engines from source
+  # instead of using the prebuilt DLLs in lib\xrt. Its own job so the portable
+  # build (and the MSI, which packages it) does not wait on it.
+  build-windows-models-from-source:
+    runs-on: windows-2025-vs2026
+
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # checkout's fetch-depth: 0 also applies to submodules, which pulls the
+      # full msgpack-c history (~95 MB) and keeps getting reset mid-transfer on
+      # the runner network. The pinned commits alone are under 1 MB.
+      - name: Checkout submodules
+        shell: powershell
+        working-directory: .
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            git submodule update --init --recursive --depth 1 --jobs 4
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "Submodule fetch failed (attempt $i), retrying..."
+            Start-Sleep -Seconds 15
+          }
+          exit 1
+
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure models-from-source build
         shell: powershell
@@ -143,8 +202,13 @@ jobs:
           path: src/dist-models-from-source/
           if-no-files-found: error
 
+  # Packages the flm.exe built by build-windows-portable instead of building it
+  # again, so the MSI and the portable zip ship the same binary. Everything
+  # else the installer stages (DLLs, xclbins, model lists) comes from the
+  # checkout, so no submodules or history are needed here.
   build-windows-msi:
-    runs-on: [self-hosted, windows, x64, msi]
+    runs-on: windows-2025
+    needs: build-windows-portable
 
     defaults:
       run:
@@ -153,34 +217,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download portable build artifact
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          name: fastflowlm-windows-${{ github.sha }}
+          path: src/portable-dist
 
-      # checkout's fetch-depth: 0 also applies to submodules, which pulls the
-      # full msgpack-c history (~95 MB) and keeps getting reset mid-transfer on
-      # the runner network. The pinned commits alone are under 1 MB.
-      - name: Checkout submodules
-        shell: powershell
-        working-directory: .
-        run: |
-          for ($i = 1; $i -le 3; $i++) {
-            git submodule update --init --recursive --depth 1 --jobs 4
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Write-Host "Submodule fetch failed (attempt $i), retrying..."
-            Start-Sleep -Seconds 15
-          }
-          exit 1
-
-      - name: Configure CMake
+      # get_files.bat (inno and wix) stage flm.exe from build\, where a local
+      # build puts it.
+      - name: Place flm.exe from portable build
         shell: powershell
         run: |
-          cmake --preset windows-vs18
-
-      - name: Build
-        shell: powershell
-        run: |
-          cmake --build --preset windows-default --config Release --parallel
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force build | Out-Null
+          Copy-Item -Path .\portable-dist\flm.exe -Destination .\build\flm.exe -Force
 
       - name: Stage installer package files
         shell: powershell
@@ -189,14 +240,17 @@ jobs:
           .\get_files.bat
 
 
-      - name: Add WiX to PATH
+      # The image only has WiX 3; flm.wxs is WiX 5. Same version as the
+      # self-hosted runner had.
+      - name: Install WiX
         shell: powershell
         run: |
-          $wixToolsPath = "C:\Users\zani\.dotnet\tools"
-
-          if (-not (Test-Path "$wixToolsPath\wix.exe")) {
-            throw "WiX was not found at $wixToolsPath\wix.exe"
-          }
+          $ErrorActionPreference = "Stop"
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix failed" }
+          $wixToolsPath = Join-Path $env:USERPROFILE ".dotnet\tools"
+          & "$wixToolsPath\wix.exe" extension add --global WixToolset.UI.wixext/5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "wix extension add failed" }
 
           $wixToolsPath | Out-File `
             -FilePath $env:GITHUB_PATH `
@@ -206,9 +260,6 @@ jobs:
       - name: Verify WiX
         shell: powershell
         run: |
-          Write-Host "Runner identity: $(whoami)"
-          Write-Host "Runner profile: $env:USERPROFILE"
-
           $wix = Get-Command wix -ErrorAction Stop
           Write-Host "Using WiX: $($wix.Source)"
           wix --version
@@ -227,7 +278,7 @@ jobs:
           if-no-files-found: error
 
   build-windows-portable-hrx:
-    runs-on: [self-hosted, windows, x64, portable]
+    runs-on: windows-2025-vs2026
 
     defaults:
       run:
@@ -254,6 +305,19 @@ jobs:
             Start-Sleep -Seconds 15
           }
           exit 1
+
+      # HRX needs the same Boost and curl as the XRT build; the XRT parts of
+      # the tree go unused here.
+      - name: Restore build dependencies
+        uses: actions/cache@v4
+        with:
+          path: C:\dev
+          key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+
+      - name: Set up build dependencies
+        shell: powershell
+        working-directory: .
+        run: .github\script\setup_windows_deps.ps1
 
       - name: Configure CMake (HRX)
         shell: powershell
