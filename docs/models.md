@@ -31,7 +31,7 @@ sections:
         - "Qwen 3 (Vision)"
         - "MiniCPM-V 4.7 (Vision)"
         - "GPT-OSS (MoE)"
-        - "LFM2 (Liquid AI)"
+        - "LFM2 / LFM3 (Liquid AI)"
         - "EmbeddingGemma (RAG)"
         - "Whisper (Audio)"
         - "Hy-MT2 (Translation)"

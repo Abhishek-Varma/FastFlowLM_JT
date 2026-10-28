@@ -114,6 +114,7 @@ flm run lfm2.5-tk:1.2b
 - **Max Context Length:** 32k tokens 
 - **Default Context Length:** 32k tokens ([change default](https://fastflowlm.com/docs/instructions/cli/#-change-default-context-length-max))  
 - **[Set Context Length at Launch](https://fastflowlm.com/docs/instructions/cli/#-set-context-length-at-launch)**
+- **FastFlowLM:** 1.0.11 or later
 
 ▶️ Run with FastFlowLM in PowerShell:  
 
