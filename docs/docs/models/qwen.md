@@ -10,6 +10,7 @@ parent: Models
 - **Type:** Text-to-Text
 - **Think:** Toggleable
 - **Tool Calling Support:** No  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
 - **Quantization:** Q4_1
 - **Max Context Length:** 32k tokens  
@@ -34,6 +35,7 @@ flm run qwen3:0.6b
 - **Type:** Text-to-Text
 - **Think:** Toggleable
 - **Tool Calling Support:** No  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B)
 - **Quantization:** Q4_1
 - **Max Context Length:** 32k tokens  
@@ -58,6 +60,7 @@ flm run qwen3:1.7b
 - **Type:** Text-to-Text
 - **Think:** Toggleable
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B)
 - **Quantization:** Q4_1
 - **Max Context Length:** 32k tokens  
@@ -82,6 +85,7 @@ flm run qwen3:4b
 - **Type:** Text-to-Text
 - **Think:** Toggleable
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B)
 - **Quantization:** Q4_1
 - **Max Context Length:** 32k tokens  
@@ -148,6 +152,7 @@ flm run  qwen3-core:4b
 - **Type:** Text-to-Text
 - **Think:** Yes
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-4B-Thinking-2507](https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507)
 - **Quantization:** Q4_1
 - **Max Context Length:** 256k tokens  
@@ -167,6 +172,7 @@ flm run qwen3-tk:4b
 - **Type:** Text-to-Text
 - **Think:** No
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
 - **Quantization:** Q4_1
 - **Max Context Length:** 256k tokens  
@@ -186,6 +192,7 @@ flm run qwen3-it:4b
 - **Type:** Image-Text-to-Text
 - **Think:** No
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Yes, prompts with pictures included (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct)
 - **Quantization:** Q4_1
 - **Max Context Length:** 256k tokens  
@@ -265,6 +272,7 @@ flm run qwen3vl-flash:4b
 - **Type:** Text-to-Text
 - **Think:** No
 - **Tool Calling Support:** No  
+- **Prefix cache (server mode):** Yes, saved prompts are reused (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen2.5-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct)
 - **Quantization:** Q4_1
 - **Max Context Length:** 32k tokens  
@@ -284,6 +292,7 @@ flm run qwen2.5-it:3b
 - **Type:** Image-Text-to-Text
 - **Think:** No
 - **Tool Calling Support:** No  
+- **Prefix cache (server mode):** Yes, prompts with pictures included (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Base Model:** [Qwen/Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct)
 - **Quantization:** Q4_1
 - **Max Context Length:** 256k tokens  
@@ -594,6 +603,7 @@ The `-r` option determines the image's height:
 - **Type:** Image-Text-to-Text
 - **Think:** Yes
 - **Tool Calling Support:** Yes  
+- **Prefix cache (server mode):** Partly: the shared system prompt of text conversations is saved; a conversation that keeps going uses the older single-checkpoint reuse (see [Prefix Cache (Prompt Reuse)](https://fastflowlm.com/docs/instructions/server/prefix_cache/))
 - **Speculative Decoding:** Yes — built-in MTP draft head (see note below)
 - **Base Model:** [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B)
 - **Quantization:** Q4_K

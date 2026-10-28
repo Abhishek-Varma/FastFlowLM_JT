@@ -311,7 +311,7 @@ class DecisionSweep(SweepTask):
                 self._two_letter(writer, model)
                 self._invalid(writer, model)
                 self._too_long(writer, model)
-                if model == "d3:turbo":
+                if model in ("d3:turbo", "d3:ultra"):
                     self._prefix_bidir(writer, model)
                 self._image(writer, model)
                 self._docs(writer, model)

@@ -57,6 +57,7 @@ void register_builtin_backends(BackendRegistry& registry) {
     RegisterFlm<gpt_oss_npu>(registry, "gpt-oss");
     RegisterFlm<lfm2_npu>(registry, "lfm2");
     RegisterFlm<lfm2_npu>(registry, "lfm2.5-tk");
+    RegisterFlm<lfm3_npu>(registry, "lfm3");
     RegisterFlm<nanbeige_npu>(registry, "nanbeige");
     RegisterFlm<phi4_npu>(registry, "phi4");
 

@@ -400,7 +400,7 @@ void AutoModel::_prefix_cold_start(PrefixSlotCache& cache) {
 void AutoModel::_prefix_attach(void* engine, const flm_state_api* api, int image_token_id) {
     static const bool disabled = std::getenv("FLM_DISABLE_PREFIX_SLOTS") != nullptr;
     this->prefix_cache_.image_token_id = image_token_id;
-    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_);
+    this->prefix_cache_.configure(this->prefix_cache_mb_arg_, this->prefix_slots_arg_, this->prefix_min_gain_arg_);
     if (disabled || engine == nullptr || api == nullptr) {
         this->prefix_cache_.attach(nullptr, nullptr);
         return;
@@ -475,7 +475,9 @@ bool AutoModel::_prefix_insert(PrefixSlotCache& cache, chat_meta_info_t& meta_in
     meta_info.prefill_duration += head_prefill_ns;
     cache.set_live(full_tokens);
     // the end of this prompt keeps only what follows the shared head, when a slot holds that head
-    cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    if (!cache.boundary_only) {
+        cache.save(full_tokens, image_hashes, false, cache.end_kv_from(full_tokens, boundary));
+    }
     meta_info.prefix_cache = cache.report();
     return true;
 }

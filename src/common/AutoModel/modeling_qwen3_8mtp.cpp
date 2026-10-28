@@ -71,6 +71,14 @@ void Qwen3_8MTP::load_model(std::string model_path, json model_info, int default
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+
+    // Prefix slots, phase 1: the shared head (system prompt + tools) of a text conversation. A snapshot is ~157 MB of
+    // recurrent state plus 64 KB (K/V) and 20 KB (the head's hidden history) per token, so no end-of-prompt snapshots
+    // and smaller default limits than the other models; a conversation that continues keeps using the single checkpoint.
+    this->prefix_cache_.boundary_only = true;
+    this->prefix_cache_.default_mib   = 1536;
+    this->prefix_cache_.default_slots = 4;
+    this->_prefix_attach(this->lm_engine, qwen3_8mtp_state_api(this->lm_engine), 248056); // 248056 = <|image_pad|>
 }
 
 void Qwen3_8MTP::setup_tokenizer(std::string model_path) {
@@ -329,7 +337,24 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     // hardware
     int restore_idx = -1;
 
-    if (meta_info.restore_allowed) {
+    // The single checkpoint (the conversation that ran last) covers this prompt when its token history is a prefix of it: the
+    // conversation continues, restore() rewinds to the end of the last turn and only the new turn is prefilled.
+    // Otherwise (the first turn, or another conversation ran in between) a text prompt resumes from the slot that holds its
+    // shared head (system prompt + tools), if there is one, and prefills the rest. The saved head is a self-contained
+    // copy, so the engine moving on does not invalidate it.
+    const size_t think_trim = this->enable_think ? 2 : 4;
+    const bool checkpoint_covers = !checkpoint_his.empty() && checkpoint_his.size() <= tokens.size() &&
+                                   std::equal(checkpoint_his.begin(), checkpoint_his.end(), tokens.begin());
+    const bool slot_mode = !checkpoint_covers && !has_images &&
+                           std::find(tokens.begin(), tokens.end(), image_soft_token_id) == tokens.end() &&
+                           this->_prefix_slot_mode(meta_info, tokens.size(), think_trim);
+    size_t match_len = 0;
+    std::vector<int> full_tokens;          // what this prompt leaves in the engine
+    if (slot_mode) {
+        full_tokens.assign(tokens.begin(), tokens.end() - think_trim);
+        match_len = this->_prefix_resume(this->prefix_cache_, full_tokens, {});
+    }
+    else if (meta_info.restore_allowed && !checkpoint_his.empty()) {
         restore_idx = this->lm_engine->restore();
         this->total_tokens = restore_idx;
         this->token_history = checkpoint_his; // restore the token history to be consistent with the restored KV cache, which is crucial for correct functioning of _shared_insert's prefix-matching logic
@@ -354,6 +379,19 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     this->preamble_to_stream.clear();
     if (this->enable_think && tokens.size() >= 2)
         this->preamble_to_stream.assign(tokens.end() - 2, tokens.end());
+
+    if (slot_mode) {
+        const bool inserted = this->_prefix_insert(this->prefix_cache_, meta_info, tokens, full_tokens, {}, match_len, "<|im_start|>user",
+                                                   nullptr, 0, is_cancelled, input.requested_max_new_tokens);
+        if (!inserted) {
+            checkpoint_his.clear();   // cancelled half way: the engine holds part of a prompt
+            return false;
+        }
+        // the conversation continues from here: take the single checkpoint as well
+        checkpoint_his = token_history;
+        this->lm_engine->checkpoint();
+        return true;
+    }
 
     bool success = has_images
         ? this->_shared_insert(meta_info, tokens, is_cancelled, &payload, last_image_token_index)
