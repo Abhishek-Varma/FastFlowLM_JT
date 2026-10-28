@@ -219,9 +219,11 @@ engine type, never through a `causal_lm*`.
   (`kRequantizeThreads`) goes to corelib as `fast_packer_threads`: 0 lets corelib
   choose (8 threads), 1 keeps each create serial. The two multiply,
   so pick them together. See `phi4_core_constants.hpp` at `f827ca9a`.
-- Expose `bool poisoned() const noexcept`. A corelib failure mid-decode usually
-  leaves device state that only a reload can clear; the backend surfaces this and
-  `AutoModel` turns it into a 500 that asks for an unload/reload.
+- Expose `bool poisoned() const noexcept`. corelib fails only the call that
+  failed, so `CorelibModel` resets the session and runs everything it held again
+  from position 0, once; a second failure poisons the engine, the backend
+  surfaces this, and `AutoModel` turns it into a 500 that asks for an
+  unload/reload.
 - Put every magic number in a `<model>_core_constants.hpp` with a comment on
   where it came from.
 

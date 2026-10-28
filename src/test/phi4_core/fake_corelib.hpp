@@ -112,6 +112,9 @@ struct State {
     std::unordered_map<std::string, int> resolution_counts;
     std::unordered_map<std::string, int> call_counts;
     std::unordered_map<std::string, ryzenai_corelib_status> statuses;
+    /// \brief how many more calls of a function fail before it answers as
+    ///        `statuses` says
+    std::unordered_map<std::string, int> fail_counts;
     std::vector<std::string> lifetime_events;
     std::atomic<int> live_objects{0};
     std::atomic<int> releases{0};

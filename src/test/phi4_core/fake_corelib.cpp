@@ -59,6 +59,11 @@ unsigned char FillFor(const void* source) {
 }
 
 ryzenai_corelib_status Status(std::string_view name) {
+    if (auto pending = state.fail_counts.find(std::string(name));
+        pending != state.fail_counts.end() && pending->second > 0) {
+        --pending->second;
+        return ryzenai_corelib_status_failure;
+    }
     const auto configured = state.statuses.find(std::string(name));
     return configured == state.statuses.end() ? state.default_status
                                                : configured->second;
@@ -647,6 +652,7 @@ void Reset() {
     state.resolution_counts.clear();
     state.call_counts.clear();
     state.statuses.clear();
+    state.fail_counts.clear();
     state.lifetime_events.clear();
     state.live_objects = 0;
     state.releases = 0;

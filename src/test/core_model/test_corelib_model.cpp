@@ -221,6 +221,42 @@ void TestAFailedForwardPoisonsTheEngineAndDropsTheCheckpoint() {
     TEST_REQUIRE(S().state_restores == 0);
 }
 
+void TestAForwardThatFailsOnceRunsAgainFromTheStart() {
+    Harness h(kFromPage, 16384);
+    auto ids = Ids(5000);
+    (void)h.engine->prefill(ids);
+    const int resets = Resets();
+    S().fail_counts["ryzenai_corelib_model_forward"] = 1;
+    std::vector<int> more{1, 2, 3};
+    (void)h.engine->prefill(more);
+    TEST_REQUIRE(!h.engine->poisoned());
+    TEST_REQUIRE(Resets() == resets + 1);
+    TEST_REQUIRE(Last().position == 0 && Last().rows == 5003 && Last().logits);
+    TEST_REQUIRE(h.engine->get_current_context_length() == 5003);
+    (void)h.engine->forward(4);
+    TEST_REQUIRE(Last().position == 5003 && Last().rows == 1);
+}
+
+void TestARecurrentModelRunsAgainFromTheStartAfterAFailure() {
+    Harness h(kSnapshot, 4096);
+    auto ids = Ids(10);
+    (void)h.engine->prefill(ids);
+    S().fail_counts["ryzenai_corelib_model_forward"] = 1;
+    (void)h.engine->forward(1);
+    TEST_REQUIRE(!h.engine->poisoned());
+    TEST_REQUIRE(Last().rows == 11 && Last().position == RYZENAI_CORELIB_POSITION_CONTINUE);
+    TEST_REQUIRE(h.engine->get_current_context_length() == 11);
+}
+
+void TestAForwardThatFailsTwicePoisonsTheEngine() {
+    Harness h(kFromPage, 4096);
+    auto ids = Ids(10);
+    (void)h.engine->prefill(ids);
+    S().fail_counts["ryzenai_corelib_model_forward"] = 2;
+    (void)RequireThrows([&] { (void)h.engine->forward(1); });
+    TEST_REQUIRE(h.engine->poisoned());
+}
+
 void TestCheckpointingTheSameStateTwiceSavesOnce() {
     Harness h(kSnapshot, 4096);
     auto ids = Ids(10);
@@ -458,6 +494,9 @@ int main() {
     RUN(TestRewindingOntoADivergedCheckpointReplays);
     RUN(TestAFailedRestorePoisonsTheEngine);
     RUN(TestAFailedForwardPoisonsTheEngineAndDropsTheCheckpoint);
+    RUN(TestAForwardThatFailsOnceRunsAgainFromTheStart);
+    RUN(TestARecurrentModelRunsAgainFromTheStartAfterAFailure);
+    RUN(TestAForwardThatFailsTwicePoisonsTheEngine);
     RUN(TestCheckpointingTheSameStateTwiceSavesOnce);
     RUN(TestRestoringRightAfterACheckpointLoadsNothing);
     RUN(TestShrinkingBelowTheCheckpointDropsIt);

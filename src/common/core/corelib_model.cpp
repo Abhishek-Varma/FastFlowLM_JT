@@ -166,8 +166,37 @@ private:
         std::vector<std::int32_t> rows(history.begin() + static_cast<std::ptrdiff_t>(from),
                                        history.end());
         rows.insert(rows.end(), fresh.begin(), fresh.end());
-        Dispatch(rows, from, want_logits);
+        try {
+            Dispatch(rows, from, want_logits);
+        } catch (const corelib::CorelibError&) {
+            RunAgainFromStart(fresh, want_logits);
+            return;
+        } catch (...) {
+            Poison();
+            throw;
+        }
         history.insert(history.end(), fresh.begin(), fresh.end());
+    }
+
+    /// \brief after a failed pass, reset and run everything the model held plus
+    ///        `fresh` again from position 0, once
+    /// \note corelib fails only the call that failed, and some failures are
+    ///       intermittent (PAGED_PREFILL_PREEMPTION_TIMEOUT in corelib's
+    ///       docs/known-problems.md); a second failure poisons the engine.
+    void RunAgainFromStart(std::span<const int> fresh, bool want_logits) {
+        std::vector<std::int32_t> all(history.begin(), history.end());
+        all.insert(all.end(), fresh.begin(), fresh.end());
+        std::cout << "[FLM] " << spec.display_name << ": a corelib call failed; running the "
+                  << all.size() << " tokens again from the start" << std::endl;
+        try {
+            api->Check(api->functions().model_reset(session.get()), "ryzenai_corelib_model_reset");
+            history.clear();
+            Dispatch(all, 0, want_logits);
+        } catch (...) {
+            Poison();
+            throw;
+        }
+        history.assign(all.begin(), all.end());
     }
 
     /// \brief where a pass adding `rows` tokens at position `at` has to start
@@ -191,15 +220,10 @@ private:
             spec.rewind == Rewind::kSeek ? from : RYZENAI_CORELIB_POSITION_CONTINUE;
         float* out_logits = want_logits ? logits.data() : nullptr;
         const std::size_t logits_capacity = want_logits ? logits.size() : 0;
-        try {
-            api->Check(api->functions().model_forward(session.get(), rows.data(), nullptr,
-                                                      rows.size(), nullptr, 0, &options,
-                                                      nullptr, out_logits, logits_capacity),
-                       "ryzenai_corelib_model_forward");
-        } catch (...) {
-            Poison();
-            throw;
-        }
+        api->Check(api->functions().model_forward(session.get(), rows.data(), nullptr, rows.size(),
+                                                  nullptr, 0, &options, nullptr, out_logits,
+                                                  logits_capacity),
+                   "ryzenai_corelib_model_forward");
     }
 
     /// \brief make `target` the sequence the model holds, as cheaply as its state allows

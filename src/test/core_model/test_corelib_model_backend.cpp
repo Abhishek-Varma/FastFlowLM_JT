@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -116,6 +117,34 @@ void TestACustomContextRuleIsApplied() {
                     "8192 only");
     auto backend = flm::core::Factory(spec)(Context(p, 8192));
     TEST_REQUIRE(fake_corelib::GetState().model_max_sequence_length == 8192);
+}
+
+/// \brief what `run` prints to std::cout
+template <class F>
+std::string CaptureStdout(F run) {
+    std::ostringstream captured;
+    auto* previous = std::cout.rdbuf(captured.rdbuf());
+    try {
+        run();
+    } catch (...) {
+        std::cout.rdbuf(previous);
+        throw;
+    }
+    std::cout.rdbuf(previous);
+    return captured.str();
+}
+
+void TestAContextPastTheReliableOneLoadsWithAWarning() {
+    Runtime r;
+    Package p({"m.gguf"});
+    auto spec = Spec();
+    spec.reliable_context = 2048;
+    spec.unreliable_reason = "the answers drift";
+    const auto within = CaptureStdout([&] { (void)flm::core::Factory(spec)(Context(p, 2048)); });
+    TEST_REQUIRE(within.find("WARNING") == std::string::npos);
+    const auto past = CaptureStdout([&] { (void)flm::core::Factory(spec)(Context(p, 4096)); });
+    TEST_REQUIRE(past.find("WARNING") != std::string::npos);
+    TEST_REQUIRE(past.find("4096 is past 2048: the answers drift") != std::string::npos);
 }
 
 void TestTheCatalogsGgufIsTheOneLoaded() {
@@ -245,6 +274,7 @@ int main() {
     RUN(TestPreemptionIsRefusedBeforeTheWeightsAreOpened);
     RUN(TestAContextOutsideTheRuleIsRefusedBeforeTheWeightsAreOpened);
     RUN(TestACustomContextRuleIsApplied);
+    RUN(TestAContextPastTheReliableOneLoadsWithAWarning);
     RUN(TestTheCatalogsGgufIsTheOneLoaded);
     RUN(TestACatalogGgufThatIsMissingIsNamed);
     RUN(TestACatalogNamingTwoGgufsIsRefused);
