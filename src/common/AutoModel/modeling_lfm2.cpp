@@ -27,6 +27,7 @@ void LFM2::load_model(std::string model_path, json model_info, int default_conte
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, lfm2_npu_state_api(lm_engine));
 }
 
 void LFM2::setup_tokenizer(std::string model_path) {
@@ -68,7 +69,13 @@ bool LFM2::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std::f
 
     this->profiler_list[TKOEN_ENCODE_TIME].stop(tokens.size());
     // hardware
-    
+
+    // Prefix slots. The generation prompt ("<|im_start|>assistant\n") is how the next turn renders this reply's header: save the whole prompt.
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 0)) {
+        return this->_prefix_text_insert(meta_info, tokens, 0, "<|im_start|>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
+
     return this->_shared_insert(meta_info, tokens, is_cancelled);
 }
 
@@ -104,6 +111,7 @@ void LFM2_5_TK::load_model(std::string model_path, json model_info, int default_
     for (size_t i = 0; i < PROFILER_TYPE_NUM; i++) {
         this->profiler_list[i].reset();
     }
+    _prefix_attach(lm_engine, lfm2_npu_state_api(lm_engine));
 }
 
 void LFM2_5_TK::setup_tokenizer(std::string model_path) {
@@ -148,6 +156,12 @@ bool LFM2_5_TK::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, s
     // hardware
     int restore_idx = -1;
     lfm2_npu *lfm2_engine = dynamic_cast<lfm2_npu*>(this->lm_engine);
+
+    // Prefix slots. The two tokens left out ("<think>\n") are fed by generate(); the next turn does not render them.
+    if (this->_prefix_slot_mode(meta_info, tokens.size(), 2)) {
+        return this->_prefix_text_insert(meta_info, tokens, 2, "<|im_start|>user", is_cancelled);
+    }
+    this->_prefix_legacy_path();
 
     if (meta_info.restore_allowed) {
         restore_idx = lfm2_engine->restore();
