@@ -184,7 +184,8 @@ def max_tokens_is_exact(api: Api) -> None:
 @case
 def top_logprobs_default(api: Api) -> None:
     """logprobs without top_logprobs gives every entry an empty top_logprobs."""
-    body = logprobs_body(api, user(PROMPT), max_tokens=16)
+    # an answer budget: a model that reasons first gets room for that too
+    body = logprobs_body(api, user(PROMPT), max_tokens=32)
     del body["top_logprobs"]
     _, entries = nonstream_entries(api, body)
     expect(len(entries) > 0, "no logprobs entries")
