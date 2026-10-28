@@ -101,3 +101,24 @@ flm run lfm2.5-tk:1.2b
 ```
 
 ---
+
+---
+
+## 🧩 Model Card: [LiquidAI/LFM3-1.7B](https://huggingface.co/LiquidAI/LFM3-1.7B)
+
+- **Type:** Text-to-Text
+- **Think:** Yes (on by default, toggleable)
+- **Tool Calling Support:** Yes
+- **Base Model:** [LiquidAI/LFM3-1.7B](https://huggingface.co/LiquidAI/LFM3-1.7B)
+- **Quantization:** Q4_0 (the vendor's quantization-aware-distilled build)
+- **Max Context Length:** 32k tokens 
+- **Default Context Length:** 32k tokens ([change default](https://fastflowlm.com/docs/instructions/cli/#-change-default-context-length-max))  
+- **[Set Context Length at Launch](https://fastflowlm.com/docs/instructions/cli/#-set-context-length-at-launch)**
+
+▶️ Run with FastFlowLM in PowerShell:  
+
+```shell
+flm run lfm3:1.7b
+```
+
+ℹ️ Released under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE) (commercial use is limited by company revenue: check it before deploying).
