@@ -1940,8 +1940,8 @@
                 }
             },
             "preferred_source": {
-                "url": "https://huggingface.co/amd/Qwen3.6-35B-A3B-Q4_G32-GGUF/resolve/main",
-                "file_url": "https://huggingface.co/api/models/amd/Qwen3.6-35B-A3B-Q4_G32-GGUF/tree/main",
+                "url": "https://huggingface.co/amd/Qwen3.6-35B-A3B-Q4_G32-GGUF/resolve/53a2155ba4237f4bffc3914b2f63cbb0bc68585b",
+                "file_url": "https://huggingface.co/api/models/amd/Qwen3.6-35B-A3B-Q4_G32-GGUF/tree/53a2155ba4237f4bffc3914b2f63cbb0bc68585b",
                 "use_hf_token": true,
                 "size": 21311733654,
                 "footprint": 21.3,
@@ -2010,8 +2010,8 @@
                 }
             },
             "preferred_source": {
-                "url": "https://huggingface.co/amd/Qwen3.8-27B-Q4_G128-GGUF/resolve/main",
-                "file_url": "https://huggingface.co/api/models/amd/Qwen3.8-27B-Q4_G128-GGUF/tree/main",
+                "url": "https://huggingface.co/amd/Qwen3.8-27B-Q4_G128-GGUF/resolve/deab6eafc90811fc6738db7c05ec615130074cb3",
+                "file_url": "https://huggingface.co/api/models/amd/Qwen3.8-27B-Q4_G128-GGUF/tree/deab6eafc90811fc6738db7c05ec615130074cb3",
                 "use_hf_token": true,
                 "size": 15977762336,
                 "footprint": 15.96,
