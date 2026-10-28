@@ -91,6 +91,14 @@ public:
     size_t min_boundary = 512;
     /// \brief an end snapshot must add at least this many tokens over a saved slot that covers its prompt
     size_t min_end_gain = 64;
+    /// \brief save boundary slots (the shared system + tools head) only, no end-of-prompt snapshots
+    /// \note For a model whose snapshot is too big to keep one per conversation turn (qwen3.8-mtp: ~160 MB of recurrent state
+    ///       and 64 KB per token): it keeps its own checkpoint for a conversation that continues and uses the head slot
+    ///       when another conversation ran in between.
+    bool boundary_only = false;
+    /// \brief limits while --prefix-cache-mb / --prefix-slots stay at their defaults (0 = the global defaults)
+    size_t default_mib = 0;
+    size_t default_slots = 0;
 
     /// \brief --prefix-cache-mb / --prefix-slots (-1 = default; 0 slots = off)
     void configure(int cache_mb, int slots) {
