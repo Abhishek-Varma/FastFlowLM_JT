@@ -11,7 +11,7 @@ inputs:
     description: Absolute path of the flm binary to test.
     required: true
   label:
-    description: Names this package and runner in the report, e.g. linux-xrt-portable-gpt.
+    description: Names this package in the report, e.g. linux-xrt-portable.
     required: true
   tier:
     description: install, pr or full.

@@ -3,10 +3,10 @@ name: Build and Test
 # Builds every FastFlowLM package and tests each one on the NPU runners as soon
 # as its own build finishes.
 #
-#   Linux    XRT portable ─ test (gpt, strix) ─┬─ HRX portable test (gpt, strix)
+#   Linux    XRT portable ─ test ──────────────┬─ HRX portable test
 #            XRT .deb     ─ install test ──────┼─ HRX .deb install test
 #            Source portable ─ test            │
-#   Windows  XRT zip ─ test (gpt) ─────────────┴─ HRX zip test (gpt)
+#   Windows  XRT zip ─ test ───────────────────┴─ HRX zip test
 #            XRT MSI ─ install test
 #            Source zip ─ test
 #
@@ -163,14 +163,10 @@ jobs:
   # these jobs run a prebuilt package and compile nothing.
 
   test-lin-xrt-portable:
-    name: Test Linux XRT portable (${{ matrix.hw }})
+    name: Test Linux XRT portable
     needs: [changes, build-lin-xrt-portable]
-    runs-on: [self-hosted, linux, x64, npu, sweep, '${{ matrix.hw }}']
+    runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        hw: [gpt, strix]
     steps:
       - &checkout-tests
         name: Checkout test scripts
@@ -198,21 +194,17 @@ jobs:
         uses: ./.github/actions/npu-test
         with:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
-          label: linux-xrt-portable-${{ matrix.hw }}
+          label: linux-xrt-portable
           tier: ${{ needs.changes.outputs.tier }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: linux
 
   test-lin-hrx-portable:
-    name: Test Linux HRX portable (${{ matrix.hw }})
+    name: Test Linux HRX portable
     needs: [changes, build-lin-hrx-portable, test-lin-xrt-portable]
-    runs-on: [self-hosted, linux, x64, npu, sweep, '${{ matrix.hw }}']
+    runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        hw: [gpt, strix]
     steps:
       - *checkout-tests
       - name: Download package
@@ -230,7 +222,7 @@ jobs:
         uses: ./.github/actions/npu-test
         with:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
-          label: linux-hrx-portable-${{ matrix.hw }}
+          label: linux-hrx-portable
           tier: ${{ needs.changes.outputs.tier }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
@@ -330,19 +322,15 @@ jobs:
           mode: ${{ steps.package.outputs.mode }}
 
   # ── Windows tests ────────────────────────────────────────────────────────
-  # Windows tests run on gpt runners only: the one Windows strix runner is
-  # offline, and a job asking for it would queue until it timed out. Add
-  # strix to the matrices once it is back.
+  # Windows tests ask for a gpt runner: xsjnuckrck01 carries the npu and sweep
+  # labels but has dropped every job since 2026-10-28, and it has no hardware
+  # label, so this keeps them off it.
 
   test-win-xrt:
-    name: Test Windows XRT (${{ matrix.hw }})
+    name: Test Windows XRT
     needs: [changes, build-win-xrt]
-    runs-on: [self-hosted, windows, x64, npu, sweep, '${{ matrix.hw }}']
+    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        hw: [gpt]
     steps:
       - *checkout-tests
       - name: Download package
@@ -360,21 +348,17 @@ jobs:
         uses: ./.github/actions/npu-test
         with:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
-          label: windows-xrt-${{ matrix.hw }}
+          label: windows-xrt
           tier: ${{ needs.changes.outputs.tier }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: windows
 
   test-win-hrx:
-    name: Test Windows HRX (${{ matrix.hw }})
+    name: Test Windows HRX
     needs: [changes, build-win-hrx, test-win-xrt]
-    runs-on: [self-hosted, windows, x64, npu, sweep, '${{ matrix.hw }}']
+    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        hw: [gpt]
     steps:
       - *checkout-tests
       - name: Download package
@@ -392,7 +376,7 @@ jobs:
         uses: ./.github/actions/npu-test
         with:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
-          label: windows-hrx-${{ matrix.hw }}
+          label: windows-hrx
           tier: ${{ needs.changes.outputs.tier }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}

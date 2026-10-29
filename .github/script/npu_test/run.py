@@ -1,6 +1,6 @@
 """Runs the NPU test suites against one flm binary and writes a report.
 
-    python -m npu_test --flm-bin path/to/flm --label linux-xrt-portable-gpt \
+    python -m npu_test --flm-bin path/to/flm --label linux-xrt-portable \
         --tier pr --output-dir results
 
 Run from .github/script (or with it on PYTHONPATH). Exits 1 if any case
@@ -26,7 +26,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="The flm binary under test (default: $FLM_BIN, else flm).")
     parser.add_argument("--label", required=True,
                         help="Names the package under test in the report, "
-                             "e.g. linux-xrt-portable-gpt.")
+                             "e.g. linux-xrt-portable.")
     parser.add_argument("--tier", choices=TIERS, default="pr")
     parser.add_argument("--suites", default="all",
                         help=f"Comma-separated subset of: {', '.join(ORDER)} (default: all).")
