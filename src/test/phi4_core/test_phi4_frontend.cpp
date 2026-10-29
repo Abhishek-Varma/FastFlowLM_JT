@@ -650,7 +650,8 @@ void TestOmittedZeroAndNegativeSentinelBudgetsCapAtRemainingWindow() {
         auto meta = Meta(); auto input = Input(requested); std::ostringstream output;
         TEST_REQUIRE(model->insert(meta, input));
         (void)model->generate(meta, 4096, output);
-        TEST_REQUIRE(meta.generated_tokens == 2);
+        // 11, sampled from the prefill, counts; 12 and 13 fill the window.
+        TEST_REQUIRE(meta.generated_tokens == 3);
         TEST_REQUIRE(meta.stop_reason == MAX_LENGTH_REACHED);
     }
 
@@ -660,7 +661,7 @@ void TestOmittedZeroAndNegativeSentinelBudgetsCapAtRemainingWindow() {
     g_encoded_tokens.assign(4093, 1); g_samples = {11, 12, 13}; g_sample_index = 0;
     auto meta = Meta(); auto input = Input(); std::ostringstream output;
     (void)model->generate_with_prompt(meta, input, 4096, output);
-    TEST_REQUIRE(meta.generated_tokens == 2);
+    TEST_REQUIRE(meta.generated_tokens == 3);
 }
 
 void TestCancellationBeforePrefillSubmitsNothing() {
@@ -830,7 +831,8 @@ void TestATokenCutOffBeforeItRanIsPrefilledWithTheNextTurn() {
                 (void)model->generate(meta, 10, output,
                                       [&] { return g_factory.engine->forward_calls >= 1; });
             } else {
-                (void)model->generate(meta, 1, output);
+                // 11, sampled from the prefill, counts toward the budget.
+                (void)model->generate(meta, 2, output);
             }
             TEST_REQUIRE(meta.stop_reason == (cancel ? CANCEL_DETECTED : MAX_LENGTH_REACHED));
             TEST_REQUIRE((g_factory.engine->forwarded == std::vector<int>{11}));
