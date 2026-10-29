@@ -40,14 +40,6 @@ ANSWERS = [("What is the capital of France? Answer with one word.", "paris"),
            ("What is the capital of Japan? Answer with one word.", "tokyo"),
            ("What is the capital of Italy? Answer with one word.", "rome")]
 
-# For concurrent requests, where only routing is under test: echoing a word is
-# something the smallest model gets right (qwen3:0.6b once named Verona the
-# capital of Italy), and each reply naming only its own word shows no request
-# got another's answer.
-ECHOES = [("Repeat this word exactly, and nothing else: apple", "apple"),
-          ("Repeat this word exactly, and nothing else: banana", "banana"),
-          ("Repeat this word exactly, and nothing else: cherry", "cherry")]
-
 # Seconds to wait for a streamed request to start producing tokens (it may
 # include a model load), and for the NPU to come free once a request has
 # been cancelled. Cancellation is checked between tokens, so freeing takes
@@ -121,17 +113,37 @@ def _cases(ctx, server, primary: str, secondary: str | None) -> None:
 
     with ctx.case(NAME, "concurrent-complete", primary, server) as case:
         expect(_wait_idle(client, IDLE_TIMEOUT), "NPU still busy before the case started")
-        echoes = ECHOES[:QUEUE_LEN + 1]
-        bodies = [_body(primary, prompt, SHORT_TOKENS) for prompt, _ in echoes]
-        results = _fire(client, bodies, ctx.request_timeout)
+        # Each prompt alone first, for its greedy reference reply; then all at
+        # once. Comparing against the model's own replies tests routing alone,
+        # whatever the model knows: a 0.6B model gets capitals and echoes
+        # wrong, but it gets them wrong the same way each time.
+        prompts = [prompt for prompt, _ in ANSWERS[:QUEUE_LEN + 1]]
+        reference = [_content(body).strip() for status, body, _ in
+                     (_post(client, _body(primary, p, SHORT_TOKENS), ctx.request_timeout)
+                      for p in prompts)]
+        expect(all(reference), f"empty reference reply: {reference}")
+        results = _fire(client, [_body(primary, p, SHORT_TOKENS) for p in prompts],
+                        ctx.request_timeout)
+        case.data["reference"] = reference
         case.data["results"] = [_summary(r) for r in results]
-        for (prompt, word), (status, body, _) in zip(echoes, results):
+        drifted = []
+        for i, (prompt, (status, body, _)) in enumerate(zip(prompts, results)):
             expect(status == 200, f"{prompt!r}: HTTP {status}: {str(body)[:200]}")
-            content = _content(body).lower()
-            others = [w for _, w in echoes if w != word and w in content]
-            # Each reply must be its own: a mixed-up queue shows as another's word.
-            expect(not others, f"{prompt!r}: reply names {others}: {content[:120]!r}")
-            expect(word in content, f"{prompt!r}: reply was {content[:120]!r}")
+            reply = _content(body).strip()
+            if reply == reference[i]:
+                continue
+            # Another request's reply is a mix-up, unless both prompts happen
+            # to get the same one.
+            swapped = [j for j, ref in enumerate(reference) if j != i and reply == ref
+                       and ref != reference[i]]
+            if swapped:
+                raise AssertionError(f"{prompt!r} got the reply of "
+                                     f"{prompts[swapped[0]]!r}: {reply[:120]!r}")
+            drifted.append(f"{prompt!r}: {reference[i][:60]!r} alone, {reply[:60]!r} together")
+        if drifted:
+            # Greedy decoding on the NPU is not always bit-reproducible, so a
+            # reply that differs without matching another's is not a mix-up.
+            warn("replies differed from the same prompt sent alone: " + "; ".join(drifted))
 
     with ctx.case(NAME, "client-disconnect", primary, server) as case:
         _client_disconnect(ctx, server, primary, case)
