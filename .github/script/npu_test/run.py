@@ -42,10 +42,11 @@ def parse_args(argv=None) -> argparse.Namespace:
                              "e.g. linux-hrx (default: none, core checks only).")
     parser.add_argument("--output-dir", default="npu-test-results")
     parser.add_argument("--request-timeout", type=float, default=600.0)
-    parser.add_argument("--port", type=int,
-                        default=int(os.environ["FLM_SERVE_PORT"]) if os.environ.get("FLM_SERVE_PORT") else None,
-                        help="Port for the servers this run starts (default: $FLM_SERVE_PORT, "
-                             "else a free port for each server).")
+    # Not $FLM_SERVE_PORT: a runner may set it for an flm of its own, which then
+    # holds that port (it did on a Windows runner, failing every server start).
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port for the servers this run starts (default: a free port "
+                             "for each server).")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args(argv)
 
