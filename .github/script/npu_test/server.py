@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import time
 import urllib.error
@@ -29,20 +30,25 @@ class ServerError(RuntimeError):
 class FlmServer:
     def __init__(self, flm_bin: str, *, name: str, log_dir: Path,
                  args: list[str] | None = None, host: str = "127.0.0.1",
-                 port: int = DEFAULT_PORT, ready_timeout: float = 300.0,
+                 port: int | None = None, ready_timeout: float = 300.0,
                  request_timeout: float = 600.0, max_restarts: int = 3):
         self.flm_bin = flm_bin
         self.name = name
         self.args = list(args or [])
         self.host = host
-        self.port = port
+        # None: a free port per start. A server stuck in the NPU driver cannot
+        # be killed and keeps its port, which would otherwise stop every later
+        # suite from starting.
+        self.fixed_port = port
+        self.port = port or DEFAULT_PORT
+        self.unkillable = False
         self.ready_timeout = ready_timeout
         self.max_restarts = max_restarts
         self.restarts = 0
         self.log_path = Path(log_dir) / f"server-{name}.log"
         self.proc: subprocess.Popen | None = None
         self._log = None
-        self.client = Client(f"http://{host}:{port}", timeout=request_timeout)
+        self.client = Client(f"http://{host}:{self.port}", timeout=request_timeout)
         self.version = "unknown"
 
     @property
@@ -76,7 +82,16 @@ class FlmServer:
         except (urllib.error.URLError, OSError):
             return False
 
+    def _free_port(self) -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((self.host, 0))
+            return sock.getsockname()[1]
+
     def start(self, append: bool = False) -> None:
+        if self.fixed_port is None:
+            self.port = self._free_port()
+        # Suites hold on to self.client, so move it rather than replace it.
+        self.client.base_url = f"http://{self.host}:{self.port}"
         # A server left behind by an earlier job (or anything else on the port)
         # would answer every request in place of the one under test.
         if self._port_answers():
@@ -128,7 +143,11 @@ class FlmServer:
                 try:
                     self.proc.wait(timeout=15)
                 except subprocess.TimeoutExpired:
-                    pass
+                    # Still there after SIGKILL: stuck in the kernel, which for
+                    # flm means the NPU driver. Nothing here can free it.
+                    self.unkillable = True
+                    print(f"[server:{self.name}] pid {self.proc.pid} survived SIGKILL; "
+                          f"it is likely stuck in the NPU driver", flush=True)
         if self._log is not None:
             self._log.close()
             self._log = None

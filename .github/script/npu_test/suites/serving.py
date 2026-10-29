@@ -147,9 +147,11 @@ def _cases(ctx, server, primary: str, secondary: str | None) -> None:
 
     with ctx.case(NAME, "client-disconnect", primary, server) as case:
         _client_disconnect(ctx, server, primary, case)
+    _recover(ctx, server, client, primary, "client-disconnect")
 
     with ctx.case(NAME, "api-cancel", primary, server) as case:
         _api_cancel(ctx, client, primary, case)
+    _recover(ctx, server, client, primary, "api-cancel")
 
     with ctx.case(NAME, "unknown-model", primary, server) as case:
         try:
@@ -311,6 +313,24 @@ def _api_cancel(ctx, client, model: str, case) -> None:
 
 
 # -- helpers --------------------------------------------------------------------
+
+
+def _recover(ctx, server, client, model: str, after: str) -> None:
+    """Restarts a server whose NPU never came free after a cancellation case.
+
+    A cancel that leaves the NPU lock held makes every later request queue
+    forever, so the remaining cases would only time out one after another.
+    That case has already failed; this keeps the rest of the suite meaningful.
+    """
+    if _wait_idle(client, RELEASE_TIMEOUT):
+        return
+    with ctx.case(NAME, "npu-stuck", model, server) as case:
+        case.data["after"] = after
+        restarted = server.restart()
+        case.data["restarted"] = restarted
+        raise AssertionError(f"the NPU stayed busy after {after}; "
+                             + ("restarted the server for the remaining cases" if restarted
+                                else "the server could not be restarted"))
 
 
 def _body(model: str, prompt: str, max_tokens: int, *, stream: bool = False,

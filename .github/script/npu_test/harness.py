@@ -125,7 +125,7 @@ class Case:
 
 class Context:
     def __init__(self, *, flm_bin: str, label: str, tier: str, plan: Plan,
-                 out_dir: Path, request_timeout: float, port: int = 52625,
+                 out_dir: Path, request_timeout: float, port: int | None = None,
                  verbose: bool = False):
         self.flm_bin = flm_bin
         self.label = label
@@ -137,6 +137,7 @@ class Context:
         self.port = port
         self.verbose = verbose
         self.results: list[Result] = []
+        self.servers: list[FlmServer] = []
         self.version = "unknown"
         self.assets = ASSETS
         self.repo_root = REPO_ROOT
@@ -146,8 +147,10 @@ class Context:
     def server(self, name: str, args: list[str] | None = None, **kwargs) -> FlmServer:
         """A server for one suite, not yet started; use it as a context manager."""
         kwargs.setdefault("port", self.port)
-        return FlmServer(self.flm_bin, name=name, log_dir=self.out_dir, args=args,
-                         request_timeout=self.request_timeout, **kwargs)
+        server = FlmServer(self.flm_bin, name=name, log_dir=self.out_dir, args=args,
+                           request_timeout=self.request_timeout, **kwargs)
+        self.servers.append(server)
+        return server
 
     def case(self, suite: str, name: str, model: str = "",
              server: FlmServer | None = None) -> Case:
@@ -182,6 +185,14 @@ class Context:
             traceback.print_exc()
             self.record(Result(module.NAME, "suite-error", FAIL,
                                detail=f"{type(exc).__name__}: {exc}"))
+        for server in self.servers:
+            if server.unkillable:
+                server.unkillable = False  # report it once
+                self.record(Result(module.NAME, "server-stop", FAIL,
+                                   detail=f"flm serve (pid {server.proc.pid}) survived SIGKILL, "
+                                          f"likely stuck in the NPU driver; later suites may "
+                                          f"find the NPU busy",
+                                   data={"log_tail": server.log_tail()}))
         print(f"== {module.NAME} done in {time.monotonic() - started:.0f}s", flush=True)
 
     def asset(self, relative: str) -> Path:
