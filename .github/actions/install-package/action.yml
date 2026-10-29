@@ -56,12 +56,10 @@ runs:
               reason="no passwordless sudo"
               dpkg -s fastflowlm >/dev/null 2>&1 && reason="fastflowlm is already installed on this runner"
               echo "::warning::Not installing $(basename "${deb}") (${reason}); testing its unpacked payload instead."
+              # flm finds its model lists and xclbins in ../share/flm next to
+              # the binary before its built-in /opt prefix, so the unpacked
+              # tree runs as it is.
               dpkg-deb -x "${deb}" "${unpack}"
-              # The binary looks for its data under the install prefix it was
-              # built for; point it at the unpacked copy instead.
-              share="${unpack}/opt/fastflowlm/share/flm"
-              echo "FLM_CONFIG_PATH=${share}" >> "$GITHUB_ENV"
-              echo "FLM_XCLBIN_PATH=${share}/xclbins" >> "$GITHUB_ENV"
               echo "flm-bin=${unpack}/opt/fastflowlm/bin/flm" >> "$GITHUB_OUTPUT"
               echo "mode=unpacked" >> "$GITHUB_OUTPUT"
             fi

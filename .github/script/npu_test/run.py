@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-from .harness import Context, configure_stdout
+from .harness import FAIL, Context, Result, configure_stdout
 from .plan import TIERS, Plan, load_catalog
 from .suites import SUITES, ORDER
 
@@ -66,7 +66,13 @@ def main(argv=None) -> int:
         print(f"`{args.flm_bin} version` failed with code {version.returncode}")
         return 1
 
-    catalog = load_catalog(args.flm_bin)
+    # Without the catalog nothing can run, but the failure still belongs in the
+    # report, so a broken package shows up as a failed case, not a traceback.
+    catalog_error = ""
+    try:
+        catalog = load_catalog(args.flm_bin)
+    except Exception as exc:
+        catalog, catalog_error = {}, f"`flm list --json` failed: {type(exc).__name__}: {exc}"
     families = [f.strip() for f in args.families.split(",") if f.strip()]
     only = [m.strip() for m in args.models.split(",") if m.strip()] or None
     plan = Plan(catalog, args.tier, families, only_models=only)
@@ -80,8 +86,12 @@ def main(argv=None) -> int:
           f"suites: {', '.join(names)}" + (f", touched families: {', '.join(families)}"
                                            if families else ""))
     try:
-        for name in names:
-            ctx.run_suite(SUITES[name])
+        if catalog_error:
+            print(catalog_error)
+            ctx.record(Result("setup", "catalog", FAIL, detail=catalog_error))
+        else:
+            for name in names:
+                ctx.run_suite(SUITES[name])
     finally:
         # The version the servers reported, which is what the report should name.
         ctx.version = (version.stdout.strip().split()[-1] if version.stdout.strip()
