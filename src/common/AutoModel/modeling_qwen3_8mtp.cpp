@@ -89,15 +89,14 @@ void Qwen3_8MTP::setup_tokenizer(std::string model_path) {
     auto tokenizer_config = this->_shared_setup_tokenizer(model_path);
 }
 
-std::string Qwen3_8MTP::apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools) {
+std::string Qwen3_8MTP::apply_chat_template(nlohmann::ordered_json& messages, nlohmann::ordered_json tools, bool continue_final_message) {
     minja::chat_template_inputs inputs;
-    inputs.add_generation_prompt = true;
     inputs.messages = messages;
     inputs.extra_context = this->extra_context;
     inputs.extra_context["enable_thinking"] = this->enable_think;
     if (!tools.empty() && this->enable_tool)
         inputs.tools = tools;
-    return this->chat_tmpl->apply(inputs);
+    return this->_render_chat_template(inputs, continue_final_message);
 }
 
 bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, std::function<bool()> is_cancelled) {
@@ -193,7 +192,7 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
             qwenvl_message.push_back({ {"role", item["role"]}, {"content", newContent} });
         }
         nlohmann::ordered_json ordered_messages = qwenvl_message;
-        templated_text = this->apply_chat_template(ordered_messages, input.tools);
+        templated_text = this->apply_chat_template(ordered_messages, input.tools, meta_info.continue_final_message);
     }
     else if (!input.prompt.empty()) { // a pure text, usually from the cli
         nlohmann::ordered_json messages;
@@ -376,8 +375,11 @@ bool Qwen3_8MTP::insert(chat_meta_info_t& meta_info, lm_uniform_input_t& input, 
     // Thinking on still needs "<think>\n" on screen -- record it for
     // generate() to echo. Thinking off streams nothing: its tokens only close
     // a block that was never opened.
+    //
+    // A continued message has no generation prompt: its last tokens are the
+    // client's own text, which the output must not repeat.
     this->preamble_to_stream.clear();
-    if (this->enable_think && tokens.size() >= 2)
+    if (this->enable_think && !meta_info.continue_final_message && tokens.size() >= 2)
         this->preamble_to_stream.assign(tokens.end() - 2, tokens.end());
 
     if (slot_mode) {
@@ -481,21 +483,21 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
 
     int last_sampled_token = this->last_token;
     this->token_history.push_back(this->last_token);
+    // the sample insert() took is the reply's first token, and counts toward the limit
+    meta_info.generated_tokens++;
     if (this->is_normal_token(last_sampled_token) && last_sampled_token != -1){
         std::string token_str = this->tokenizer->run_time_decoder(last_sampled_token);
         result += token_str;
         os << token_str << std::flush;
     }
     if (this->is_eos(last_sampled_token)){
+        // Sampled from the prefill, so no engine has run it (as in _shared_generate).
+        this->token_history.pop_back();
+        meta_info.stop_reason = reason;
         return result;
     }
     this->profiler_list[DECODING_TIME].reset();
     this->profiler_list[TKOEN_DECODE_TIME].reset();
-    if (this->total_tokens >= this->MAX_L){
-        header_print("WARNING", "Max length reached, stopping generation...");
-        reason = MAX_LENGTH_REACHED;
-        return result;
-    }
 
     // Commit one token: stream it, record it, test the stop rules. Shared by
     // both branches so a batch can't drift from the single-token path and
@@ -523,6 +525,9 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
             // second copy of it -- a wasted 64-layer pass and a duplicate row.
             if (this->forward_on_eos) {
                 this->lm_engine->forward(token);
+            } else {
+                // The engine never ran it, so the next prompt has to carry it.
+                this->token_history.pop_back();
             }
             return false;
         }
@@ -531,19 +536,43 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
             reason = MAX_LENGTH_REACHED;
             return false;
         }
-        return this->total_tokens < this->MAX_L;
+        // No MAX_L test here: a batch's tokens before its last are already in
+        // the caches, so stopping mid-batch would leave rows token_history
+        // does not describe. The loop tests MAX_L between steps instead.
+        return true;
     };
 
-    while (this->total_tokens < this->MAX_L){
+    if (this->total_tokens >= this->MAX_L){
+        header_print("WARNING", "Max length reached, stopping generation...");
+        reason = MAX_LENGTH_REACHED;
+    }
+    else if ((length_limit > 0) && (meta_info.generated_tokens >= length_limit)){
+        reason = MAX_LENGTH_REACHED;
+    }
+    else while (true){
+        // Tested here rather than in the loop condition so the stop is
+        // recorded as a truncation, as in _shared_generate.
+        if (this->total_tokens >= this->MAX_L){
+            reason = MAX_LENGTH_REACHED;
+            break;
+        }
         if (is_cancelled()) {
             reason = CANCEL_DETECTED;
             break;
         }
 
-        if (spec_enabled) {
+        // A batch must not run past length_limit: speculate() returns up to
+        // max_draft + 1 tokens, all but the last already committed, so capping
+        // the batch at the tokens left keeps the limit on the last one -- the
+        // one token a stop can drop. With one token left, decode it plainly.
+        const int tokens_left = (length_limit > 0)
+            ? length_limit - meta_info.generated_tokens
+            : SPEC_MAX_DRAFT + 1;
+        if (spec_enabled && tokens_left > 1) {
             this->profiler_list[DECODING_TIME].start();
             std::vector<int> accepted =
-                this->lm_engine->speculate(last_sampled_token, SPEC_MAX_DRAFT);
+                this->lm_engine->speculate(last_sampled_token,
+                                           std::min(SPEC_MAX_DRAFT, tokens_left - 1));
             // Charge the cycle to however many tokens came out of it, so
             // tok/s stays comparable with the non-speculative path.
             this->profiler_list[DECODING_TIME].stop(
@@ -611,6 +640,11 @@ std::string Qwen3_8MTP::_speculative_generate(chat_meta_info_t& meta_info, int l
     }
     meta_info.decoding_duration = (uint64_t)(time_utils::cast_to_us(this->profiler_list[DECODING_TIME].get_total_time()).first) * 1e3;
     meta_info.stop_reason = reason;
+    if (reason != EOT_DETECTED) {
+        // Cut short after sampling its last token: no engine has run that one,
+        // so the next prompt has to carry it.
+        this->token_history.pop_back();
+    }
     if (this->total_tokens >= this->MAX_L){
         header_print("WARNING", "Max length reached, stopping generation...");
     }

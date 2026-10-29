@@ -25,7 +25,7 @@
 namespace {
 json ModelErrorResponse(const ModelRequestError& error) {
     return {{"error", {{"message", error.what()},
-                       {"type", "model_error"},
+                       {"type", error.type()},
                        {"code", error.http_code()},
                        {"session_cleared", error.session_cleared()}}}};
 }
@@ -309,6 +309,65 @@ static bool sampling_request_from_openai(const json& request, openai_sampling_re
         sampling.seed = s.is_number_unsigned() ? s.get<uint64_t>() : static_cast<uint64_t>(s.get<int64_t>());
     }
     return true;
+}
+
+///@brief Read an OpenAI chat request's continue_final_message (vLLM's extension) and check
+///       that the request can continue its final message.
+///@param messages the request's messages, as sent
+///@param constraint the request's tool_choice and response_format
+///@param continue_final set to whether the final assistant message is continued
+///@param error set to the message for the client when the request is malformed
+///@return false when the request is malformed
+///@note add_generation_prompt is read only to refuse it alongside continue_final_message, as
+///      vLLM does: the two ask for opposite things. On its own it is ignored, as before.
+static bool continue_request_from_openai(const json& request, const json& messages,
+                                         const chat_constraint_request& constraint,
+                                         bool& continue_final, std::string& error) {
+    continue_final = false;
+    if (has_value(request, "continue_final_message")) {
+        if (!request.at("continue_final_message").is_boolean()) {
+            error = "continue_final_message must be a boolean";
+            return false;
+        }
+        continue_final = request.at("continue_final_message").get<bool>();
+    }
+    if (!continue_final) {
+        return true;
+    }
+    if (has_value(request, "add_generation_prompt") && request.at("add_generation_prompt") == true) {
+        error = "Cannot set both continue_final_message and add_generation_prompt to true";
+        return false;
+    }
+    const json* last = messages.empty() ? nullptr : &messages.back();
+    if (last == nullptr || !last->is_object() || last->value("role", "") != "assistant") {
+        error = "continue_final_message requires the last message to have role \"assistant\"";
+        return false;
+    }
+    if (has_value(*last, "tool_calls") && !(last->at("tool_calls").is_array() && last->at("tool_calls").empty())) {
+        error = "continue_final_message cannot continue an assistant message that has tool_calls";
+        return false;
+    }
+    // the grammar of a forced call or a JSON answer starts at the beginning of a turn
+    if (constraint.json_object || !constraint.json_schema.is_null() ||
+        constraint.tool_choice == chat_tool_choice::REQUIRED || constraint.tool_choice == chat_tool_choice::FUNCTION) {
+        error = "continue_final_message cannot be combined with response_format or a tool_choice that forces a call";
+        return false;
+    }
+    return true;
+}
+
+///@brief Check the final message once normalize_template has flattened it: text to continue, and nothing else
+///@return the message for the client, empty when the message can be continued
+static std::string continue_final_message_error(const json& messages) {
+    const json& last = messages.back();
+    if (last.contains("images") || last.contains("audios")) {
+        return "continue_final_message requires the final assistant message to be text only";
+    }
+    const std::string text = last.value("content", std::string());
+    if (text.find_first_not_of(" \t\n\r\v\f") == std::string::npos) {
+        return "continue_final_message requires text in the final assistant message";
+    }
+    return "";
 }
 
 static void apply_sampling_request(AutoModel& engine, const openai_sampling_request& sampling) {
@@ -791,7 +850,8 @@ json RestHandler::build_nstream_response(const std::string& response_text, chat_
                                          const chat_parse_options& parse_options,
                                          chat_logprobs_aligner* logprobs) {
     const chat_format_spec& spec = auto_chat_engine->get_chat_format();
-    chat_msg parsed = chat_parse(spec, chat_format_prefill(spec, meta_info.prompt_tail) + response_text,
+    chat_msg parsed = chat_parse(spec,
+                                 chat_format_prefill(spec, meta_info.prompt_tail, meta_info.continue_final_message) + response_text,
                                  false, parse_options);
 
     json message;
@@ -1389,6 +1449,11 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             send_response({{"error", {{"message", request_error}, {"type", "invalid_request_error"}, {"code", 400}}}});
             return;
         }
+        bool continue_final = false;
+        if (!continue_request_from_openai(request, current_messages, constraint_request, continue_final, request_error)) {
+            send_response({{"error", {{"message", request_error}, {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
 
         auto load_start_time = time_utils::now();
         if (!ensure_model_loaded(model, request_backend)) {
@@ -1402,12 +1467,24 @@ void RestHandler::handle_openai_chat_completion(const json& request,
                                       {"type", "invalid_request_error"}, {"code", 400}}}});
             return;
         }
+        if (continue_final && (auto_chat_engine->single_turn || !auto_chat_engine->supports_continue_final_message())) {
+            send_response({{"error", {{"message", "continue_final_message is not supported by " + model},
+                                      {"type", "invalid_request_error"}, {"code", 400}}}});
+            return;
+        }
 
         configure_chat_engine_parameters(options, request);
         apply_sampling_request(*auto_chat_engine, sampling);
 
         current_messages = normalize_messages(current_messages);
         current_messages = normalize_template(current_messages);
+        if (continue_final) {
+            request_error = continue_final_message_error(current_messages);
+            if (!request_error.empty()) {
+                send_response({{"error", {{"message", request_error}, {"type", "invalid_request_error"}, {"code", 400}}}});
+                return;
+            }
+        }
 
         // see if we can use prompt cache
         chat_meta_info_t meta_info;
@@ -1425,8 +1502,8 @@ void RestHandler::handle_openai_chat_completion(const json& request,
             }
             if (has_assistant_msg) {
                 header_print("Warning", "Single-turn model received multi-turn request (assistant messages detected). Rejecting.");
-                json error_response = {{"error", "This model only supports single-turn requests. Multi-turn conversation history (assistant messages) is not allowed."}};
-                send_response(error_response);
+                send_response({{"error", {{"message", "This model only supports single-turn requests. Multi-turn conversation history (assistant messages) is not allowed."},
+                                          {"type", "invalid_request_error"}, {"code", 400}}}});
                 return;
             }
         }
@@ -1484,6 +1561,7 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         meta_info.load_duration = (uint64_t)time_utils::duration_ns(load_start_time, load_end_time).first;
         meta_info.max_prefill_len = this->prefill_chunk_len;
         meta_info.logprobs_top_n = logprobs_top_n;
+        meta_info.continue_final_message = continue_final;
         try {
             meta_info.constraint = auto_chat_engine->make_constraint(constraint_request);
         } catch (const std::invalid_argument& e) {
@@ -1495,6 +1573,9 @@ void RestHandler::handle_openai_chat_completion(const json& request,
         chat_parse_options parse_options;
         parse_options.tools = &tools;
         parse_options.parse_tool_calls = !tools.empty() && constraint_request.tool_choice != chat_tool_choice::NONE;
+        parse_options.keep_whitespace = continue_final;
+        // a model that reasons first reads the continued message as its reasoning
+        parse_options.reasoning_may_close = continue_final && auto_chat_engine->thinking_enabled();
         if (stream){
             // Create a wrapper callback that passes the pre-formatted SSE string directly
             cancellation_token->reset();
