@@ -222,35 +222,38 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
 #ifdef FLM_ENABLE_CORE
     // Everything below reads the NPU's geometry and this process's memlock
     // limit from the driver and holds them against what FastFlowLM's own kernel
-    // flow needs. A corelib build does not use that flow. corelib owns device
+    // flow needs. On dev04 only corelib's models run, and corelib owns device
     // setup and brings the NPU up itself -- main() already reports whether that
     // worked, and says why when it did not -- so these checks answer a question
-    // this build does not ask, against a threshold that describes FastFlowLM's
-    // own kernels rather than the parts corelib supports. Left in, they fail a
-    // working core install on hardware corelib runs on perfectly well.
+    // that NPU does not ask, against a threshold that describes FastFlowLM's
+    // own kernels rather than the parts corelib supports. On aie2p a corelib
+    // build runs FastFlowLM's own models, and they are checked as in any other.
     //
     // The JSON keeps the shape callers already parse, but reports the checks as
-    // skipped rather than claiming they passed: "ready" here means "this build
+    // skipped rather than claiming they passed: "ready" here means "this NPU
     // does not gate on the stock stack". A caller that wants to know whether the
     // NPU actually came up should look at whether flm opened a device.
-    if (json_output) {
-        nlohmann::json validation_json = {
-            {"object", "npu_stack_validation"},
+    if (utils::get_device() == utils::npu_platform::dev04) {
+        if (json_output) {
+            nlohmann::json validation_json = {
+                {"object", "npu_stack_validation"},
 #ifdef _WIN32
-            {"platform", "windows"},
+                {"platform", "windows"},
 #else
-            {"platform", "linux"},
+                {"platform", "linux"},
 #endif
-            {"backend", "core"},
-            {"checks_skipped", true},
-            {"ready", true}
-        };
-        std::cout << validation_json.dump(4) << std::endl;
-    } else if (print_human) {
-        header_print("FLM", "corelib backend: skipping NPU stack checks (corelib owns device setup)");
+                {"npu_platform", std::string(utils::platform_id(utils::npu_platform::dev04))},
+                {"backend", "core"},
+                {"checks_skipped", true},
+                {"ready", true}
+            };
+            std::cout << validation_json.dump(4) << std::endl;
+        } else if (print_human) {
+            header_print("FLM", "corelib backend: skipping NPU stack checks (corelib owns device setup)");
+        }
+        return true;
     }
-    return true;
-#else
+#endif
 #ifndef _WIN32
     nlohmann::json validation_json = {
         {"object", "npu_stack_validation"},
@@ -497,7 +500,6 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
     }
     return true;
 #endif
-#endif // FLM_ENABLE_CORE
 }
 
 
@@ -604,6 +606,11 @@ int main(int argc, char* argv[]) {
     // Declared before anything that can return so the destructor covers the
     // early exits and the catch-all below.
     CoreProcessGuard core_guard;
+    // Before this process takes the device, as in the build without corelib:
+    // validate probes /dev/accel/* itself, and amdxdna refuses a second open.
+    if (parsed_args.command == "validate") {
+        return sanity_check_npu_stack(false, parsed_args.json_output) ? 0 : 1;
+    }
     // Declared out here so the early exits below still see a device, and so a
     // corelib that fails to come up leaves it null rather than undefined.
     flm_rt::device* npu_device = nullptr;
