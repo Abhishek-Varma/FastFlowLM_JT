@@ -1,0 +1,329 @@
+name: Linux Build
+
+# Builds, packages and uploads one or more Linux variants, each inside the
+# fastflowlm build-environment container for its distribution; pushes, pull
+# requests and tags build all of them. The artifact names are what
+# model-sweep.yml, asr-test.yml and resolve_build.sh look up, so they are fixed
+# per variant:
+#
+#   XRT-deb          flm-<distro><version>-<short sha>-deb       (every distro)
+#   HRX-deb          HRX-flm-<distro><version>-<short sha>-deb   (every distro)
+#   XRT-portable     portable                                    (Debian 13)
+#   HRX-portable     HRX-portable                                (Debian 13)
+#   Source-portable  models-from-source-portable                 (Debian 13)
+#
+# A tag also publishes the XRT .debs, the XRT tarball and the HRX tarball to
+# its release. The HRX .debs are built but not released yet.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - main
+  workflow_call:
+    inputs:
+      variants:
+        description: >
+          XRT-deb, HRX-deb, XRT-portable, HRX-portable, Source-portable, a
+          comma-separated list of them, or "all".
+        type: string
+        default: all
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: Variant to build
+        type: choice
+        options: [all, XRT-deb, HRX-deb, XRT-portable, HRX-portable, Source-portable]
+        default: all
+
+# Same policy as win-build.yml: only a superseded pull_request run is
+# cancelled, so the model sweep waiting on it is not held up.
+concurrency:
+  group: lin-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.plan.outputs.include }}
+      deb_distros: ${{ steps.plan.outputs.deb_distros }}
+    steps:
+      # Push, pull_request and tag runs have no inputs: they build everything.
+      - name: Expand variants
+        id: plan
+        env:
+          VARIANTS: ${{ inputs.variants || 'all' }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The .debs ship for each of these; the portable tarballs are built
+          # on the oldest glibc among them so they run on all.
+          deb_distros='[
+            {"distro": "ubuntu", "version": "24.04", "codename": "noble"},
+            {"distro": "ubuntu", "version": "25.10", "codename": "questing"},
+            {"distro": "ubuntu", "version": "26.04", "codename": "resolute"},
+            {"distro": "debian", "version": "13",    "codename": "trixie"}
+          ]'
+          portable_distro='{"distro": "debian", "version": "13", "codename": "trixie"}'
+          short_sha="${SHA:0:7}"
+
+          variants="${VARIANTS//,/ }"
+          if [ "$(echo ${variants})" = "all" ]; then
+            variants="XRT-deb HRX-deb XRT-portable HRX-portable Source-portable"
+          fi
+
+          include='[]'
+          for variant in ${variants}; do
+            case "${variant}" in
+              XRT-deb|HRX-deb)
+                prefix=""
+                [ "${variant}" = "HRX-deb" ] && prefix="HRX-"
+                include=$(jq -c --arg v "${variant}" --arg p "${prefix}" --arg s "${short_sha}" \
+                  --argjson d "${deb_distros}" \
+                  '. + [$d[] | . + {variant: $v, retention: "",
+                    artifact: "\($p)flm-\(.distro)\(.version)-\($s)-deb"}]' <<< "${include}")
+                ;;
+              XRT-portable|HRX-portable|Source-portable)
+                case "${variant}" in
+                  XRT-portable)    artifact=portable ;;
+                  HRX-portable)    artifact=HRX-portable ;;
+                  Source-portable) artifact=models-from-source-portable ;;
+                esac
+                include=$(jq -c --arg v "${variant}" --arg a "${artifact}" \
+                  --argjson d "${portable_distro}" \
+                  '. + [$d + {variant: $v, retention: "7", artifact: $a}]' <<< "${include}")
+                ;;
+              *)
+                echo "::error::Unknown Linux build variant '${variant}'."
+                exit 1
+                ;;
+            esac
+          done
+          if [ "${include}" = '[]' ]; then
+            echo "::error::No Linux build variant given."
+            exit 1
+          fi
+
+          jq . <<< "${include}"
+          echo "include=${include}" >> "$GITHUB_OUTPUT"
+          echo "deb_distros=$(jq length <<< "${deb_distros}")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.variant }}, ${{ matrix.distro }}${{ matrix.version }})
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      # Each variant and distro ships on its own; one failing must not cancel
+      # the others.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
+
+    container:
+      image: ghcr.io/rocm/fastflowlm/build-environment:${{ matrix.distro }}${{ matrix.version }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build
+        id: build
+        uses: ./.github/actions/lin-build
+        with:
+          variant: ${{ matrix.variant }}
+          distro: ${{ matrix.distro }}
+          distro-version: ${{ matrix.version }}
+          codename: ${{ matrix.codename }}
+
+      - name: Package portable distribution
+        id: portable
+        if: endsWith(matrix.variant, '-portable')
+        env:
+          VARIANT: ${{ matrix.variant }}
+          VERSION: ${{ steps.build.outputs.version }}
+          BUILD_DIR: ${{ steps.build.outputs.build-dir }}
+        run: |
+          set -euo pipefail
+          case "${VARIANT}" in
+            XRT-portable)    name_prefix="" ;;
+            HRX-portable)    name_prefix="HRX_" ;;
+            Source-portable) name_prefix="models-from-source_" ;;
+          esac
+          tarball="${name_prefix}fastflowlm_${VERSION}_linux.tar.gz"
+
+          cd "${GITHUB_WORKSPACE}/${BUILD_DIR}"
+          rm -rf install
+          DESTDIR="$PWD/install" cmake --install .
+
+          # Rename binary and wrapper for portable layout
+          package_root=install/opt/fastflowlm
+          mv "${package_root}/flm" "${package_root}/flm-real"
+          mv "${package_root}/flm-wrapper.sh" "${package_root}/flm"
+          chmod +x "${package_root}/flm"
+
+          # Strip debug symbols to reduce binary size (111MB → 33MB)
+          # --strip-debug removes debug info while keeping stack trace capability
+          strip --strip-debug "${package_root}/flm-real"
+
+          if [ "${VARIANT}" = "Source-portable" ]; then
+            staged_engine="${package_root}/lib/libgemma4e_npu.so"
+            test -f "${staged_engine}"
+            if cmp -s "${GITHUB_WORKSPACE}/src/lib/xrt/libgemma4e_npu.so" "${staged_engine}"; then
+              echo "The staged Gemma 4 engine matches the prebuilt library." >&2
+              exit 1
+            fi
+            readelf -n "${staged_engine}" | grep -A1 'Build ID'
+          fi
+
+          # Symlinks are preserved.
+          tar czf "${GITHUB_WORKSPACE}/${tarball}" \
+            -C "${package_root}" \
+            flm \
+            flm-real \
+            lib/ \
+            xclbins/ \
+            model_list.json \
+            model_info.json \
+            LICENSE_RUNTIME.txt \
+            LICENSE_BINARY.txt \
+            THIRD_PARTY_NOTICES.txt
+
+          # Confirm the runtime the build selects is bundled.
+          case "${VARIANT}" in
+            XRT-portable) tar tzf "${GITHUB_WORKSPACE}/${tarball}" | grep libxrt ;;
+            HRX-portable) tar tzf "${GITHUB_WORKSPACE}/${tarball}" | grep libhrx ;;
+          esac
+          "${GITHUB_WORKSPACE}/.github/script/check_no_copyleft_libs.sh" \
+            "${GITHUB_WORKSPACE}/${tarball}"
+
+          echo "tarball=${tarball}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ steps.build.outputs.package || steps.portable.outputs.tarball }}
+          retention-days: ${{ matrix.retention }}
+          if-no-files-found: error
+
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "# Portable Build Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ FLM built successfully with portable distribution" >> $GITHUB_STEP_SUMMARY
+          echo "✅ No FFmpeg, GPL codec, FFTW or readline libraries shipped or linked" >> $GITHUB_STEP_SUMMARY
+          echo "✅ XRT and XDNA plugin bundled with distribution" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **XRT**: Dynamically linked, bundled in lib/" >> $GITHUB_STEP_SUMMARY
+          echo "- **XDNA plugin**: Bundled in lib/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Usage" >> $GITHUB_STEP_SUMMARY
+          echo "The binary is portable and includes all necessary libraries in the lib/ directory." >> $GITHUB_STEP_SUMMARY
+          echo "RPATH is set to \$ORIGIN/../lib for automatic library discovery." >> $GITHUB_STEP_SUMMARY
+
+  # The release jobs wait on the whole build matrix, and run even when part of
+  # it failed: each downloads only the artifacts it ships, by name, and fails
+  # if one of those is missing. A failed HRX or models-from-source build so
+  # leaves the release without that asset instead of holding back the others.
+  release-deb:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: [plan, build]
+    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    steps:
+      # Not the HRX- prefixed ones, which are not released yet.
+      - name: Download XRT deb artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: debs
+          pattern: 'flm-*-deb'
+
+      # A pattern download takes whatever is there, so a distro whose build
+      # failed would otherwise just be missing from the release.
+      - name: Check every distro's deb is present
+        env:
+          EXPECTED: ${{ needs.plan.outputs.deb_distros }}
+        run: |
+          set -euo pipefail
+          ls debs/*/*.deb
+          found=$(ls debs/*/*.deb | wc -l)
+          if [ "${found}" -ne "${EXPECTED}" ]; then
+            echo "::error::Expected ${EXPECTED} XRT .debs, found ${found}."
+            exit 1
+          fi
+
+      - name: Upload Binaries to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          file_glob: true
+          file: debs/*/*.deb
+          overwrite: true
+
+  # By name: this run also publishes the models-from-source and HRX tarballs,
+  # and neither belongs in the default release asset set.
+  release-portable:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    steps:
+      - name: Download portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable
+          path: portable
+
+      - name: Upload Binaries to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          file_glob: true
+          file: portable/fastflowlm_*_linux.tar.gz
+          overwrite: true
+
+  # The HRX build ships as a preview, so it gets its own release job: a failed
+  # HRX build leaves the release without the HRX asset instead of holding back
+  # the default one.
+  release-hrx:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    steps:
+      - name: Download HRX portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: HRX-portable
+          path: portable
+
+      - name: Upload HRX Binaries to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          file_glob: true
+          file: portable/HRX_fastflowlm_*_linux.tar.gz
+          overwrite: true
