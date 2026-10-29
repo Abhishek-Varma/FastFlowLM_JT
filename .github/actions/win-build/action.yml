@@ -54,12 +54,12 @@ runs:
       uses: actions/cache@v4
       with:
         path: C:\dev
-        key: windows-deps-${{ hashFiles('.github/script/setup_windows_deps.ps1', '.github/windows-deps/**') }}
+        key: windows-deps-${{ hashFiles('.github/script/ci/setup_windows_deps.ps1', '.github/windows-deps/**') }}
 
     - name: Set up build dependencies
       shell: powershell
       working-directory: ${{ github.workspace }}
-      run: .github\script\setup_windows_deps.ps1
+      run: .github\script\ci\setup_windows_deps.ps1
 
     - name: Fetch pinned HRX release
       id: hrx

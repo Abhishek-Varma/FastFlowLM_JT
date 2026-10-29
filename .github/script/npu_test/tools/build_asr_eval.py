@@ -112,7 +112,7 @@ def main() -> None:
     parser.add_argument("--revision", required=True,
                         help="FLEURS Parquet revision the files came from, recorded in the manifest")
     parser.add_argument("--out", type=Path,
-                        default=Path(__file__).resolve().parent / "assets" / "asr_eval")
+                        default=Path(__file__).resolve().parent.parent / "assets" / "asr_eval")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 

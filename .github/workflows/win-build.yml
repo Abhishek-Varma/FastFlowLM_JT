@@ -1,23 +1,16 @@
 name: Windows Build
 
-# Builds, packages and uploads one or more Windows variants; pushes and pull
-# requests build all of them. The artifact names are what
-# model-sweep.yml, asr-test.yml and resolve_build.sh look up, so they are fixed
-# per variant:
+# Builds, packages and uploads one or more Windows variants. The artifact names
+# are what build-and-test.yml and release.yml download, so they are fixed per
+# variant:
 #
 #   XRT     fastflowlm-windows-<sha>                 (+ fastflowlm-windows-msi-<sha>)
 #   HRX     HRX-fastflowlm-windows-<sha>
 #   Source  models-from-source-fastflowlm-windows-<sha>
 #
-# Tags are built and published by release.yml.
+# Build and Test (build-and-test.yml) calls this once per package on every pull
+# request, push and tag; dispatch it to build packages without testing them.
 on:
-  push:
-    branches:
-      - main
-      - windows_zip_workflow
-  pull_request:
-    branches:
-      - main
   workflow_call:
     inputs:
       variants:
@@ -40,13 +33,8 @@ on:
         type: boolean
         default: true
 
-# A build for a commit that has since been superseded on the same PR only
-# delays that PR's model sweep, which waits for this whole run. Only
-# pull_request runs share a group; every other run gets its own, so branch and
-# tag builds are never cancelled.
-concurrency:
-  group: win-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: true
+# No concurrency group: build-and-test.yml calls this several times in one
+# run, and the calls would cancel each other. The caller owns cancellation.
 
 jobs:
   plan:
@@ -55,8 +43,6 @@ jobs:
       include: ${{ steps.plan.outputs.include }}
       msi: ${{ steps.plan.outputs.msi }}
     steps:
-      # Push, pull_request and tag runs have no inputs: they build everything,
-      # MSI included.
       - name: Expand variants
         id: plan
         env:

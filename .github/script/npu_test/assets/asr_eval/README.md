@@ -36,6 +36,6 @@ because their builds decode differently: Windows and Linux differ by up to
 
 ## Rebuilding
 
-`.github/script/build_asr_eval.py` regenerates this directory from the FLEURS
+`.github/script/npu_test/tools/build_asr_eval.py` regenerates this directory from the FLEURS
 Parquet files; its docstring says where to get them. The selection is
 deterministic, so the same Parquet revision gives the same set.

@@ -134,7 +134,7 @@ runs:
         dpkg-buildpackage -b -us -uc
         mv "../fastflowlm_${DEB_VERSION}_amd64.deb" "./${package}"
         ls -lah "./${package}"
-        .github/script/check_no_copyleft_libs.sh "./${package}"
+        .github/script/ci/check_no_copyleft_libs.sh "./${package}"
         echo "package=${package}" >> "$GITHUB_OUTPUT"
 
     # The engines take more memory per compile than the rest of the tree, so

@@ -1,13 +1,14 @@
 name: Release
 
-# Builds the tagged commit and publishes it to the tag's GitHub Release. Built
-# here rather than taken from main's CI artifacts because the version comes
-# from git describe at build time: only a build of the tag itself gets the tag's
-# version in its .deb metadata and tarball names.
+# Builds and tests the tagged commit, then publishes it to the tag's GitHub
+# Release. Built here rather than taken from main's CI artifacts because the
+# version comes from git describe at build time: only a build of the tag itself
+# gets the tag's version in its .deb metadata and tarball names.
 #
 # Assets: the XRT and HRX builds for both platforms (Windows zip and MSI, the
 # .debs for every distro, the Linux tarball). The models-from-source builds
-# are not released.
+# are not released. Each backend is published only when all of its packages
+# passed their NPU tests.
 on:
   push:
     tags:
@@ -15,23 +16,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  windows:
-    uses: ./.github/workflows/win-build.yml
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
     with:
-      variants: XRT,HRX
+      tier: pr
+      release: true
 
-  linux:
-    uses: ./.github/workflows/lin-build.yml
-    with:
-      variants: XRT-deb,HRX-deb,XRT-portable,HRX-portable
-
-  # The publish jobs wait on every build, and run even when part of it failed:
-  # each downloads only the artifacts it ships, by name, and fails if one of
-  # those is missing. A failed HRX build so leaves the release without the HRX
-  # assets instead of holding back the default ones.
+  # Each publish job downloads only the artifacts it ships, by name, and runs
+  # only when that backend passed: a failed HRX build or test leaves the release
+  # without the HRX assets instead of holding back the default ones.
   release:
-    needs: [windows, linux]
-    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    needs: build-and-test
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.build-and-test.outputs.xrt-passed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,7 +62,7 @@ jobs:
       # failed would otherwise just be missing from the release.
       - name: Check every distro's deb is present
         env:
-          EXPECTED: ${{ needs.linux.outputs.deb_distros }}
+          EXPECTED: ${{ needs.build-and-test.outputs.deb-distros }}
         run: |
           set -euo pipefail
           ls debs/*/*.deb
@@ -102,8 +98,8 @@ jobs:
   # after the default one, whatever that one's outcome, so the two never race
   # to create the release.
   release-hrx:
-    needs: [windows, linux, release]
-    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    needs: [build-and-test, release]
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.build-and-test.outputs.hrx-passed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -129,7 +125,7 @@ jobs:
 
       - name: Check every distro's HRX deb is present
         env:
-          EXPECTED: ${{ needs.linux.outputs.deb_distros }}
+          EXPECTED: ${{ needs.build-and-test.outputs.deb-distros }}
         run: |
           set -euo pipefail
           ls debs/*/*.deb

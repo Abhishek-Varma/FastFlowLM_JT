@@ -1,9 +1,8 @@
 name: Linux Build
 
 # Builds, packages and uploads one or more Linux variants, each inside the
-# fastflowlm build-environment container for its distribution; pushes and
-# pull requests build all of them. The artifact names are what
-# model-sweep.yml, asr-test.yml and resolve_build.sh look up, so they are fixed
+# fastflowlm build-environment container for its distribution. The artifact
+# names are what build-and-test.yml and release.yml download, so they are fixed
 # per variant:
 #
 #   XRT-deb          flm-<distro><version>-<short sha>-deb       (every distro)
@@ -12,14 +11,9 @@ name: Linux Build
 #   HRX-portable     HRX-portable                                (Debian 13)
 #   Source-portable  models-from-source-portable                 (Debian 13)
 #
-# Tags are built and published by release.yml.
+# Build and Test (build-and-test.yml) calls this once per package on every pull
+# request, push and tag; dispatch it to build packages without testing them.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_call:
     inputs:
       variants:
@@ -40,11 +34,8 @@ on:
         options: [all, XRT-deb, HRX-deb, XRT-portable, HRX-portable, Source-portable]
         default: all
 
-# Same policy as win-build.yml: only a superseded pull_request run is
-# cancelled, so the model sweep waiting on it is not held up.
-concurrency:
-  group: lin-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: true
+# No concurrency group: build-and-test.yml calls this several times in one
+# run, and the calls would cancel each other. The caller owns cancellation.
 
 jobs:
   plan:
@@ -53,7 +44,6 @@ jobs:
       include: ${{ steps.plan.outputs.include }}
       deb_distros: ${{ steps.plan.outputs.deb_distros }}
     steps:
-      # Push, pull_request and tag runs have no inputs: they build everything.
       - name: Expand variants
         id: plan
         env:
@@ -205,7 +195,7 @@ jobs:
             XRT-portable) tar tzf "${GITHUB_WORKSPACE}/${tarball}" | grep libxrt ;;
             HRX-portable) tar tzf "${GITHUB_WORKSPACE}/${tarball}" | grep libhrx ;;
           esac
-          "${GITHUB_WORKSPACE}/.github/script/check_no_copyleft_libs.sh" \
+          "${GITHUB_WORKSPACE}/.github/script/ci/check_no_copyleft_libs.sh" \
             "${GITHUB_WORKSPACE}/${tarball}"
 
           echo "tarball=${tarball}" >> "$GITHUB_OUTPUT"
