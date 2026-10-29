@@ -40,6 +40,12 @@ failed; warnings and skips do not fail a run.
 
 Which models each suite runs at each tier is in `plan.py`, in one place.
 
+On a pull request, `.github/script/ci/changes.py` also picks the suites: only
+those the changed files can affect (an ASR-only change runs `asr`, a d3-only
+change `decision`, an engine change `chat` and `prefix_cache`), or all of them
+when any changed file is shared code. The HRX packages never run `api` or
+`serving`, which test server logic the backend does not touch.
+
 ## Suites
 
 | Suite | Checks |

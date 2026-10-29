@@ -121,7 +121,28 @@ class Cli(unittest.TestCase):
             cli("--files", "docs/a.md", "--github-output", env={**os.environ, "GITHUB_OUTPUT": str(target)})
             lines = target.read_text(encoding="utf-8").splitlines()
         self.assertIn("run_tests=false", lines)
-        self.assertEqual([l.split("=")[0] for l in lines], ["run_tests", "families", "asr_full", "summary"])
+        self.assertEqual([l.split("=")[0] for l in lines], ["run_tests", "families", "asr_full", "suites", "summary"])
+
+    def test_suites_scoped_to_the_change(self):
+        cases = {
+            ("src/common/whisper/whisper.cpp",): "asr",
+            (".github/script/npu_test/assets/asr_eval/manifest.json",): "asr",
+            ("src/common/AutoDecisionModel/auto_decision_model.cpp",): "decision",
+            (".github/script/npu_test/assets/d3_goldens.jsonl",): "decision",
+            (".github/script/npu_test/suites/serving.py",): "serving",
+            ("src/test/openai_api_test/test_errors.py",): "api",
+            ("src/lib/xrt/libqwen3_npu.so",): "chat,prefix_cache",
+            # An engine with an audio encoder is also tested by asr.
+            ("src/lib/xrt/libgemma4e_npu.so",): "chat,prefix_cache,asr",
+            ("src/test/openai_api_test/test_errors.py", "src/lib/xrt/libd3_npu.so"): "api,decision",
+            # Shared code, or the harness itself, runs everything.
+            ("src/server/server.cpp",): "all",
+            (".github/script/npu_test/harness.py",): "all",
+            ("src/common/whisper/whisper.cpp", "src/CMakeLists.txt"): "all",
+        }
+        for files, expected in cases.items():
+            with self.subTest(files=files):
+                self.assertEqual(cli("--files", *files)["suites"], expected)
 
 
 class Decide(unittest.TestCase):

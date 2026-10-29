@@ -12,6 +12,9 @@ Outputs (printed, and appended to $GITHUB_OUTPUT with --github-output):
              pr tier tests every model in them instead of one per engine
   asr_full   true when speech-recognition code changed, so the pr tier runs
              the whole ASR evaluation set
+  suites     "all", or the comma-separated npu_test suites the change can
+             affect when every changed file is scoped to some (an ASR-only
+             change runs asr, a d3-only change runs decision)
   summary    one line for the job log
 
 When in doubt it tests more: an all-zero or missing base (a new branch), or a
@@ -144,6 +147,38 @@ ASR_WORDS = re.compile(r"audio|transcri|whisper|multipart|speech|\basr\b|\bwav\b
                        r"|\bogg\b|opus|m4a|\bpcm\b|resampl", re.IGNORECASE)
 
 
+# The npu_test suites, in run order; "all" when a change is not scoped.
+SUITES = ("chat", "serving", "prefix_cache", "api", "embedding", "decision", "asr")
+
+# Test-side files that matter to one suite only. Anything else in npu_test
+# (the client, server, harness, plan) runs every suite.
+TEST_SCOPES = (
+    (r"\.github/script/npu_test/suites/(\w+)\.py$", None),  # the suite itself
+    (r"\.github/script/npu_test/assets/d3_goldens[^/]*\.jsonl$", {"decision"}),
+    (r"\.github/script/npu_test/assets/vision/|\.github/script/npu_test/tools/make_vision_assets\.py$",
+     {"chat"}),
+    (r"src/test/(openai_api_test|openai_usage)/", {"api"}),
+)
+
+
+def family_suites(families: Iterable[str], catalog: dict[str, dict]) -> set:
+    """The suites that exercise models of these families."""
+    out = set()
+    for fam in families:
+        if fam == "d3":
+            out.add("decision")
+        elif fam == "embed-gemma":
+            out.add("embedding")
+        elif fam == "whisper-v3":
+            out.add("asr")
+        else:
+            out |= {"chat", "prefix_cache"}
+            # Chat models with an audio encoder are tested by the asr suite.
+            if any(family_of(e) == fam and e.get("asr") for e in catalog.values()):
+                out.add("asr")
+    return out
+
+
 def is_non_code(path: str) -> bool:
     return bool(NON_CODE.match(path))
 
@@ -190,7 +225,18 @@ class Decision:
     run_tests: bool = True
     families: set = field(default_factory=set)
     asr_full: bool = False
+    # None: every suite. Otherwise the suites every changed file is scoped to.
+    suites: Optional[set] = field(default_factory=set)
     reasons: list = field(default_factory=list)
+
+    def all_suites(self, path: str) -> None:
+        if self.suites is not None:
+            self.reasons.append(f"{path} is not scoped to particular suites: running them all")
+        self.suites = None
+
+    def add_suites(self, names: set) -> None:
+        if self.suites is not None:
+            self.suites |= names
 
     def summary(self) -> str:
         if not self.run_tests:
@@ -198,12 +244,19 @@ class Decision:
         parts = ["NPU tests run"]
         parts.append("families in full: " + (", ".join(sorted(self.families)) or "none"))
         parts.append("ASR: whole set" if self.asr_full else "ASR: pr subset")
+        parts.append("suites: " + self.suites_value().replace(",", ", "))
         return "; ".join(parts)
+
+    def suites_value(self) -> str:
+        if self.suites is None or not self.suites:
+            return "all"
+        return ",".join(s for s in SUITES if s in self.suites)
 
     def outputs(self) -> dict[str, str]:
         return {"run_tests": str(self.run_tests).lower(),
                 "families": ",".join(sorted(self.families)),
                 "asr_full": str(self.asr_full).lower(),
+                "suites": self.suites_value(),
                 "summary": self.summary()}
 
 
@@ -300,7 +353,7 @@ def decide(files: Optional[list[str]], git: Optional[Git] = None,
     git supplies the changed lines and the base and head versions of the
     catalogs; without it those checks fall back as described inline.
     """
-    d = Decision()
+    d = Decision(suites=None)
     if files is None:
         d.asr_full = True
         d.reasons.append("changed files unknown (new branch, shallow clone or force-push): "
@@ -311,6 +364,7 @@ def decide(files: Optional[list[str]], git: Optional[Git] = None,
         return d
 
     code = [f for f in files if not is_non_code(f)]
+    d.suites = set()  # narrowed per file below; None once any file is unscoped
     if not code:
         d.run_tests = False
         d.reasons.append(f"all {len(files)} changed file(s) are documentation or non-code")
@@ -334,13 +388,35 @@ def decide(files: Optional[list[str]], git: Optional[Git] = None,
                 d.families |= new
                 d.reasons.append(f"{path}: {hit[0]} -> {', '.join(sorted(new))}")
 
+        # Which suites this file can affect.
+        scope = None
+        for pattern, names in TEST_SCOPES:
+            m = re.match(pattern, path)
+            if m:
+                scope = names if names is not None else (
+                    {m.group(1)} if m.group(1) in SUITES else None)
+                break
+        if scope is None and ASR_ONLY.match(path):
+            scope = {"asr"}
+        if scope is None and hit and hit[1]:
+            scope = family_suites(hit[1], head_catalog)
+        if scope is None and path not in (MODEL_LIST, MODEL_INFO):
+            d.all_suites(path)
+        elif scope is not None:
+            d.add_suites(scope)
+
     if MODEL_LIST in code:
         base = load_catalog(git.show("base", MODEL_LIST)) if git else {}
         if git is None or not base or not head_catalog:
             d.reasons.append(f"{MODEL_LIST} changed but cannot be compared; no family added for it")
+            d.all_suites(MODEL_LIST)
         else:
             fams = catalog_diff(base, head_catalog)
             d.families |= fams
+            if fams:
+                d.add_suites(family_suites(fams, head_catalog))
+            else:
+                d.all_suites(MODEL_LIST)
             d.reasons.append(f"{MODEL_LIST}: entries changed in "
                              + (", ".join(sorted(fams)) or "no family (top-level fields only)"))
     if MODEL_INFO in code:
@@ -350,8 +426,13 @@ def decide(files: Optional[list[str]], git: Optional[Git] = None,
                                    [load_catalog(git.show("base", MODEL_LIST)), head_catalog])
         if fams is None:
             d.reasons.append(f"{MODEL_INFO} changed but cannot be compared; no family added for it")
+            d.all_suites(MODEL_INFO)
         else:
             d.families |= fams
+            if fams:
+                d.add_suites(family_suites(fams, head_catalog))
+            else:
+                d.all_suites(MODEL_INFO)
             d.reasons.append(f"{MODEL_INFO}: entries changed in " + (", ".join(sorted(fams)) or "no family"))
 
     # A family the head catalog lacks (removed, or never listed) has no model

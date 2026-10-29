@@ -3,17 +3,18 @@ name: Build and Test
 # Builds every FastFlowLM package and tests each one on the NPU runners as soon
 # as its own build finishes.
 #
-#   Linux    XRT portable ─ test ──────────────┬─ HRX portable test
-#            XRT .deb     ─ install test ──────┼─ HRX .deb install test
-#            Source portable ─ test            │
-#   Windows  XRT zip ─ test ───────────────────┴─ HRX zip test
-#            XRT MSI ─ install test
-#            Source zip ─ test
+#   Linux    XRT portable ─ test     HRX portable ─ test     Source portable ─ test
+#            XRT .deb ─ install test (off)   HRX .deb ─ install test (off)
+#   Windows  XRT zip ─ test          HRX zip ─ test          Source zip ─ test
+#            XRT MSI ─ install test (off)
 #
-# XRT is the release build, so its tests come first and gate the HRX ones
-# (preview) on the same platform: a broken XRT build does not spend NPU time on
-# HRX. Each package is its own build call, so its tests do not wait on the
-# other packages' builds.
+# Each package is its own build call, so its tests do not wait on the other
+# packages' builds, and XRT and HRX are tested side by side. HRX skips the api
+# and serving suites: they test server logic the backend does not touch, and
+# the XRT run covers it.
+#
+# A pull request runs only the suites its changes can affect (an ASR-only
+# change runs asr, a d3-only change decision); see .github/script/ci/changes.py.
 #
 # Tiers (.github/script/npu_test/plan.py): pull requests and pushes run the pr
 # tier, one model per engine family plus every model of a family the change
@@ -74,6 +75,9 @@ jobs:
       asr-full: ${{ steps.detect.outputs.asr-full }}
       tier: ${{ steps.detect.outputs.tier }}
       short-sha: ${{ steps.detect.outputs.short-sha }}
+      suites: ${{ steps.detect.outputs.suites }}
+      hrx-suites: ${{ steps.detect.outputs.hrx-suites }}
+      source: ${{ steps.detect.outputs.source }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -196,13 +200,15 @@ jobs:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
           label: linux-xrt-portable
           tier: ${{ needs.changes.outputs.tier }}
+          suites: ${{ needs.changes.outputs.suites }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: linux
 
   test-lin-hrx-portable:
     name: Test Linux HRX portable
-    needs: [changes, build-lin-hrx-portable, test-lin-xrt-portable]
+    needs: [changes, build-lin-hrx-portable]
+    if: needs.changes.outputs.hrx-suites != ''
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 120
     steps:
@@ -224,6 +230,7 @@ jobs:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
           label: linux-hrx-portable
           tier: ${{ needs.changes.outputs.tier }}
+          suites: ${{ needs.changes.outputs.hrx-suites }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: linux-hrx
@@ -233,6 +240,7 @@ jobs:
   test-lin-source-portable:
     name: Test Linux models-from-source portable
     needs: [changes, build-lin-source-portable]
+    if: needs.changes.outputs.source == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 60
     steps:
@@ -257,11 +265,18 @@ jobs:
           suites: chat
           models: gemma4-it:e2b,gemma4-it:e4b
 
+  # The .deb and MSI install tests are off unless the repository variable
+  # FLM_INSTALL_TESTS is "true": the runners cannot install yet (no
+  # passwordless sudo on Linux, an FLM already installed on Windows), so they
+  # only tested the unpacked payload. When turning them on, also add them to
+  # the summary's verdict, so a release waits for them.
+  #
   # The NPU runners run Ubuntu 24.04, so that is the .deb that can be
   # installed; the other distributions' builds are covered by their build.
   install-lin-xrt-deb:
     name: Install test Linux XRT .deb
     needs: [changes, build-lin-xrt-deb]
+    if: vars.FLM_INSTALL_TESTS == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 60
     steps:
@@ -292,7 +307,8 @@ jobs:
 
   install-lin-hrx-deb:
     name: Install test Linux HRX .deb
-    needs: [changes, build-lin-hrx-deb, install-lin-xrt-deb]
+    needs: [changes, build-lin-hrx-deb]
+    if: vars.FLM_INSTALL_TESTS == 'true'
     runs-on: [self-hosted, linux, x64, npu, sweep]
     timeout-minutes: 60
     steps:
@@ -347,13 +363,15 @@ jobs:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
           label: windows-xrt
           tier: ${{ needs.changes.outputs.tier }}
+          suites: ${{ needs.changes.outputs.suites }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: windows
 
   test-win-hrx:
     name: Test Windows HRX
-    needs: [changes, build-win-hrx, test-win-xrt]
+    needs: [changes, build-win-hrx]
+    if: needs.changes.outputs.hrx-suites != ''
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 120
     steps:
@@ -375,6 +393,7 @@ jobs:
           flm-bin: ${{ steps.package.outputs.flm-bin }}
           label: windows-hrx
           tier: ${{ needs.changes.outputs.tier }}
+          suites: ${{ needs.changes.outputs.hrx-suites }}
           families: ${{ needs.changes.outputs.families }}
           asr-full: ${{ needs.changes.outputs.asr-full }}
           asr-expected-key: windows-hrx
@@ -382,6 +401,7 @@ jobs:
   test-win-source:
     name: Test Windows models-from-source
     needs: [changes, build-win-source]
+    if: needs.changes.outputs.source == 'true'
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 60
     steps:
@@ -409,6 +429,7 @@ jobs:
   install-win-msi:
     name: Install test Windows MSI
     needs: [changes, build-win-xrt]
+    if: vars.FLM_INSTALL_TESTS == 'true'
     runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 60
     steps:
@@ -443,6 +464,12 @@ jobs:
   summary:
     needs:
       - changes
+      - build-lin-xrt-portable
+      - build-lin-hrx-portable
+      - build-lin-xrt-deb
+      - build-lin-hrx-deb
+      - build-win-xrt
+      - build-win-hrx
       - test-lin-xrt-portable
       - test-lin-hrx-portable
       - test-lin-source-portable
@@ -474,19 +501,25 @@ jobs:
         run: python3 .github/script/ci/merge_reports.py reports >> "$GITHUB_STEP_SUMMARY"
 
       # What release.yml publishes on: every package of a backend built and
-      # passed its tests.
+      # passed its tests. A test job skipped because the change did not touch
+      # its suites counts as passed; one skipped because its build failed does
+      # not, since the build's own failure is in the list too.
       - name: Verdict
         id: verdict
         env:
           XRT: >-
-            ${{ needs.test-lin-xrt-portable.result }} ${{ needs.install-lin-xrt-deb.result }}
-            ${{ needs.test-win-xrt.result }} ${{ needs.install-win-msi.result }}
+            ${{ needs.build-lin-xrt-portable.result }} ${{ needs.build-lin-xrt-deb.result }}
+            ${{ needs.build-win-xrt.result }}
+            ${{ needs.test-lin-xrt-portable.result }} ${{ needs.test-win-xrt.result }}
           HRX: >-
-            ${{ needs.test-lin-hrx-portable.result }} ${{ needs.install-lin-hrx-deb.result }}
-            ${{ needs.test-win-hrx.result }}
+            ${{ needs.build-lin-hrx-portable.result }} ${{ needs.build-lin-hrx-deb.result }}
+            ${{ needs.build-win-hrx.result }}
+            ${{ needs.test-lin-hrx-portable.result }} ${{ needs.test-win-hrx.result }}
         run: |
           verdict() {
-            for result in $1; do [ "${result}" = success ] || { echo false; return; }; done
+            for result in $1; do
+              case "${result}" in success|skipped) ;; *) echo false; return ;; esac
+            done
             echo true
           }
           echo "xrt=$(verdict "${XRT}")" >> "$GITHUB_OUTPUT"
