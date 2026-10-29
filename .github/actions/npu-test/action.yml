@@ -40,6 +40,44 @@ inputs:
 runs:
   using: composite
   steps:
+    # A runner takes one job at a time, so an flm left running from an earlier
+    # job's workspace is stale and holds the NPU: a new server then hangs at
+    # start. Only processes under the runner's work directory are touched,
+    # never one a person started. One that survives SIGKILL is stuck in the
+    # NPU driver, and only a reboot frees the runner.
+    - name: Clear stale flm processes (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        work="$(dirname "$(dirname "${GITHUB_WORKSPACE}")")"
+        stale=$(pgrep -u "$(id -u)" -f "^${work}/.*flm(-real)? serve" || true)
+        [ -z "${stale}" ] && exit 0
+        echo "::warning::Killing flm left over from an earlier job: $(ps -o pid=,stat=,args= -p ${stale} | tr '\n' ';')"
+        kill -9 ${stale} 2>/dev/null || true
+        sleep 5
+        left=$(ps -o pid=,stat=,args= -p ${stale} 2>/dev/null || true)
+        if [ -n "${left}" ]; then
+          echo "::error::flm from an earlier job survived SIGKILL and holds the NPU (state D means stuck in the driver); reboot this runner (${RUNNER_NAME}): ${left}"
+          exit 1
+        fi
+
+    - name: Clear stale flm processes (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $work = Split-Path (Split-Path $env:GITHUB_WORKSPACE)
+        $stale = Get-Process -Name flm -ErrorAction SilentlyContinue |
+          Where-Object { $_.Path -and $_.Path.StartsWith($work, [StringComparison]::OrdinalIgnoreCase) }
+        if (-not $stale) { exit 0 }
+        Write-Host "::warning::Killing flm left over from an earlier job: $($stale | ForEach-Object { "$($_.Id) $($_.Path)" })"
+        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 5
+        $left = $stale | Where-Object { -not $_.HasExited }
+        if ($left) {
+          Write-Host "::error::flm from an earlier job survived Stop-Process and holds the NPU; reboot this runner ($env:RUNNER_NAME): $($left.Id)"
+          exit 1
+        }
+
     # Models persist on the runner between jobs, so only the first job on a
     # runner pays for a download.
     - name: Run tests (Linux)
