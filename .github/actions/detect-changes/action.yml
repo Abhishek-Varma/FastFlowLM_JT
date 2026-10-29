@@ -31,16 +31,19 @@ outputs:
 runs:
   using: composite
   steps:
-    # Pull requests diff against their base, pushes against the previous tip.
-    # Everything else (nightly, dispatch, a tag) has no base and tests
-    # everything; so does a push that creates a branch, whose "before" is zeros.
+    # Pull requests diff their own head against their base, pushes the new tip
+    # against the previous one. A pull request's github.sha is the merge with
+    # the current main, which would also count whatever landed on main since
+    # the base. Everything else (nightly, dispatch, a tag) has no base and
+    # tests everything; so does a push that creates a branch, whose "before"
+    # is zeros.
     - name: Classify changed files
       id: changes
       shell: bash
       working-directory: ${{ github.workspace }}
       env:
         BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event_name == 'push' && github.ref_type == 'branch' && github.event.before) || '' }}
-        HEAD: ${{ github.sha }}
+        HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       run: python3 .github/script/ci/changes.py --base "${BASE}" --head "${HEAD}" --github-output
 
     - name: Pick tier

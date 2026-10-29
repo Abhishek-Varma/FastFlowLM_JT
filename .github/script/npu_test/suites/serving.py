@@ -40,6 +40,14 @@ ANSWERS = [("What is the capital of France? Answer with one word.", "paris"),
            ("What is the capital of Japan? Answer with one word.", "tokyo"),
            ("What is the capital of Italy? Answer with one word.", "rome")]
 
+# For concurrent requests, where only routing is under test: echoing a word is
+# something the smallest model gets right (qwen3:0.6b once named Verona the
+# capital of Italy), and each reply naming only its own word shows no request
+# got another's answer.
+ECHOES = [("Repeat this word exactly, and nothing else: apple", "apple"),
+          ("Repeat this word exactly, and nothing else: banana", "banana"),
+          ("Repeat this word exactly, and nothing else: cherry", "cherry")]
+
 # Seconds to wait for a streamed request to start producing tokens (it may
 # include a model load), and for the NPU to come free once a request has
 # been cancelled. Cancellation is checked between tokens, so freeing takes
@@ -113,14 +121,17 @@ def _cases(ctx, server, primary: str, secondary: str | None) -> None:
 
     with ctx.case(NAME, "concurrent-complete", primary, server) as case:
         expect(_wait_idle(client, IDLE_TIMEOUT), "NPU still busy before the case started")
-        bodies = [_body(primary, prompt, SHORT_TOKENS) for prompt, _ in ANSWERS[:QUEUE_LEN + 1]]
+        echoes = ECHOES[:QUEUE_LEN + 1]
+        bodies = [_body(primary, prompt, SHORT_TOKENS) for prompt, _ in echoes]
         results = _fire(client, bodies, ctx.request_timeout)
         case.data["results"] = [_summary(r) for r in results]
-        for (prompt, word), (status, body, _) in zip(ANSWERS, results):
+        for (prompt, word), (status, body, _) in zip(echoes, results):
             expect(status == 200, f"{prompt!r}: HTTP {status}: {str(body)[:200]}")
-            content = _content(body)
-            # Each answer must be its own: a mixed-up queue shows as Tokyo for France.
-            expect(word in content.lower(), f"{prompt!r}: answer was {content[:120]!r}")
+            content = _content(body).lower()
+            others = [w for _, w in echoes if w != word and w in content]
+            # Each reply must be its own: a mixed-up queue shows as another's word.
+            expect(not others, f"{prompt!r}: reply names {others}: {content[:120]!r}")
+            expect(word in content, f"{prompt!r}: reply was {content[:120]!r}")
 
     with ctx.case(NAME, "client-disconnect", primary, server) as case:
         _client_disconnect(ctx, server, primary, case)
