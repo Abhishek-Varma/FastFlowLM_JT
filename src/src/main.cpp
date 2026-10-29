@@ -217,41 +217,90 @@ std::string identify_npu_arch() {
 
 #endif
 
+#ifndef _WIN32
+///@brief checks this process's memlock limit, raising it to infinity when it can
+///@return whether the limit is at least 100 MB once raised
+static bool check_memlock(nlohmann::json& validation_json, bool print_human) {
+    bool memlock_ok = true;
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_MEMLOCK, &rl) == 0) {
+        validation_json["memlock_limit"] = (rl.rlim_cur == RLIM_INFINITY)
+            ? "infinity"
+            : std::to_string(static_cast<unsigned long long>(rl.rlim_cur));
+        if (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < 100 * 1024 * 1024) {
+            struct rlimit rl_new = { RLIM_INFINITY, RLIM_INFINITY };
+            if (setrlimit(RLIMIT_MEMLOCK, &rl_new) == 0) {
+                rl.rlim_cur = RLIM_INFINITY;
+                rl.rlim_max = RLIM_INFINITY;
+                validation_json["memlock_limit"] = "infinity";
+                if (print_human)
+                    header_print_g("Linux", "Memlock Limit: set to infinity");
+            } else {
+                if (print_human) {
+                    header_print_r("ERROR", "Memlock limit is too low (" << (rl.rlim_cur / 1024 / 1024) << "MB). Please raise the limit or set to infinity.");
+                }
+                memlock_ok = false;
+            }
+        } else if (print_human) {
+            if (rl.rlim_cur == RLIM_INFINITY) {
+                header_print_g("Linux", "Memlock Limit: infinity");
+            } else {
+                header_print("Linux", "Memlock Limit: " << (rl.rlim_cur / 1024 / 1024) << " MB");
+            }
+        }
+    } else {
+        if (print_human)
+            perror("Failed to get memlock limit");
+    }
+    validation_json["memlock_ok"] = memlock_ok;
+    return memlock_ok;
+}
+#endif
+
 static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
     bool print_human = !quiet && !json_output;
 #ifdef FLM_ENABLE_CORE
-    // Everything below reads the NPU's geometry and this process's memlock
-    // limit from the driver and holds them against what FastFlowLM's own kernel
-    // flow needs. On dev04 only corelib's models run, and corelib owns device
-    // setup and brings the NPU up itself -- main() already reports whether that
-    // worked, and says why when it did not -- so these checks answer a question
-    // that NPU does not ask, against a threshold that describes FastFlowLM's
-    // own kernels rather than the parts corelib supports. On aie2p a corelib
-    // build runs FastFlowLM's own models, and they are checked as in any other.
-    //
-    // The JSON keeps the shape callers already parse, but reports the checks as
-    // skipped rather than claiming they passed: "ready" here means "this NPU
-    // does not gate on the stock stack". A caller that wants to know whether the
-    // NPU actually came up should look at whether flm opened a device.
+    // The stock checks below hold an XDNA2 device ID, driver line, firmware and
+    // column count against what FastFlowLM's own kernels need. On dev04 only
+    // corelib's models run, so the NPU is ready when corelib says it can run
+    // them: the same gate the core backend comes up behind, which loads XRT
+    // and asks whether the NPU stack is one corelib supports, opening no
+    // context. On aie2p a corelib build runs FastFlowLM's own models, and they
+    // are checked as in any other.
     if (utils::get_device() == utils::npu_platform::dev04) {
-        if (json_output) {
-            nlohmann::json validation_json = {
-                {"object", "npu_stack_validation"},
+        nlohmann::json validation_json = {
+            {"object", "npu_stack_validation"},
 #ifdef _WIN32
-                {"platform", "windows"},
+            {"platform", "windows"},
 #else
-                {"platform", "linux"},
+            {"platform", "linux"},
 #endif
-                {"npu_platform", std::string(utils::platform_id(utils::npu_platform::dev04))},
-                {"backend", "core"},
-                {"checks_skipped", true},
-                {"ready", true}
-            };
-            std::cout << validation_json.dump(4) << std::endl;
-        } else if (print_human) {
-            header_print("FLM", "corelib backend: skipping NPU stack checks (corelib owns device setup)");
+            {"npu_platform", std::string(utils::platform_id(utils::npu_platform::dev04))},
+            {"backend", "core"}
+        };
+        bool corelib_npu_ok = true;
+        try {
+            (void)flm::corelib::CorelibRuntime::GetOrCreate(
+                std::filesystem::path(utils::get_executable_directory()));
+        } catch (const std::exception& e) {
+            corelib_npu_ok = false;
+            validation_json["corelib_error"] = e.what();
+            if (print_human)
+                header_print_r("ERROR", "corelib cannot run on this NPU: " << e.what());
         }
-        return true;
+        validation_json["corelib_npu_ok"] = corelib_npu_ok;
+        if (corelib_npu_ok && print_human)
+            header_print_g("FLM", "corelib: NPU usable");
+        bool ready = corelib_npu_ok;
+#ifndef _WIN32
+        ready = check_memlock(validation_json, print_human) && ready;
+#endif
+        if (print_human)
+            header_print_g("FLM", "NPU platform: " << validation_json["npu_platform"].get<std::string>());
+        validation_json["ready"] = ready;
+        if (json_output)
+            std::cout << validation_json.dump(4) << std::endl;
+        return ready;
     }
 #endif
 #ifndef _WIN32
@@ -403,39 +452,7 @@ static bool sanity_check_npu_stack(bool quiet, bool json_output = false) {
         header_print_r("ERROR", "No NPU device found.");
     }
 
-    // Check memlock limit
-    bool memlock_ok = true;
-    struct rlimit rl;
-    if (getrlimit(RLIMIT_MEMLOCK, &rl) == 0) {
-        validation_json["memlock_limit"] = (rl.rlim_cur == RLIM_INFINITY)
-            ? "infinity"
-            : std::to_string(static_cast<unsigned long long>(rl.rlim_cur));
-        if (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < 100 * 1024 * 1024) {
-            struct rlimit rl_new = { RLIM_INFINITY, RLIM_INFINITY };
-            if (setrlimit(RLIMIT_MEMLOCK, &rl_new) == 0) {
-                rl.rlim_cur = RLIM_INFINITY;
-                rl.rlim_max = RLIM_INFINITY;
-                validation_json["memlock_limit"] = "infinity";
-                if (print_human)
-                    header_print_g("Linux", "Memlock Limit: set to infinity");
-            } else {
-                if (print_human) {
-                    header_print_r("ERROR", "Memlock limit is too low (" << (rl.rlim_cur / 1024 / 1024) << "MB). Please raise the limit or set to infinity.");
-                }
-                memlock_ok = false;
-            }
-        } else if (print_human) {
-            if (rl.rlim_cur == RLIM_INFINITY) {
-                header_print_g("Linux", "Memlock Limit: infinity");
-            } else {
-                header_print("Linux", "Memlock Limit: " << (rl.rlim_cur / 1024 / 1024) << " MB");
-            }
-        }
-    } else {
-        if (print_human)
-            perror("Failed to get memlock limit");
-    }
-    validation_json["memlock_ok"] = memlock_ok;
+    const bool memlock_ok = check_memlock(validation_json, print_human);
 
     if (print_human) {
         header_print_g("Linux", "NPU platform: " << validation_json["npu_platform"].get<std::string>());
