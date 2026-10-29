@@ -4,5 +4,3 @@ self-hosted-runner:
     - flm
     - npu
     - sweep
-    - gpt
-    - strix
