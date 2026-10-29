@@ -31,7 +31,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$DepsDir = Join-Path $PSScriptRoot "..\windows-deps" | Resolve-Path
+$DepsDir = Join-Path $PSScriptRoot "..\..\windows-deps" | Resolve-Path
 
 # Boost: GitHub release archive, pinned by the SHA-256 Boost publishes beside it.
 $BoostUrl = "https://github.com/boostorg/boost/releases/download/boost-1.88.0/boost-1.88.0-b2-nodocs.7z"
