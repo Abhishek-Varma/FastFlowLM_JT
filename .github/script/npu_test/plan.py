@@ -189,6 +189,10 @@ class Plan:
                 if m.family in self.families and predicate(m)]
 
     def chat(self) -> list[str]:
+        # --models names exactly what to test, whatever the tier would pick.
+        if self.only_models:
+            return [m for m in self.only_models if m in self.catalog
+                    and self.catalog[m].family not in NON_CHAT_FAMILIES]
         if self.tier == "install":
             return self._known(INSTALL_CHAT)
         chat_models = [m for m in self.catalog.values() if m.family not in NON_CHAT_FAMILIES]
