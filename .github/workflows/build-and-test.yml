@@ -322,14 +322,11 @@ jobs:
           mode: ${{ steps.package.outputs.mode }}
 
   # ── Windows tests ────────────────────────────────────────────────────────
-  # Windows tests ask for a gpt runner: xsjnuckrck01 carries the npu and sweep
-  # labels but has dropped every job since 2026-10-28, and it has no hardware
-  # label, so this keeps them off it.
 
   test-win-xrt:
     name: Test Windows XRT
     needs: [changes, build-win-xrt]
-    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
+    runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 120
     steps:
       - *checkout-tests
@@ -357,7 +354,7 @@ jobs:
   test-win-hrx:
     name: Test Windows HRX
     needs: [changes, build-win-hrx, test-win-xrt]
-    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
+    runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 120
     steps:
       - *checkout-tests
@@ -385,7 +382,7 @@ jobs:
   test-win-source:
     name: Test Windows models-from-source
     needs: [changes, build-win-source]
-    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
+    runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 60
     steps:
       - *checkout-tests
@@ -412,7 +409,7 @@ jobs:
   install-win-msi:
     name: Install test Windows MSI
     needs: [changes, build-win-xrt]
-    runs-on: [self-hosted, windows, x64, npu, sweep, gpt]
+    runs-on: [self-hosted, windows, x64, npu, sweep]
     timeout-minutes: 60
     steps:
       - *checkout-tests
