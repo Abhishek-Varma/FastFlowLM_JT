@@ -92,10 +92,11 @@ runs:
         [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT,
           "rust-target=$buildDir/tokenizers-cpp/x86_64-pc-windows-msvc/release`n", $utf8)
 
-    # One cache per variant, keyed on the commit: every build saves what it
-    # compiled and the next restores the newest.
+    # One cache per variant, keyed on the commit, so each save is new and a
+    # restore takes the newest. Only main saves (see "Save compiler cache"),
+    # for the reason given in lin-build.
     - name: Restore compiler cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: .ci-cache/sccache
         key: sccache-windows-${{ inputs.variant }}-${{ github.sha }}
@@ -182,6 +183,13 @@ runs:
         # No BOM: Windows PowerShell 5.1's Out-File -Encoding utf8 writes one,
         # which corrupts the output name.
         [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, "build-dir=$buildDir`n")
+
+    - name: Save compiler cache
+      if: github.ref == 'refs/heads/main' && steps.build.outcome == 'success'
+      uses: actions/cache/save@v4
+      with:
+        path: .ci-cache/sccache
+        key: sccache-windows-${{ inputs.variant }}-${{ github.sha }}
 
     - name: Locate HRX runtime
       id: hrx-runtime

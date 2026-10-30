@@ -147,10 +147,13 @@ runs:
         echo "cargo-home=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_OUTPUT"
 
     # One cache per variant and distribution, since each compiles with its
-    # own flags and compiler. Keyed on the commit, so every build saves what
-    # it compiled and the next restores the newest.
+    # own flags and compiler. Keyed on the commit, so each save is new and a
+    # restore takes the newest. Only main saves (see "Save compiler cache"):
+    # the repository's caches share 10 GB, and a pull request's entries are
+    # usable by that pull request alone, so saving from every PR commit would
+    # only evict main's.
     - name: Restore compiler cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: .ci-cache/ccache
         key: ccache-${{ inputs.variant }}-${{ inputs.distro }}${{ inputs.distro-version }}-${{ github.sha }}
@@ -273,3 +276,10 @@ runs:
         esac
         ccache --show-stats
         echo "build-dir=${build_dir}" >> "$GITHUB_OUTPUT"
+
+    - name: Save compiler cache
+      if: github.ref == 'refs/heads/main' && (steps.deb.outcome == 'success' || steps.portable.outcome == 'success')
+      uses: actions/cache/save@v4
+      with:
+        path: .ci-cache/ccache
+        key: ccache-${{ inputs.variant }}-${{ inputs.distro }}${{ inputs.distro-version }}-${{ github.sha }}
