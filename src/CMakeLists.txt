@@ -423,6 +423,14 @@ target_compile_definitions(flm PUBLIC
 # Select the NPU runtime backend seen by the sources (device_runtime.hpp et al.).
 if(FLM_USE_HRX)
     target_compile_definitions(flm PUBLIC FLM_USE_HRX=1)
+    # The [hrxphase] host/device profiler (hrx_cpp.hpp) accumulates device-wait
+    # time into a single process-wide PhaseAccum via a function-local static with
+    # STB_GNU_UNIQUE linkage. For that singleton to merge across the flm executable
+    # (which reads it in benchmarking.hpp) and every dlopen'd engine .so (which
+    # writes it from timed_stream_wait), the symbol must live in flm's dynamic
+    # symbol table. Export it; without --export-dynamic the exe keeps a private
+    # copy and the profiler reports 0 NPU time.
+    set_target_properties(flm PROPERTIES ENABLE_EXPORTS ON)
 endif()
 
 if(WIN32)
