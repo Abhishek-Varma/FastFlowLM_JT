@@ -116,70 +116,77 @@ def main():
     busy = has_busy(rows)
     note = ("device-busy timestamps PRESENT -> host_overlap / reclaimable are real."
             if busy else
-            "device-busy timestamps ABSENT -> npu_busy=npu_wait, so host_overlap=0 "
-            "and reclaimable=pure_host (upper bound; exact for serial prefill, "
-            "over-estimate for the async-lm_head decode window).")
+            "device-busy timestamps ABSENT -> only pure_host = wall - total_npu is "
+            "derivable. reclaimable/host_overlap need true device-busy time (see "
+            "REGENERATE.md s4); until then reclaimable==pure_host, host_overlap==0, "
+            "so those columns are omitted.")
     print("<!-- formula note: " + note + " -->\n")
 
-    # ---- Table 1: Prefill (per request / per iter) ----
-    print("### Table 1 — Prefill (whole prefill phase, per request)\n")
-    print("| model | wall (ms) | npu_busy (ms) | pure_host (ms) | reclaimable (ms) "
-          "| host_overlap (ms) | % reclaimable | prompt tok |")
-    print("|---|---|---|---|---|---|---|---|")
-    for d in rows:
-        it = d["iters"]
-        p = phase_metrics(d["pf_wall"], d["pf_npu"], d["pf_npu_busy"])
-        print("| {m} | {w:.2f} | {b:.2f} | {ph:.2f} | {r:.2f} | {o:.2f} | {pr:.1f}% | {tok} |".format(
-            m=label(d["tag"]), w=p["wall"]/it, b=p["npu_busy"]/it, ph=p["pure_host"]/it,
-            r=p["reclaimable"]/it, o=p["host_overlap"]/it,
-            pr=pct(p["reclaimable"], p["wall"]), tok=d["prompt_tokens"]//it))
+    def emit(title, extra_hdr, make_extra, wall_of, wait_of, busy_of, unit):
+        """Print one table. Columns depend on whether device-busy data exists.
+
+        unit(value, d) scales a ms total to the row's unit (per iter / per token).
+        """
+        print("### " + title + "\n")
+        xh = (" " + extra_hdr + " |") if extra_hdr else ""
+        xs = "---|" if extra_hdr else ""
+        if busy:
+            print("| model | wall (ms) | npu_busy (ms) | pure_host (ms) | "
+                  "reclaimable (ms) | host_overlap (ms) | % reclaimable |" + xh)
+            print("|---|---|---|---|---|---|---|" + xs)
+        else:
+            print("| model | wall (ms) | total_npu (ms) | pure_host (ms) | "
+                  "% host |" + xh)
+            print("|---|---|---|---|---|" + xs)
+        for d in rows:
+            p = phase_metrics(wall_of(d), wait_of(d), busy_of(d))
+            u = lambda v: unit(v, d)
+            xv = (" {} |".format(make_extra(d, p))) if extra_hdr else ""
+            if busy:
+                print("| {m} | {w:.3f} | {b:.3f} | {ph:.3f} | {r:.3f} | {o:.3f} | {pr:.1f}% |{x}".format(
+                    m=label(d["tag"]), w=u(p["wall"]), b=u(p["npu_busy"]), ph=u(p["pure_host"]),
+                    r=u(p["reclaimable"]), o=u(p["host_overlap"]),
+                    pr=pct(p["reclaimable"], p["wall"]), x=xv))
+            else:
+                print("| {m} | {w:.3f} | {n:.3f} | {ph:.3f} | {pr:.1f}% |{x}".format(
+                    m=label(d["tag"]), w=u(p["wall"]), n=u(p["npu_wait"]), ph=u(p["pure_host"]),
+                    pr=pct(p["pure_host"], p["wall"]), x=xv))
+
+    per_iter = lambda v, d: v / d["iters"]
+    per_gtok = lambda v, d: v / d["gen_tokens"]
+
+    # ---- Table 1: Prefill (per request) ----
+    emit("Table 1 — Prefill (whole prefill phase, per request)",
+         "prompt tok", lambda d, p: d["prompt_tokens"] // d["iters"],
+         lambda d: d["pf_wall"], lambda d: d["pf_npu"], lambda d: d["pf_npu_busy"],
+         per_iter)
 
     # ---- Table 2: Per-token decode ----
-    print("\n### Table 2 — Per-token decode\n")
-    print("| model | wall/tok (ms) | npu_busy/tok (ms) | pure_host/tok (ms) "
-          "| reclaimable/tok (ms) | host_overlap/tok (ms) | % reclaimable | tok/s |")
-    print("|---|---|---|---|---|---|---|---|")
-    for d in rows:
-        gtok = d["gen_tokens"]
-        p = phase_metrics(d["de_wall"], d["de_npu"], d["de_npu_busy"])
-        w = p["wall"]/gtok
-        print("| {m} | {w:.3f} | {b:.3f} | {ph:.3f} | {r:.3f} | {o:.3f} | {pr:.1f}% | {tps:.1f} |".format(
-            m=label(d["tag"]), w=w, b=p["npu_busy"]/gtok, ph=p["pure_host"]/gtok,
-            r=p["reclaimable"]/gtok, o=p["host_overlap"]/gtok,
-            pr=pct(p["reclaimable"], p["wall"]), tps=1000.0/w if w else 0.0))
+    print()
+    emit("Table 2 — Per-token decode",
+         "tok/s", lambda d, p: "{:.1f}".format(1000.0 / (p["wall"] / d["gen_tokens"])),
+         lambda d: d["de_wall"], lambda d: d["de_npu"], lambda d: d["de_npu_busy"],
+         per_gtok)
 
     # ---- Table 3: All-token decode (per request) ----
-    print("\n### Table 3 — All-token decode (per request)\n")
-    print("| model | wall (ms) | npu_busy (ms) | pure_host (ms) | reclaimable (ms) "
-          "| host_overlap (ms) | % reclaimable | tokens/iter |")
-    print("|---|---|---|---|---|---|---|---|")
-    for d in rows:
-        it = d["iters"]
-        p = phase_metrics(d["de_wall"], d["de_npu"], d["de_npu_busy"])
-        print("| {m} | {w:.2f} | {b:.2f} | {ph:.2f} | {r:.2f} | {o:.2f} | {pr:.1f}% | {tok} |".format(
-            m=label(d["tag"]), w=p["wall"]/it, b=p["npu_busy"]/it, ph=p["pure_host"]/it,
-            r=p["reclaimable"]/it, o=p["host_overlap"]/it,
-            pr=pct(p["reclaimable"], p["wall"]), tok=d["gen_tokens"]//it))
+    print()
+    emit("Table 3 — All-token decode (per request)",
+         "tokens/iter", lambda d, p: d["gen_tokens"] // d["iters"],
+         lambda d: d["de_wall"], lambda d: d["de_npu"], lambda d: d["de_npu_busy"],
+         per_iter)
 
     # ---- Table 4: Whole run (prefill + all decode, per request) ----
-    print("\n### Table 4 — Whole-run (prefill + decode, per request)\n")
-    print("| model | wall (ms) | npu_busy (ms) | pure_host (ms) | reclaimable (ms) "
-          "| host_overlap (ms) | % reclaimable |")
-    print("|---|---|---|---|---|---|---|")
-    for d in rows:
-        it = d["iters"]
-        wall = d["pf_wall"] + d["de_wall"]
-        npu_wait = d["pf_npu"] + d["de_npu"] + (d["other_npu"] or 0)
-        npu_busy = None
-        if d["pf_npu_busy"] is not None or d["de_npu_busy"] is not None:
-            npu_busy = ((d["pf_npu_busy"] or d["pf_npu"])
-                        + (d["de_npu_busy"] or d["de_npu"])
-                        + (d["other_npu"] or 0))
-        p = phase_metrics(wall, npu_wait, npu_busy)
-        print("| {m} | {w:.2f} | {b:.2f} | {ph:.2f} | {r:.2f} | {o:.2f} | {pr:.1f}% |".format(
-            m=label(d["tag"]), w=p["wall"]/it, b=p["npu_busy"]/it, ph=p["pure_host"]/it,
-            r=p["reclaimable"]/it, o=p["host_overlap"]/it,
-            pr=pct(p["reclaimable"], p["wall"])))
+    def wr_busy(d):
+        if d["pf_npu_busy"] is None and d["de_npu_busy"] is None:
+            return None
+        return ((d["pf_npu_busy"] or d["pf_npu"]) + (d["de_npu_busy"] or d["de_npu"])
+                + (d["other_npu"] or 0))
+    print()
+    emit("Table 4 — Whole-run (prefill + decode, per request)",
+         "", lambda d, p: "",
+         lambda d: d["pf_wall"] + d["de_wall"],
+         lambda d: d["pf_npu"] + d["de_npu"] + (d["other_npu"] or 0),
+         wr_busy, per_iter)
 
     # dump raw json for the report author
     print("\n<!-- raw: " + json.dumps(rows) + " -->")

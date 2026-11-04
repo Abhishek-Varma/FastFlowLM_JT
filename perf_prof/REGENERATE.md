@@ -88,10 +88,16 @@ python perf_prof\parse_phase.py perf_prof\sweep_shim > perf_prof\tables_fragment
 ```
 
 `parse_phase.py` emits the four tables (prefill / per-token decode / all-token
-decode / whole-run), each with the full `pure_host / reclaimable / host_overlap`
-column set, plus a `<!-- raw: [...] -->` JSON dump for the report author. It is
-pure Python and tolerates CRLF / mixed encodings, so it runs identically on both
-OSes. Paste the fragment into `NPU_VS_HOST_PHASE_TABLES_SHIPPED.md`.
+decode / whole-run) plus a `<!-- raw: [...] -->` JSON dump for the report author.
+The columns adapt to the data:
+
+- **no device-busy data** (today): compact schema
+  `wall | total_npu | pure_host | % host`, where `pure_host = wall - total_npu`.
+- **device-busy present** (after §4): full schema
+  `wall | npu_busy | pure_host | reclaimable | host_overlap | % reclaimable`.
+
+It is pure Python and tolerates CRLF / mixed encodings, so it runs identically on
+both OSes. Paste the fragment into `NPU_VS_HOST_PHASE_TABLES_SHIPPED.md`.
 
 ### Environment variables
 
