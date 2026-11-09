@@ -134,6 +134,13 @@ inline Runtime& rt() {
 // report a real NPU-vs-host split for the default (shim) HRX engines.
 // ---------------------------------------------------------------------------
 enum hrx_phase { HRX_PHASE_OTHER = 0, HRX_PHASE_PREFILL = 1, HRX_PHASE_DECODE = 2 };
+// Serializes the device-busy segment state (device_running / segment_start).
+// Some engines (e.g. the gemma4e family) dispatch/flush from a background
+// pipeline thread while the main thread waits, so without this lock two threads
+// race the single busy segment and double-count overlapping intervals, yielding
+// npu_busy > wall. One shared (STB_GNU_UNIQUE) mutex keeps npu_busy a correct
+// union of device-busy wall. Byte-identical in the flm app and engine copies.
+inline std::mutex& busy_accum_mu() { static std::mutex m; return m; }
 struct PhaseAccum {
     int phase = HRX_PHASE_OTHER;
     double prefill_ms = 0.0, decode_ms = 0.0, other_ms = 0.0;
@@ -168,6 +175,7 @@ struct PhaseAccum {
     }
     // Open a device-busy segment at submit time (first flush after an idle gap).
     void note_flush() {
+        std::lock_guard<std::mutex> lk(busy_accum_mu());
         if (!device_running) {
             device_running = true;
             segment_start = std::chrono::steady_clock::now();
@@ -175,12 +183,23 @@ struct PhaseAccum {
     }
     // Close the current device-busy segment when its draining stream wait returns.
     void note_busy_done() {
+        std::lock_guard<std::mutex> lk(busy_accum_mu());
         if (!device_running) return;
         double ms = std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - segment_start).count();
         if (phase == HRX_PHASE_PREFILL) prefill_busy_ms += ms;
         else if (phase == HRX_PHASE_DECODE) decode_busy_ms += ms;
         else other_busy_ms += ms;
+        device_running = false;
+    }
+    // Called from set_phase at each prefill/decode/other boundary: drop any
+    // still-open device-busy segment. A segment cannot legitimately span a phase
+    // boundary, and a fire-and-forget async dispatch (e.g. the decode async
+    // lm_head) left running at phase end would otherwise make the next phase's
+    // first wait attribute a giant cross-phase span -> npu_busy > wall. The next
+    // flush opens a fresh, in-phase segment.
+    void note_phase_boundary() {
+        std::lock_guard<std::mutex> lk(busy_accum_mu());
         device_running = false;
     }
 };
@@ -220,7 +239,7 @@ inline PhaseAccum& ph_accum() {
     return a;
 }
 #endif
-inline void set_phase(int p) { ph_accum().phase = p; }
+inline void set_phase(int p) { ph_accum().note_phase_boundary(); ph_accum().phase = p; }
 
 // Report (do not swallow) an HRX error. Returns true if status was an error.
 // FLM dispatch silently ignored synchronize/dispatch failures, which turns a
