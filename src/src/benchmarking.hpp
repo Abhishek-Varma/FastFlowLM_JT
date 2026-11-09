@@ -415,6 +415,7 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
             "  prefill_wall_ms_total=%.4f prefill_npu_ms_total=%.4f prefill_waits=%lld\n"
             "  decode_wall_ms_total=%.4f decode_npu_ms_total=%.4f decode_waits=%lld\n"
             "  other_npu_ms_total=%.4f other_waits=%lld\n"
+            "  prefill_npu_busy_ms_total=%.4f decode_npu_busy_ms_total=%.4f\n"
             "  [T1 prefill-all]   wall/iter=%.4f ms  npu/iter=%.4f ms  npu%%=%.2f host%%=%.2f\n"
             "  [T2 decode/token]  wall=%.4f ms  npu=%.4f ms  npu%%=%.2f host%%=%.2f\n"
             "  [T3 decode-all]    wall/iter=%.4f ms  npu/iter=%.4f ms  (tokens/iter=%.1f)\n"
@@ -425,6 +426,7 @@ BenchmarkResults_t run_benchmarks(std::string model_tag, std::string bench_confi
             pf_wall, pf_npu, A.prefill_n,
             de_wall, de_npu, A.decode_n,
             A.other_ms, A.other_n,
+            A.prefill_busy_ms, A.decode_busy_ms,
             pf_wall / iters, pf_npu / iters,
             pf_wall > 0 ? 100.0 * pf_npu / pf_wall : 0.0,
             pf_wall > 0 ? 100.0 * (pf_wall - pf_npu) / pf_wall : 0.0,

@@ -138,14 +138,50 @@ struct PhaseAccum {
     int phase = HRX_PHASE_OTHER;
     double prefill_ms = 0.0, decode_ms = 0.0, other_ms = 0.0;
     long long prefill_n = 0, decode_n = 0, other_n = 0;
+    // --- true device-busy (npu_busy) accounting --------------------------------
+    // npu_busy = NPU-executing wall, measured on the single in-order runtime
+    // stream as the union of [flush-submit, drain-wait-return] intervals. A busy
+    // segment OPENS at the first stream flush after the device went idle
+    // (note_flush(), called right after hrx_stream_flush submits) and CLOSES when
+    // the stream wait that drains it returns (note_busy_done(), from
+    // timed_stream_wait). Unlike note()/*_ms -- which times only the host-EXPOSED
+    // wait (npu_wait) -- this also counts device time hidden behind concurrent
+    // host prep. Per phase the report derives host_overlap = busy - wait and
+    // npu_idle (== reclaimable) = wall - busy. These fields are APPENDED at the
+    // end of PhaseAccum so the struct prefix (offsets of phase / *_ms / *_n) is
+    // unchanged: a module built against the older layout stays binary-compatible
+    // with the shared STB_GNU_UNIQUE instance (it simply never touches this tail).
+    // Kept byte-identical in the flm app and engine-shim copies.
+    double prefill_busy_ms = 0.0, decode_busy_ms = 0.0, other_busy_ms = 0.0;
+    bool device_running = false;
+    std::chrono::steady_clock::time_point segment_start{};
     void reset() {
         prefill_ms = decode_ms = other_ms = 0.0;
         prefill_n = decode_n = other_n = 0;
+        prefill_busy_ms = decode_busy_ms = other_busy_ms = 0.0;
+        device_running = false;
     }
     void note(double ms) {
         if (phase == HRX_PHASE_PREFILL) { prefill_ms += ms; ++prefill_n; }
         else if (phase == HRX_PHASE_DECODE) { decode_ms += ms; ++decode_n; }
         else { other_ms += ms; ++other_n; }
+    }
+    // Open a device-busy segment at submit time (first flush after an idle gap).
+    void note_flush() {
+        if (!device_running) {
+            device_running = true;
+            segment_start = std::chrono::steady_clock::now();
+        }
+    }
+    // Close the current device-busy segment when its draining stream wait returns.
+    void note_busy_done() {
+        if (!device_running) return;
+        double ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - segment_start).count();
+        if (phase == HRX_PHASE_PREFILL) prefill_busy_ms += ms;
+        else if (phase == HRX_PHASE_DECODE) decode_busy_ms += ms;
+        else other_busy_ms += ms;
+        device_running = false;
     }
 };
 #if defined(_WIN32)
@@ -210,6 +246,7 @@ inline hrx_status_t timed_stream_wait() {
     double ms = std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - t0).count();
     ph_accum().note(ms);
+    ph_accum().note_busy_done();  // close the device-busy segment this wait drained
     return s;
 }
 
@@ -743,6 +780,7 @@ public:
             return;
         }
         flushed_ = true;
+        ph_accum().note_flush();  // device starts executing at submit
     }
 
     ert_cmd_state wait() {
@@ -792,6 +830,7 @@ public:
             return;
         }
         flushed_ = true;
+        ph_accum().note_flush();  // device starts executing at submit
     }
     ert_cmd_state wait() {
         if (!flushed_) {
